@@ -111,3 +111,33 @@ describe('🔴🔴 la restitution : 20 % retenus, différence et motif', () => {
     expect(h.sql.find((x) => x.s.startsWith('INSERT INTO gestion_location_restitution_vingt'))!.p).toEqual([7, '2026-11-20', 400, null, null, 1, 'Arno Test', 400, null]);
   });
 });
+
+/**
+ * 🔴 (Arno, 26/11/2026) — « dans « Restitutions faites », « Enregistrée par » doit afficher « Prénom NOM » de l'utilisateur (comme ailleurs dans l'application,
+ * ex. « saisie par Arnaud JOREL ») […]. Si le nom est introuvable, afficher l'adresse mail en dernier recours. »
+ */
+describe('🔴 « Enregistrée par » : Prénom NOM, l’adresse mail en dernier recours', () => {
+  it('auteurRestitution : le compte retrouvé → « Arnaud JOREL » ; introuvable → le libellé saisi (adresse ou nom d’essai)', async () => {
+    const { auteurRestitution } = await import('./restitutionVingtRepo');
+    expect(auteurRestitution({ par: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nom: 'Jorel' })).toBe('Arnaud JOREL');
+    expect(auteurRestitution({ par: 'x@exemple.test', prenom: null, nom: null })).toBe('x@exemple.test');
+    expect(auteurRestitution({ par: 'Gestion locative', prenom: null, nom: null })).toBe('Gestion locative');
+    expect(auteurRestitution({ par: 'a.jorel@sansvisavis.com', prenom: '  ', nom: '' })).toBe('a.jorel@sansvisavis.com');
+  });
+  it('lireRestitutionsFaites : le compte est lu par son n° (sinon par l’identifiant écrit en libellé) ; « par » = Prénom NOM', async () => {
+    h.avec513 = true;
+    h.query.mockReset().mockImplementation(async (sql: string) => (sql.includes('FROM gestion_location_restitution_vingt f JOIN gestion_location_sortie_validee')
+      ? { rows: [
+        { id: '6', sortie: '40', noms: ['LACROIX Manon'], logement: '11 rue', date_sortie: '2026-03-31', date: '2026-11-21', restitue: '243.60', retenu: '36.40', commentaire: null,
+          motif: 'm', par: 'a.jorel@sansvisavis.com', le: '2026-11-26 00:02:14.1', prenom: 'Arnaud', nom: 'Jorel' },
+        { id: '9', sortie: '41', noms: ['X'], logement: null, date_sortie: '2026-03-31', date: '2026-11-21', restitue: '1', retenu: null, commentaire: null,
+          motif: null, par: 'inconnu@exemple.test', le: '2026-11-26 00:03:00', prenom: null, nom: null }] }
+      : { rows: [] }));
+    const { lireRestitutionsFaites } = await import('./restitutionVingtRepo');
+    const r = await lireRestitutionsFaites();
+    expect(r.map((x) => [x.par, x.le])).toEqual([['Arnaud JOREL', '2026-11-26 00:02'], ['inconnu@exemple.test', '2026-11-26 00:03']]);
+    const sql = String(h.query.mock.calls.find((c) => String(c[0]).includes('FROM gestion_location_restitution_vingt f JOIN'))![0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('LEFT JOIN admin_utilisateur u ON (f.saisie_par IS NOT NULL AND u.id = f.saisie_par)');
+    expect(sql).toContain("lower(u.identifiant) = lower(f.saisie_par_libelle)");
+  });
+});

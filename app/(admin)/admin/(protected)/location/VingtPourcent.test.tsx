@@ -1976,7 +1976,7 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » au for
     const restitution = detail.querySelector('[data-vgp-encadre-restitution]')!;
     expect(restitution.querySelector('.vgp-coord-titre')?.textContent).toBe('Restitution');
     expect(rubriques(restitution)).toEqual(['Restitution validée le', 'Montant restitué', 'Montant retenu', 'Motif', 'Enregistrée par']);
-    expect([...restitution.querySelectorAll('dd')].map((x) => x.textContent)).toEqual(['21/11/2026', '243,60 €', '36,40 €', 'régularisation de charges', 'Gestion locative, le 25/11/2026 à 21:38']);
+    expect([...restitution.querySelectorAll('dd')].map((x) => x.textContent)).toEqual(['21/11/2026', '243,60 €', '36,40 €', 'régularisation de charges', 'Gestion locative, le 25/11/2026 à 21h38']);
     // l'ordre : encadré de la sortie, coordonnées, encadré « Restitution », échanges, « Annuler »
     const ordre = [...detail.children].map((x) => (x.hasAttribute('data-vgp-encadre-sortie') ? 'sortie' : x.hasAttribute('data-vgp-encadre-restitution') ? 'restitution'
       : x.querySelector('[data-vgp-coordonnees]') || x.hasAttribute('data-vgp-coordonnees') ? 'coordonnees' : x.hasAttribute('data-vgp-echanges') ? 'echanges' : x.hasAttribute('data-vgp-annuler') ? 'annuler' : x.tagName));
@@ -2163,5 +2163,15 @@ describe('🔴🔴 Arno (25/11/2026, 23h52) — la recherche n’ouvre jamais un
     await arriver('/admin/gestion?ecran=vingt_pourcent&vingtMail=999');
     expect(window.location.search).toBe('?ecran=vingt_pourcent');
     expect(etat().modules).toBe(0);
+  });
+});
+
+/** 🔴 (Arno, 26/11/2026) « Enregistrée par » : « Prénom NOM, le JJ/MM/AAAA à HHhMM ». */
+describe('🔴 Arno (26/11/2026) — « Enregistrée par » dans « Restitutions faites »', () => {
+  it('« Arnaud JOREL, le 26/11/2026 à 00h02 »', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ id: 6, sortieId: 40, locataires: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir', dateSortie: '2026-03-31',
+      date: '2026-11-21', montantRestitue: 243.6, montantRetenuCharges: 36.4, motifDifference: 'm', commentaire: null, par: 'Arnaud JOREL', le: '2026-11-26 00:02' }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-faite="6"] [data-vgp-faite-par]')?.textContent).toBe('Arnaud JOREL, le 26/11/2026 à 00h02');
   });
 });

@@ -5,6 +5,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import { montantsDesSorties, montantVingtDisponible, montantVingtSaisi, noterMontantVingt } from './montantVingtRepo';
 import { differenceRestitution, verifierDifference } from './mailRestitutionVingt';
 import { montantFr, MOTIF_MONTANT_VINGT_OBLIGATOIRE, MOTIF_SANS_513, verifierRestitution, type RestitutionFaite } from './vingtPourcent';
+import { nomCollaborateur } from './texteCompteRendu';
 
 /**
  * ══ 🔴🔴 « RESTITUTION FAITE » DES 20 % RETENUS — L'ÉCRITURE (Arno, 24/11/2026). IMPUR (base). ═══════════════════════════════════════════════════
@@ -137,21 +138,31 @@ export async function annulerRestitution(d: Record<string, unknown>, auteur: Aut
   });
 }
 
+/**
+ * 🔴 (Arno, 26/11/2026) « "Enregistrée par" doit afficher "Prénom NOM" de l'utilisateur (comme ailleurs dans l'application, ex. "saisie par Arnaud JOREL") ;
+ * si le nom est introuvable, afficher l'adresse mail en dernier recours » : le compte retrouvé → « Prénom NOM » ; sinon le libellé écrit à la saisie. PUR.
+ */
+export const auteurRestitution = (r: { par: string; prenom: string | null; nom: string | null }): string => nomCollaborateur(r) || r.par;
+
 /** Les restitutions EN COURS (section « Restitutions faites »), les plus récentes d'abord. Sans la 513 : aucune. */
 export async function lireRestitutionsFaites(): Promise<RestitutionFaite[]> {
   if (!(await restitutionVingtDisponible())) return [];
   const avec518 = await colonneExisteMemo('gestion_location_restitution_vingt', 'motif_difference');
   const { rows } = await query<{ id: string; sortie: string; noms: string[] | null; logement: string | null; date_sortie: string; date: string; restitue: string; retenu: string | null;
-    commentaire: string | null; par: string; le: string; motif: string | null }>(
+    commentaire: string | null; par: string; le: string; motif: string | null; prenom: string | null; nom: string | null }>(
     `SELECT f.id::text, s.id::text AS sortie,
             (SELECT array_agg(l.nom ORDER BY l.nom_normalise) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.id = ANY(s.occupation_ids)) AS noms,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
             s.date_sortie::text, f.date_restitution::text AS date, f.montant_restitue::text AS restitue, f.montant_retenu_charges::text AS retenu,
-            f.commentaire, ${avec518 ? 'f.motif_difference' : 'NULL::text'} AS motif, f.saisie_par_libelle AS par, (f.saisie_le AT TIME ZONE 'Europe/Paris')::text AS le
+            f.commentaire, ${avec518 ? 'f.motif_difference' : 'NULL::text'} AS motif, f.saisie_par_libelle AS par, (f.saisie_le AT TIME ZONE 'Europe/Paris')::text AS le,
+            u.prenom, u.nom
        FROM gestion_location_restitution_vingt f JOIN gestion_location_sortie_validee s ON s.id = f.sortie_validee_id JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id
+       -- 🔴 (Arno, 26/11/2026) « Enregistrée par » : le compte qui a saisi (par son n°, sinon par son identifiant écrit en libellé)
+       LEFT JOIN admin_utilisateur u ON (f.saisie_par IS NOT NULL AND u.id = f.saisie_par)
+                                     OR (f.saisie_par IS NULL AND position('@' in f.saisie_par_libelle) > 0 AND lower(u.identifiant) = lower(f.saisie_par_libelle))
       WHERE f.geste = 'faite' AND NOT EXISTS (SELECT 1 FROM gestion_location_restitution_vingt a WHERE a.annule_id = f.id)
       ORDER BY f.date_restitution DESC, f.id DESC`);
   return rows.map((r) => ({ id: Number(r.id), sortieId: Number(r.sortie), locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, date: r.date,
-    montantRestitue: Number(r.restitue), montantRetenuCharges: r.retenu === null ? null : Number(r.retenu), commentaire: r.commentaire, motifDifference: r.motif, par: r.par, le: r.le.slice(0, 16) }));
+    montantRestitue: Number(r.restitue), montantRetenuCharges: r.retenu === null ? null : Number(r.retenu), commentaire: r.commentaire, motifDifference: r.motif, par: auteurRestitution(r), le: r.le.slice(0, 16) }));
 }

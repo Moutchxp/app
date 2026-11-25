@@ -610,7 +610,8 @@ function LigneFaite({ f, onAnnule }: { f: RestitutionFaite; onAnnule: () => void
             <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
             {f.montantRetenuCharges !== null && <div><dt>Montant retenu</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
             {f.motifDifference != null && <div><dt>Motif</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
-            <div><dt>Enregistrée par</dt><dd data-vgp-faite-par>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
+            {/* 🔴 (Arno, 26/11/2026) « Prénom NOM » (l'adresse mail en dernier recours), « le JJ/MM/AAAA à HHhMM » */}
+            <div><dt>Enregistrée par</dt><dd data-vgp-faite-par>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 13)}h{f.le.slice(14, 16)}</dd></div>
             {/* 🔴 (Arno, 25/11/2026, 23h42) « COMMENTAIRE » devient « NOTE INTERNE » (non envoyée aux tiers) */}
             {f.commentaire !== null && <div><dt>Note interne</dt><dd data-vgp-faite-commentaire>{f.commentaire}</dd></div>}
           </dl>
