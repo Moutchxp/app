@@ -147,6 +147,33 @@ describe('les échanges suivent la sortie', () => {
     expect(query.mock.calls.filter((c) => String(c[0]).includes('FROM gestion_location_mail_vingt')).at(-1)![1]).toEqual([[5, 6, 30]]);
     expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
   });
+  it('🔴🔴 (Arno, 25/11/2026, 22h51) une restitution faite porte la LIGNE de sa sortie (copropriété, AGO, exercice, dernière AGO) ; elle n’entre ni dans les catégories ni dans « Dates manquantes »', async () => {
+    query.mockImplementation(async (sql: string, p?: unknown[]) => {
+      const s = sql.replace(/\s+/g, ' ');
+      // la sortie de la restitution, relue par son identifiant (lot 1 : copropriété 10, AGO du 25/03/2026, arrêté 31/12)
+      if (s.includes('WHERE s.id = ANY($1::bigint[])') && s.includes('AS num_annexes')) {
+        appels.push(s);
+        return { rows: (p![0] as number[]).includes(30) ? [{ id: '30', lot_id: '1', date_sortie: '2026-03-31', valide_le: '2026-04-02', logement: '8 rue Haute', noms: ['FAIT Zoé'] }] : [] };
+      }
+      return lecture(sql, p);
+    });
+    faites = [{ id: '1', sortie: '30', noms: ['FAIT Zoé'], logement: '8 rue Haute', date_sortie: '2026-03-31', date: '2026-11-21', restitue: '312.5', retenu: null, commentaire: null, par: 'Arno', le: '2026-11-21 10:00:00' }];
+    const r = await lireSuiviVingtPourcent();
+    const l = r.faites![0].ligne!;
+    expect(l).toMatchObject({ sortieId: 30, lotId: 1, locataires: ['FAIT Zoé'], copropriete: { id: 10, libelle: 'Copro A' }, immeuble: 'a', derniereAgo: '2026-03-25',
+      suivi: { etat: 'ok', exercice: '2026-12-31' } });
+    expect(r.lignes.map((x) => x.sortieId)).toEqual([5, 6]);
+    expect(r.manquantes.flatMap((m) => m.locataires)).not.toContain('FAIT Zoé');
+    const lu = appels.find((x) => x.includes('WHERE s.id = ANY($1::bigint[])') && x.includes('AS num_annexes'))!;
+    expect(lu).not.toContain('NOT EXISTS (SELECT 1 FROM gestion_location_restitution_vingt');
+    expect(query.mock.calls.find((c) => String(c[0]).replace(/\s+/g, ' ').includes('WHERE s.id = ANY($1::bigint[])') && String(c[0]).includes('AS num_annexes'))![1]).toEqual([[30]]);
+    expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
+  });
+  it('sans restitution faite : la sortie n’est pas relue (aucune requête de plus)', async () => {
+    query.mockImplementation(lecture);
+    await lireSuiviVingtPourcent();
+    expect(appels.some((x) => x.includes('WHERE s.id = ANY($1::bigint[])') && x.includes('AS num_annexes'))).toBe(false);
+  });
   it('🔴 (Arno, 25/11/2026, 22h51) les mails de la fenêtre « Faire restitution » (locataire ET partenaire) sont dans les échanges de la restitution, réponses comprises, et comptent', async () => {
     const fils: unknown[][] = [];
     query.mockImplementation(async (sql: string, p?: unknown[]) => {

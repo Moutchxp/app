@@ -1173,7 +1173,8 @@ describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer u
     expect(texteConfirmationRestitution({ noms: ['Paul MARTIN', 'Léa MARTIN'], date: '2026-11-20', montantRestitue: 100, montantRetenuCharges: null })).toEqual([
       'En confirmant, vous attestez que la restitution de 100,00 € à Paul MARTIN et Léa MARTIN a bien été effectuée le 20/11/2026. Ces locataires sortiront du suivi des 20 % et passeront dans l’historique « Restitutions faites ».']);
     const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
-    expect(src).toContain("const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });");
+    // 🔴 (22h51) la ligne de la restitution porte son annulation : même geste, même route
+    expect(src).toContain("const motif = await geste({ action: 'restitution-20-annuler', restitutionId: f.id });");
   });
 });
 
@@ -1662,7 +1663,8 @@ describe('🔴 Arno (25/11/2026, 22h06) — la ligne de détail encadrée', () =
     const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
     expect(src).toContain('.vgp-dl-sortie{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);');
     expect(src).toContain('background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent)}');
-    expect(src).toContain('.vgp-dl-sortie{grid-template-columns:1fr;gap:8px}');
+    // 🔴 (22h51) le deuxième encadré (« Restitution ») s'empile de même au téléphone
+    expect(src).toContain('.vgp-dl-sortie,.vgp-encadre > .vgp-dl{grid-template-columns:1fr;gap:8px}');
   });
 });
 
@@ -1890,5 +1892,131 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » : doub
     expect(rubriques()).not.toContain('Montant retenu');
     expect(rubriques()).not.toContain('Motif');
     expect(rubriques()).not.toContain('Commentaire');
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 22h51, point 1) — « quand on clique sur la catégorie Restitutions faites, le listing des locataires qui y sont arrivés s'affiche
+ * par défaut avec le même format que dans les catégories précédentes, c'est-à-dire le bloc originel de 3 lignes, qui est déployable. »
+ */
+describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » au format des autres catégories', () => {
+  const LIGNE_F = { ...LU.lignes[0], sortieId: 40, lotId: 44, locataires: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir, 92400 Courbevoie', dateSortie: '2026-03-31',
+    copropriete: { id: 77, libelle: 'Résidence Les Acacias', aRattacher: false }, immeuble: '11 rue de l abreuvoir 92400 courbevoie', derniereAgo: '2026-10-05',
+    suivi: { etat: 'ok' as const, exercice: '2026-06-30', ago: { date: '2026-10-05', statut: 'officielle' as const }, incertaine: false, limite: '2026-11-05', alerte: 'depassee' as const, joursRestants: -18 },
+    contacts: { locataires: [{ nom: 'Manon LACROIX', email: 'a.jorel+locataire-lacroix@sansvisavis.com', telephone: null }],
+      proprietaires: [{ nom: 'François LEFÈVRE', email: 'a.jorel+proprio-lefevre@sansvisavis.com', telephone: null }] } };
+  const FAITE_F = { id: 4, sortieId: 40, locataires: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir, 92400 Courbevoie', dateSortie: '2026-03-31', date: '2026-11-21',
+    montantRestitue: 243.6, montantRetenuCharges: 36.4, motifDifference: 'régularisation de charges', commentaire: null, par: 'Gestion locative', le: '2026-11-25 21:38',
+    montantVingt: { montant: 280, origine: 'calcule' as const, depot: 1400 }, echanges: { fils: [81], nombre: 4, dernierLe: '2026-11-22T09:02' }, ligne: LIGNE_F };
+  let posts: Record<string, unknown>[];
+  beforeEach(() => {
+    posts = [];
+    donnees = { ...LU, restitutionDisponible: true, faites: [FAITE_F] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') { posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return { status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response; }
+      lectures.push(String(u));
+      if (/\/gestion\/fils\//.test(String(u))) return { ok: true, status: 200, json: async () => ({ messages: [] }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  const ouvrirSection = async (): Promise<Element> => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
+    await act(async () => { d.open = true; d.dispatchEvent(new Event('toggle')); });
+    return container.querySelector('[data-vgp-faite="4"]')!;
+  };
+  const rubriques = (el: Element | null): string[] => [...(el?.querySelectorAll('dt') ?? [])].map((x) => x.textContent ?? '');
+  it('NIVEAU 1 (replié par défaut) : le bloc de trois lignes des catégories — adresse / NOM Prénom / « Restitution validée le … — … restitués » ; capsule AGO, « N mails échangés » dessous ; « Fiche copropriété »', async () => {
+    const li = await ouvrirSection();
+    expect(li.className).toBe('vgp-ligne vgp-ligne--faite');
+    expect(li.getAttribute('data-vgp-ouvert')).toBe('0');
+    expect((li.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
+    const gauche = [...li.querySelectorAll('.vgp-ligne-tete .vgp-ligne-gauche > p')].map((p) => p.textContent);
+    expect(gauche).toEqual(['11 rue de l’Abreuvoir, 92400 Courbevoie', 'LACROIX Manon', 'Restitution validée le 21/11/2026 — 243,60 € restitués']);
+    const ago = li.querySelector('.vgp-ligne-tete .vgp-ligne-ago')!;
+    expect(ago.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO 05/10/2026 (officielle)');
+    expect(ago.querySelector('[data-vgp-mails-echanges]')?.textContent).toBe('4 mails échangés — dernier le 22/11/2026');
+    const enfants = [...ago.children];
+    expect(enfants.indexOf(ago.querySelector('[data-vgp-mails-echanges]')!)).toBeGreaterThan(enfants.indexOf(ago.querySelector('[data-vgp-ago]')!));
+    expect(li.querySelector('.vgp-ligne-tete [data-vgp-fiche-faite="4"]')?.textContent).toBe('Fiche copropriété');
+    // « Annuler » n'est pas sur la ligne repliée : il est au niveau 2
+    expect(li.querySelector('.vgp-ligne-tete [data-vgp-annuler]')).toBeNull();
+    expect(li.querySelector('[data-vgp-detail] [data-vgp-annuler="4"]')).not.toBeNull();
+    // replié : la conversation n'est pas lue
+    expect(lectures.some((u) => u.includes('/gestion/fils/'))).toBe(false);
+  });
+  it('« Fiche copropriété » ouvre LA fiche de la copropriété (par l’immeuble), sans déplier la ligne ; sans copropriété : « Créer la copropriété » (par le bien)', async () => {
+    const li = await ouvrirSection();
+    fiche.mockClear();
+    await act(async () => { (li.querySelector('[data-vgp-fiche-faite="4"]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenCalledTimes(1);
+    expect(fiche.mock.calls[0][0]).toMatchObject({ immeuble: '11 rue de l abreuvoir 92400 courbevoie' });
+    expect(li.getAttribute('data-vgp-ouvert')).toBe('0');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_F, ligne: { ...LIGNE_F, copropriete: null, immeuble: null } }] };
+    const li2 = await ouvrirSection();
+    fiche.mockClear();
+    expect(li2.querySelector('[data-vgp-fiche-faite="4"]')?.textContent).toBe('Créer la copropriété');
+    await act(async () => { (li2.querySelector('[data-vgp-fiche-faite="4"]') as HTMLButtonElement).click(); });
+    expect(fiche.mock.calls[0][0]).toMatchObject({ immeuble: null, lotId: 44 });
+  });
+  it('NIVEAU 2 (déplié) : l’encadré habituel, locataire et propriétaire, l’encadré « Restitution », puis « Échanges (N) », puis « Annuler »', async () => {
+    const li = await ouvrirSection();
+    await act(async () => { (li.querySelector('[data-vgp-deplier]') as HTMLButtonElement).click(); }); await calmer();
+    expect(li.getAttribute('data-vgp-ouvert')).toBe('1');
+    const detail = li.querySelector('[data-vgp-detail]') as HTMLElement;
+    expect(detail.hidden).toBe(false);
+    const sortie = detail.querySelector('dl[data-vgp-encadre-sortie]')!;
+    expect(sortie.className).toBe('vgp-dl vgp-dl-sortie');
+    expect(rubriques(sortie)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Dernière AGO', '20 % retenus à la sortie']);
+    expect([...sortie.querySelectorAll('dd')].map((x) => x.textContent)).toEqual(['Résidence Les Acacias', '31/03/2026', 'Exercice clos le 30/06/2026', '05/10/2026', '280,00 €']);
+    // un seul locataire : « e-mail · téléphone » (son nom est déjà sur la ligne) ; le propriétaire avec son nom
+    expect(detail.querySelector('[data-vgp-coordonnees="locataires"] [data-vgp-personne]')?.textContent).toBe('a.jorel+locataire-lacroix@sansvisavis.com · —');
+    expect(detail.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toContain('François LEFÈVRE');
+    const restitution = detail.querySelector('[data-vgp-encadre-restitution]')!;
+    expect(restitution.querySelector('.vgp-coord-titre')?.textContent).toBe('Restitution');
+    expect(rubriques(restitution)).toEqual(['Restitution validée le', 'Montant restitué', 'Montant retenu', 'Motif', 'Enregistrée par']);
+    expect([...restitution.querySelectorAll('dd')].map((x) => x.textContent)).toEqual(['21/11/2026', '243,60 €', '36,40 €', 'régularisation de charges', 'Gestion locative, le 25/11/2026 à 21:38']);
+    // l'ordre : encadré de la sortie, coordonnées, encadré « Restitution », échanges, « Annuler »
+    const ordre = [...detail.children].map((x) => (x.hasAttribute('data-vgp-encadre-sortie') ? 'sortie' : x.hasAttribute('data-vgp-encadre-restitution') ? 'restitution'
+      : x.querySelector('[data-vgp-coordonnees]') || x.hasAttribute('data-vgp-coordonnees') ? 'coordonnees' : x.hasAttribute('data-vgp-echanges') ? 'echanges' : x.hasAttribute('data-vgp-annuler') ? 'annuler' : x.tagName));
+    expect(ordre).toEqual(['sortie', 'coordonnees', 'restitution', 'echanges', 'annuler']);
+    expect(detail.querySelector('[data-vgp-echanges] .vgp-echanges-titre')?.textContent).toBe('Échanges (4)');
+    // en lecture : pas de « Répondre », pas d'« Envoyer un mail », pas de « Faire restitution »
+    expect(detail.querySelector('[data-vgp-envoyer-mail], [data-vgp-restituer]')).toBeNull();
+  });
+  it('le commentaire n’est dit que s’il existe ; rien n’est en double entre la ligne et le détail (adresse et nom absents du détail)', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_F, commentaire: 'Remis en main propre' }] };
+    const li = await ouvrirSection();
+    const restitution = li.querySelector('[data-vgp-encadre-restitution]')!;
+    expect(rubriques(restitution).at(-1)).toBe('Commentaire');
+    expect(restitution.querySelector('[data-vgp-faite-commentaire]')?.textContent).toBe('Remis en main propre');
+    expect(rubriques(li.querySelector('[data-vgp-detail]'))).not.toContain('Logement');
+  });
+  it('« Annuler » (niveau 2) : la confirmation, puis le même geste qu’avant ; la liste se relit', async () => {
+    const li = await ouvrirSection();
+    await act(async () => { (li.querySelector('[data-vgp-deplier]') as HTMLButtonElement).click(); });
+    await act(async () => { (li.querySelector('[data-vgp-annuler="4"]') as HTMLButtonElement).click(); });
+    expect(li.querySelector('[data-vgp-confirmer-annulation="4"]')?.textContent).toContain('Annuler cette restitution ?');
+    expect(posts).toEqual([]);
+    const avant = lectures.length;
+    await act(async () => { (li.querySelector('[data-vgp-annuler-oui="4"]') as HTMLButtonElement).click(); }); await calmer();
+    expect(posts).toEqual([{ action: 'restitution-20-annuler', restitutionId: 4 }]);
+    expect(lectures.length).toBeGreaterThan(avant);
+  });
+  it('sans la ligne de sa sortie (non relue) : le bloc reste, avec ce que la restitution sait (aucune information inventée)', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_F, ligne: undefined, echanges: undefined }] };
+    const li = await ouvrirSection();
+    expect([...li.querySelectorAll('.vgp-ligne-tete .vgp-ligne-gauche > p')].map((p) => p.textContent))
+      .toEqual(['11 rue de l’Abreuvoir, 92400 Courbevoie', 'LACROIX Manon', 'Restitution validée le 21/11/2026 — 243,60 € restitués']);
+    expect(li.querySelector('[data-vgp-ago]')).toBeNull();
+    expect(li.querySelector('[data-vgp-fiche-faite]')).toBeNull();
+    expect(rubriques(li.querySelector('dl[data-vgp-encadre-sortie]'))).toEqual(['Date de sortie', '20 % retenus à la sortie']);
+    expect(li.querySelector('[data-vgp-annuler="4"]')).not.toBeNull();
+  });
+  it('les mêmes classes que les lignes des catégories (trois lignes de même hauteur, 390 px compris) ; le deuxième encadré teinté du thème, empilé au téléphone', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(src).toContain('<li className="vgp-ligne vgp-ligne--faite" data-vgp-faite={f.id}');
+    expect(src).toContain('.vgp-encadre{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent);min-width:0}');
   });
 });

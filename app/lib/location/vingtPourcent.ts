@@ -374,6 +374,11 @@ export interface RestitutionFaite {
   mails?: MailVingtEnvoye[]; echanges?: EchangesVingt;
   /** 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus ; `null` : à saisir ; absent : non lu */
   montantVingt?: MontantVingt | null;
+  /**
+   * 🔴🔴 (Arno, 25/11/2026, 22h51) « Restitutions faites » au même format que les autres catégories : la sortie lue comme une ligne (copropriété, AGO qui
+   * compte, exercice, dernière AGO, coordonnées), pour le bloc de trois lignes et son détail ; absente : sortie non relue (le bloc se contente du reste).
+   */
+  ligne?: LigneVingtPourcent;
 }
 
 /** « 1 234,56 », « 1234.5 », 300 → un montant en euros (2 décimales au plus, ≥ 0) ; vide : `undefined` ; illisible : `null`. PUR. */

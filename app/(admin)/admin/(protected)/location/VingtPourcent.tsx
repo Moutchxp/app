@@ -499,60 +499,117 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
 
 /** 🔴 Arno (24/11/2026) — la fenêtre « Restitution faite » : date, montant restitué, montant retenu au titre des charges (facultatif), commentaire. */
 
-/** 🔴 Arno (24/11/2026) — « Restitutions faites (N) », repliée, en bas de page : l'historique, avec « Annuler » (journalisé) en cas d'erreur. */
+/**
+ * 🔴 Arno (24/11/2026) — « Restitutions faites (N) », repliée, en bas de page : l'historique, avec « Annuler » (journalisé) en cas d'erreur.
+ * 🔴🔴 (Arno, 25/11/2026, 22h51) « le listing des locataires qui y sont arrivés s'affiche par défaut avec le même format que dans les catégories
+ * précédentes, c'est-à-dire le bloc originel de 3 lignes, qui est déployable » : une ligne par restitution (`LigneFaite`), repliée.
+ */
 function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: readonly RestitutionFaite[]; onAnnule: () => void } & Repli) {
-  const [confirmer, setConfirmer] = useState<number | null>(null);
-  const [refus, setRefus] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
-  const [maintenantFaites] = useState(() => new Date());
-  const annuler = async (id: number): Promise<void> => {
-    setEnvoi(true); setRefus(null);
-    const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });
-    setEnvoi(false);
-    if (motif !== null) { setRefus(motif); return; }
-    setConfirmer(null); onAnnule();
-  };
   return (
     <section className={`vgp-bloc vgp-faites${teinte('faites')}`} data-vgp-teinte={TEINTES_BLOCS_VINGT.faites} aria-label={TITRE_RESTITUTIONS_FAITES} data-vgp-faites={faites.length}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         <summary className="vgp-titre">{TITRE_RESTITUTIONS_FAITES} ({faites.length})</summary>
         {faites.length === 0 ? <p className="loc-muet" data-vgp-faites-aucune>Aucune restitution enregistrée.</p> : (
-          <ul className="vgp-liste">{faites.map((f) => (
-            <li key={f.id} className="vgp-carte" data-vgp-faite={f.id}>
-              <p className="vgp-nom">{f.locataires.length > 0 ? f.locataires.join(', ') : `Sortie n° ${f.sortieId}`}</p>
-              {/* 🔴🔴 (Arno, 25/11/2026) « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : les échanges de la SORTIE, ici aussi */}
-              {mentionMailsEchanges(f.echanges) !== null && <p className="vgp-mails-echanges" data-vgp-mails-echanges={f.echanges!.nombre}>{mentionMailsEchanges(f.echanges)}</p>}
-              <dl className="vgp-dl">
-                <div><dt>Logement</dt><dd>{f.logement ?? '—'}</dd></div>
-                <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
-                {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus, jusque dans « Restitutions faites » ; 🔴 (22h51, copie 5) « Restituée le » (en double)
-                    disparaît : à sa place « 20 % retenus à la sortie », le montant global initial */}
-                {f.montantVingt !== undefined && <div><dt>20 % retenus à la sortie</dt><dd data-vgp-faite-montant-vingt>{f.montantVingt === null ? 'non renseigné' : montantFr(f.montantVingt.montant)}</dd></div>}
-                {/* 🔴 (Arno, 25/11/2026, 22h51, copie 4) « renommer "Virement effectué le…" par "Restitution validée le…" » : la date de la restitution */}
-                <div><dt>{LIBELLE_RESTITUTION_VALIDEE_LE}</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
-                <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
-                {/* 🔴 (22h51) « Retenu au titre des charges » devient « Montant retenu », suivi de « Motif » */}
-                {f.montantRetenuCharges !== null && <div><dt>Montant retenu</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
-                {f.motifDifference != null && <div><dt>Motif</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
-                {f.commentaire !== null && <div><dt>Commentaire</dt><dd>{f.commentaire}</dd></div>}
-                <div><dt>Enregistrée par</dt><dd>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
-              </dl>
-              {/* la conversation, en lecture (la restitution est faite : pas de « Répondre » ici) ; lue seulement le bloc ouvert */}
-              {ouvert && f.echanges !== undefined && <EchangesLigne l={f} maintenant={maintenantFaites} />}
-              {confirmer === f.id ? (
-                <div className="vgp-confirmer" role="group" aria-label="Confirmer l’annulation" data-vgp-confirmer-annulation={f.id}>
-                  <p className="vgp-aide">Annuler cette restitution ? Elle reste dans l’historique du dossier, et le locataire revient dans la liste « 20 % à restituer ».</p>
-                  <div className="vgp-actions">
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(null)} disabled={envoi}>Non, garder</button>
-                    <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void annuler(f.id); }} disabled={envoi} data-vgp-annuler-oui={f.id}>Oui, annuler</button>
-                  </div>
-                  {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
-                </div>
-              ) : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { setRefus(null); setConfirmer(f.id); }} data-vgp-annuler={f.id}>Annuler</button>}
-            </li>))}</ul>
+          <ul className="vgp-liste">{faites.map((f) => <LigneFaite key={f.id} f={f} onAnnule={onAnnule} />)}</ul>
         )}
       </details>
     </section>
+  );
+}
+
+/** 🔴 (Arno, 25/11/2026, 22h51) la 3e ligne d'une restitution faite : « Restitution validée le 21/11/2026 — 243,60 € restitués ». PUR. */
+export const ligneRestitutionValidee = (f: Pick<RestitutionFaite, 'date' | 'montantRestitue'>): string =>
+  `${LIBELLE_RESTITUTION_VALIDEE_LE} ${dateFr(f.date)} — ${montantFr(f.montantRestitue)} restitués`;
+
+/**
+ * 🔴🔴 (Arno, 25/11/2026, 22h51) — UNE restitution faite, au format des lignes des catégories :
+ *  - NIVEAU 1 (replié) : l'adresse, le(s) nom(s), « Restitution validée le JJ/MM/AAAA — X,XX € restitués » ; à droite la capsule de l'AGO et
+ *    « N mails échangés — dernier le … », puis « Fiche copropriété » ;
+ *  - NIVEAU 2 (déplié) : l'encadré habituel (Date de sortie, Exercice concerné, Dernière AGO, 20 % retenus à la sortie), locataire et propriétaire,
+ *    un deuxième encadré « Restitution » (validée le, montant restitué, montant retenu, motif, enregistrée par, commentaire s'il existe), « Échanges (N) »
+ *    (en lecture : la restitution est faite, pas de « Répondre »), puis « Annuler » (annulation de la restitution, avec confirmation).
+ */
+function LigneFaite({ f, onAnnule }: { f: RestitutionFaite; onAnnule: () => void }) {
+  const { onFiche } = useContext(GestesLigne);
+  const [ouvert, setOuvert] = useState(false);
+  const [confirmer, setConfirmer] = useState(false);
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [maintenant] = useState(() => new Date());
+  const detailId = useId();
+  const l = f.ligne;
+  const s = l?.suivi;
+  const basculer = (): void => setOuvert((o) => !o);
+  const annuler = async (): Promise<void> => {
+    setEnvoi(true); setRefus(null);
+    const motif = await geste({ action: 'restitution-20-annuler', restitutionId: f.id });
+    setEnvoi(false);
+    if (motif !== null) { setRefus(motif); return; }
+    setConfirmer(false); onAnnule();
+  };
+  const adresse = f.logement ?? l?.logement ?? `Sortie n° ${f.sortieId}`;
+  const noms = f.locataires.length > 0 ? f.locataires.join(', ') : `Sortie n° ${f.sortieId}`;
+  return (
+    <li className="vgp-ligne vgp-ligne--faite" data-vgp-faite={f.id} data-vgp-ouvert={ouvert ? '1' : '0'}>
+      <div className="vgp-ligne-tete" onClick={basculer}>
+        <button type="button" className="vgp-chevron" aria-expanded={ouvert} aria-controls={detailId} onClick={(e) => { e.stopPropagation(); basculer(); }}
+          aria-label={ouvert ? 'Replier le détail' : 'Déplier le détail'} data-vgp-deplier>{ouvert ? '▾' : '▸'}</button>
+        <div className="vgp-ligne-gauche">
+          <p className="vgp-ligne-adresse vgp-une-ligne" title={adresse} data-vgp-adresse>{adresse}</p>
+          <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms>{noms}</p>
+          <p className="vgp-ligne-limite vgp-une-ligne" data-vgp-faite-validee={f.date}>{ligneRestitutionValidee(f)}</p>
+        </div>
+        <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
+          <span className="vgp-ligne-ago">
+            {s !== undefined && s.etat === 'ok' && (() => { const e = etiquetteAgo(s.ago); return <span className={`vgp-etiquette vgp-etiquette--${e.ton}`} data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>{e.texte}</span>; })()}
+            {mentionMailsEchanges(f.echanges) !== null && <span className="vgp-mails-echanges vgp-une-ligne" data-vgp-mails-echanges={f.echanges!.nombre}>{mentionMailsEchanges(f.echanges)}</span>}
+          </span>
+          {l !== undefined && (
+            <span className="vgp-ligne-actions">
+              <span className="vgp-ligne-boutons">
+                <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
+                  data-vgp-fiche-faite={f.id}>{l.copropriete === null ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
+              </span>
+            </span>)}
+        </div>
+      </div>
+      <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
+        {/* l'encadré habituel des lignes ; « 20 % retenus à la sortie » : le montant global initial (22h51, copie 5) */}
+        <dl className="vgp-dl vgp-dl-sortie" data-vgp-encadre-sortie>
+          {l !== undefined && !(l.copropriete !== null && dejaDit(l.copropriete.libelle, adresse)) && (
+            <div><dt>Copropriété</dt><dd data-vgp-copropriete>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}</dd></div>)}
+          <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
+          {s !== undefined && <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}</dd></div>}
+          {l !== undefined && <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>}
+          {f.montantVingt !== undefined && <div><dt>20 % retenus à la sortie</dt><dd data-vgp-faite-montant-vingt>{f.montantVingt === null ? 'non renseigné' : montantFr(f.montantVingt.montant)}</dd></div>}
+        </dl>
+        <Coordonnees c={l?.contacts} unSeulLocataire={f.locataires.length <= 1} />
+        {/* le deuxième encadré : la restitution (22h51, copie 4 : « Restitution validée le » ; « Montant retenu » suivi de « Motif ») */}
+        <div className="vgp-encadre" data-vgp-encadre-restitution>
+          <p className="vgp-coord-titre">Restitution</p>
+          <dl className="vgp-dl">
+            <div><dt>{LIBELLE_RESTITUTION_VALIDEE_LE}</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
+            <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
+            {f.montantRetenuCharges !== null && <div><dt>Montant retenu</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
+            {f.motifDifference != null && <div><dt>Motif</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
+            <div><dt>Enregistrée par</dt><dd data-vgp-faite-par>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
+            {f.commentaire !== null && <div><dt>Commentaire</dt><dd data-vgp-faite-commentaire>{f.commentaire}</dd></div>}
+          </dl>
+        </div>
+        {/* 🔴🔴 (Arno, 25/11/2026) les échanges de la SORTIE, en lecture (la restitution est faite : pas de « Répondre » ici) ; lus à l'ouverture de la ligne */}
+        {ouvert && <EchangesLigne l={f} maintenant={maintenant} />}
+        {confirmer ? (
+          <div className="vgp-confirmer" role="group" aria-label="Confirmer l’annulation" data-vgp-confirmer-annulation={f.id}>
+            <p className="vgp-aide">Annuler cette restitution ? Elle reste dans l’historique du dossier, et le locataire revient dans la liste « 20 % à restituer ».</p>
+            <div className="vgp-actions">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(false)} disabled={envoi}>Non, garder</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void annuler(); }} disabled={envoi} data-vgp-annuler-oui={f.id}>Oui, annuler</button>
+            </div>
+            {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+          </div>
+        ) : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { setRefus(null); setConfirmer(true); }} data-vgp-annuler={f.id}>Annuler</button>}
+      </div>
+    </li>
   );
 }
 
@@ -649,6 +706,9 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
    les rubriques côte à côte à l'ordinateur, en pile au téléphone */
 .vgp-dl-sortie{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);
   background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent)}
+.vgp-encadre{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent);min-width:0}
+.vgp-encadre > .vgp-dl{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}
+.vgp-encadre > .vgp-coord-titre{margin:0}
 .vgp-dl dt{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
 .vgp-dl dd{margin:0;color:var(--color-svv-ink)}
 .vgp-projetee{font-style:italic;text-decoration:underline dashed;text-underline-offset:3px}
@@ -739,7 +799,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
   .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
-  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0} .vgp-dl-sortie{grid-template-columns:1fr;gap:8px}
+  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0} .vgp-dl-sortie,.vgp-encadre > .vgp-dl{grid-template-columns:1fr;gap:8px}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }

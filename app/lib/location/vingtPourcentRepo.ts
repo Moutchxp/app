@@ -38,20 +38,27 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   const numAnnexe = "nullif(btrim(af.num_lot_copro::text), '')";
   const sqlAnnexes = avecAnnexes ? `(SELECT array_agg(${numAnnexe} ORDER BY ax.id) FILTER (WHERE ${numAnnexe} IS NOT NULL)
         FROM gestion_lot_annexe ax JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id${avecDetache ? ' AND af.annexe_detachee_le IS NULL' : ''})` : 'NULL::text[]';
-  const { rows } = await query<{ id: string; lot_id: string; lot_cle: string | null; num_lot: string | null; num_annexes: string[] | null; batiment: string | null; etage: string | null; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
+  type RangSortie = { id: string; lot_id: string; lot_cle: string | null; num_lot: string | null; num_annexes: string[] | null; batiment: string | null; etage: string | null; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null };
+  const sqlSorties = (filtre: string): string =>
     `SELECT s.id::text, s.lot_id::text, lo.wippimmo_id::text AS lot_cle, ${avecNumLot ? "nullif(btrim(lo.num_lot_copro::text), '')" : 'NULL::text'} AS num_lot, ${sqlAnnexes} AS num_annexes,
             ${avecBatiment ? "nullif(btrim(lo.batiment), '')" : 'NULL::text'} AS batiment, ${avecEtage ? "nullif(btrim(lo.etage), '')" : 'NULL::text'} AS etage, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
             (SELECT array_agg(l.nom ORDER BY l.nom_normalise) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.id = ANY(s.occupation_ids)) AS noms
        FROM gestion_location_sortie_validee s JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id
-      WHERE s.retenue_20
+      WHERE ${filtre}
+      ORDER BY s.date_sortie DESC, s.id DESC`;
+  const { rows } = await query<RangSortie>(sqlSorties(`s.retenue_20
         AND NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.id = ANY(s.occupation_ids) AND o.sortie IS NULL)${avec513 ? `
-        AND ${SQL_SANS_RESTITUTION_EN_COURS}` : ''}
-      ORDER BY s.date_sortie DESC, s.id DESC`);
+        AND ${SQL_SANS_RESTITUTION_EN_COURS}` : ''}`));
+  // 🔴🔴 (Arno, 25/11/2026, 22h51) « Restitutions faites » au même format que les autres catégories : la sortie de chaque restitution faite est lue comme
+  //    une ligne (copropriété, AGO, exercice, coordonnées) — elle n'entre ni dans les catégories, ni dans « Dates / copropriétés manquantes »
+  const faites = avec513 ? await lireRestitutionsFaites() : [];
+  const { rows: rowsFaites } = faites.length === 0 ? { rows: [] as RangSortie[] }
+    : await query<RangSortie>(sqlSorties('s.id = ANY($1::bigint[])'), [[...new Set(faites.map((f) => f.sortieId))]]);
   // une lecture des AG et du contexte par bien (peu de sorties avec retenue) ; les arrêtés en une requête
   const parLot = new Map<number, { copro: CoproConcernee; officielles: string[] }>();
-  for (const lotId of new Set(rows.map((r) => Number(r.lot_id)))) {
+  for (const lotId of new Set([...rows, ...rowsFaites].map((r) => Number(r.lot_id)))) {
     const c = await contexteAgDuLot(lotId);
     const entrees = await entreesAg({ coproprieteId: c?.copropriete?.id ?? null, cle: c?.immeuble?.cle ?? null, lotId });
     // 🔴 Arno (23/11/2026) — un bien SANS copropriété figure aussi dans « Dates / copropriétés manquantes » (sous « Bien sans copropriété », compté dans la pastille)
@@ -69,7 +76,7 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
     const { rows: n } = await query<{ id: string; nom: string | null }>(`SELECT id::text, nullif(btrim(nom), '') AS nom FROM gestion_copropriete WHERE id = ANY($1::bigint[])`, [ids]);
     for (const x of n) if (x.nom !== null) nomsCopro.set(Number(x.id), x.nom);
   }
-  const lignes: LigneVingtPourcent[] = rows.map((r) => {
+  const enLigne = (r: RangSortie): LigneVingtPourcent => {
     const p = parLot.get(Number(r.lot_id))!;
     const arrete = p.copro?.coproprieteId != null ? arretes.get(p.copro.coproprieteId) ?? null : null;
     return {
@@ -80,15 +87,16 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
       cleCopro: p.copro.cle, immeuble: p.copro.immeuble,
       derniereAgo: [...p.officielles].filter((d) => d <= aujourdhui).pop() ?? null,
     };
-  });
+  };
+  const lignes: LigneVingtPourcent[] = rows.map(enLigne);
+  const lignesFaites = new Map(rowsFaites.map((r) => [Number(r.id), enLigne(r)]));
   // 🔴 (Arno, 24/11/2026, 23h53) les coordonnées des locataires et des propriétaires, au strict minimum (écran interne, rien n'est envoyé)
-  const contacts = await contactsDesSorties(rows.map((r) => ({ sortieId: Number(r.id), lotId: Number(r.lot_id) }))).catch(() => new Map<number, ContactsSortie>());
-  for (const l of lignes) { const c = contacts.get(l.sortieId); if (c !== undefined) l.contacts = c; }
+  const contacts = await contactsDesSorties([...rows, ...rowsFaites].map((r) => ({ sortieId: Number(r.id), lotId: Number(r.lot_id) }))).catch(() => new Map<number, ContactsSortie>());
+  for (const l of [...lignes, ...lignesFaites.values()]) { const c = contacts.get(l.sortieId); if (c !== undefined) l.contacts = c; }
   // 🔴 (Arno, 25/11/2026, 22h06) le syndic en cours de la copropriété (mail au partenaire de la restitution)
   const syndics = await syndicsDesCoproprietes([...new Set(lignes.flatMap((l) => (l.copropriete?.id != null ? [l.copropriete.id] : [])))]).catch(() => null);
   if (syndics !== null) for (const l of lignes) l.syndic = l.copropriete?.id != null ? syndics.get(l.copropriete.id) ?? null : null;
   // 🔴 (Arno, 25/11/2026) « x mail(s) envoyé(s) depuis cette page » — 🔴🔴 et les échanges suivent la SORTIE jusque dans « Restitutions faites »
-  const faites = avec513 ? await lireRestitutionsFaites() : [];
   const mails = await mailsEnvoyesDesSorties([...lignes.map((l) => l.sortieId), ...faites.map((f) => f.sortieId)]).catch(() => new Map<number, NonNullable<LigneVingtPourcent['mails']>>());
   for (const l of lignes) { const m = mails.get(l.sortieId); if (m !== undefined && m.length > 0) l.mails = m; }
   // 🔴🔴 (Arno, 25/11/2026) la conversation de chaque ligne : ses fils (réponses comprises) et le nombre de mails échangés (envoyés + reçus)
@@ -100,6 +108,9 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   for (const l of lignes) if (montants.has(l.sortieId)) l.montantVingt = montants.get(l.sortieId) ?? null;
   for (const f of faites) if (montants.has(f.sortieId)) f.montantVingt = montants.get(f.sortieId) ?? null;
   for (const f of faites) {
+    // 🔴🔴 (Arno, 25/11/2026, 22h51) la ligne de sa sortie (copropriété, AGO, exercice, coordonnées) ; absente si la sortie n'est plus lue
+    const l = lignesFaites.get(f.sortieId);
+    if (l !== undefined) f.ligne = l;
     const m = mails.get(f.sortieId);
     if (m !== undefined && m.length > 0) f.mails = m;
     const e = echangesDeLaLigne(f.mails ?? [], comptes);
