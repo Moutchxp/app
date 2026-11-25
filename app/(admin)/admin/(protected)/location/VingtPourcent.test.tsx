@@ -158,7 +158,8 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
     // « Dates manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
     expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '2', '1', '2', '1']);
-    expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(5);
+    // 🔴 (Arno, 25/11/2026) « par défaut toutes les lignes de chaque catégorie sont fermées » : les catégories aussi (épreuve dédiée plus bas)
+    expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(0);
     const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-rebours]')!;
     expect([u.textContent, u.className]).toEqual(['Dépassé de 53 jours', 'vgp-rebours vgp-rebours--rouge']);
     expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-rebours]')?.textContent).toBe('J-16');
@@ -524,5 +525,55 @@ describe('🔴 Arno (25/11/2026) — le nom du locataire seulement s’ils sont 
     donnees = { ...LU, manquantes: [{ ...MANQ, locataires: ['UN Seul', 'DEUX Autre'] }], lignes: [L(41, ['UN Seul']), L(42, ['DEUX Autre'])] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(container.querySelector('[data-vgp-concerne="42"] [data-vgp-personne]')?.textContent).toBe('DEUX Autre · deux@exemple.test · —');
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « par défaut toutes les lignes de chaque catégorie sont fermées » ; une recherche ouvre les catégories qui ont des résultats ; effacée, tout se replie. */
+describe('🔴🔴 Arno (25/11/2026) — tout replié à l’ouverture', () => {
+  const taper = async (v: string) => {
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const ouverts = () => [...container.querySelectorAll('section > details')].filter((d) => (d as HTMLDetailsElement).open).map((d) => d.parentElement!.getAttribute('aria-label'));
+  const lignesOuvertes = () => container.querySelectorAll('[data-vgp-ouvert="1"]').length;
+  const FAITE = { id: 9, sortieId: 3, locataires: ['FAIT Jean'], logement: '3 rue F', dateSortie: '2026-01-01', date: '2026-11-02',
+    montantRestitue: 312.5, montantRetenuCharges: null, commentaire: null, par: 'Arno Test', le: '2026-11-02 10:15' };
+  it('à l’ouverture : toutes les catégories repliées (titre et compteur visibles), toutes les lignes repliées', async () => {
+    donnees = { ...LU, faites: [FAITE] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(ouverts()).toEqual([]);
+    expect(lignesOuvertes()).toBe(0);
+    for (const s of container.querySelectorAll('[data-vgp-categorie]')) expect(s.querySelector('summary [data-vgp-compteur]')).not.toBeNull();
+  });
+  it('une recherche ouvre les catégories qui ont des résultats (lignes toujours repliées) ; effacée, tout se replie, lignes dépliées comprises', async () => {
+    donnees = { ...LU, faites: [FAITE] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await taper('léo');
+    expect(ouverts()).toEqual(['Urgence']);
+    expect(lignesOuvertes()).toBe(0);
+    await taper('rue');
+    expect(ouverts()).toEqual(['Dates manquantes', 'En attente', 'Restitutions faites']);
+    // une ligne dépliée à la main pendant la recherche…
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-adresse]') as HTMLElement).click(); });
+    expect(lignesOuvertes()).toBe(1);
+    // …la croix efface : tout se replie
+    await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
+    expect(ouverts()).toEqual([]);
+    expect(lignesOuvertes()).toBe(0);
+    // effacer au clavier : pareil
+    await taper('martin');
+    expect(ouverts()).toEqual(['Dates manquantes']);
+    await taper('');
+    expect(ouverts()).toEqual([]);
+  });
+  it('une catégorie s’ouvre et se ferme à la main ; une relecture (après la fiche Copropriété) garde ce qui est ouvert', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-categorie="en_attente"] > details') as HTMLDetailsElement;
+    await act(async () => { d.open = true; d.dispatchEvent(new Event('toggle')); });
+    expect(ouverts()).toEqual(['En attente']);
+    await act(async () => { (container.querySelector('[data-vgp-completer="copro-20"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); }); await calmer();
+    expect(lectures).toHaveLength(2);
+    expect(ouverts()).toEqual(['En attente']);
   });
 });

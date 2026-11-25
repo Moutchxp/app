@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  blocsOuvertsPourRecherche, type BlocRepliableVingt, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -49,6 +49,19 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
   const [restituer, setRestituer] = useState<LigneVingtPourcent | null>(null);
   const [recherche, setRecherche] = useState('');
   const active = rechercheActive(recherche);
+  // 🔴🔴 Arno (25/11/2026) — « par défaut toutes les lignes de chaque catégorie sont fermées » : tout replié à l'ouverture ; une recherche ouvre les
+  //    catégories qui ont des résultats ; effacée, tout se replie (catégories ET lignes : `replis` les remonte fermées)
+  const [ouverts, setOuverts] = useState<ReadonlySet<BlocRepliableVingt>>(new Set());
+  const [replis, setReplis] = useState(0);
+  const chercher = (q: string): void => {
+    setRecherche(q);
+    if (lu.etat === 'ok') setOuverts(new Set(blocsOuvertsPourRecherche(lu.data, q)));
+    if (!rechercheActive(q)) setReplis((r) => r + 1);
+  };
+  const ouvert = (b: BlocRepliableVingt) => ({ ouvert: ouverts.has(b), onBasculer: (o: boolean) => setOuverts((s) => {
+    if (s.has(b) === o) return s;
+    const n = new Set(s); if (o) n.add(b); else n.delete(b); return n;
+  }) });
   useEffect(() => {
     let vivant = true;
     fetch(`${api}?vingtPourcent=1&v=${version}`, { cache: 'no-store' })
@@ -73,9 +86,9 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
         : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche }}>
           {/* 🔴🔴 Arno (24/11/2026, 23h53) — la recherche, sous le titre et au-dessus du listing : filtrage instantané, sur toutes les catégories */}
           <div className="vgp-recherche" role="search">
-            <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
+            <input type="search" value={recherche} onChange={(e) => chercher(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
               aria-label={PLACEHOLDER_RECHERCHE_VINGT} autoComplete="off" data-vgp-recherche />
-            {active && <button type="button" className="vgp-recherche-effacer" onClick={() => setRecherche('')} aria-label="Effacer la recherche" data-vgp-recherche-effacer>×</button>}
+            {active && <button type="button" className="vgp-recherche-effacer" onClick={() => chercher('')} aria-label="Effacer la recherche" data-vgp-recherche-effacer>×</button>}
           </div>
           {(() => {
             const vu = filtrerVingtPourcent(lu.data, recherche);
@@ -83,11 +96,11 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
             const rien = active && vu.lignes.length === 0 && vu.manquantes.length === 0 && (vu.faites ?? []).length === 0;
             return <>
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
-              {!(active && vu.manquantes.length === 0) && <DatesManquantes lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
+              {!(active && vu.manquantes.length === 0) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
-                .map((k) => <Categorie key={k} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
+                .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
               {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
-              {!(active && (vu.faites ?? []).length === 0) && <RestitutionsFaites faites={vu.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />}
+              {!(active && (vu.faites ?? []).length === 0) && <RestitutionsFaites key={`faites:${replis}`} {...ouvert('faites')} faites={vu.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />}
             </>;
           })()}
           <AlerteDuLundi api={api} />
@@ -100,11 +113,14 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
   );
 }
 
+/** 🔴 Arno (25/11/2026) — l'état replié / ouvert d'un bloc, tenu par l'écran (fermé par défaut ; la recherche l'ouvre). */
+type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
+
 /** 🔴 Arno (24/11/2026) — une catégorie (b à e) : titre, compteur, repliable ; lignes par date limite croissante. */
-function Categorie({ cle, lignes, onRestituer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void }) {
+function Categorie({ cle, lignes, onRestituer, ouvert, onBasculer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
   return (
     <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && lignes.length > 0 ? ' vgp-cat--a-faire' : ''}`} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={lignes.length}>
-      <details open className="vgp-repli">
+      <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
           : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>}
@@ -152,8 +168,8 @@ const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'd
  * (TOUTES celles de la pastille, même si leurs locataires ont une date provisoire) : l'immeuble, les locataires concernés, ce qui manque (orange) ;
  * à droite « Fiche copropriété » ; déplié : une ligne par locataire concerné (logement, sortie, catégorie où il apparaît), avec « Restitution faite ».
  */
-function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onRestituer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
-  toutes: readonly LigneVingtPourcent[]; aujourdhui: string; onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
+function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onRestituer, ouvert, onBasculer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
+  toutes: readonly LigneVingtPourcent[]; aujourdhui: string; onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
   // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde son bloc (jamais une ligne perdue)
   const cartes = [...lignes, ...groupes.filter((g) => !lignes.some((m) => m.cle === g.copro.cle)).map((g) => g.copro)];
   const manquantes = [...lignes];
@@ -166,7 +182,7 @@ function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onR
   // 🔴 (Arno, 24/11/2026, 23h20) le compteur : les COPROPRIÉTÉS à compléter (la pastille) ; leurs locataires datés sont classés ailleurs
   return (
     <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label="Dates manquantes" data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
-      <details open className="vgp-repli">
+      <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
       <summary className="vgp-titre">Dates manquantes <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
       {cartes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Toutes les copropriétés concernées ont leur dernière AGO et leur date d’arrêté des comptes.</p> : <>
         <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
@@ -359,7 +375,7 @@ function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent
 }
 
 /** 🔴 Arno (24/11/2026) — « Restitutions faites (N) », repliée, en bas de page : l'historique, avec « Annuler » (journalisé) en cas d'erreur. */
-function RestitutionsFaites({ faites, onAnnule }: { faites: readonly RestitutionFaite[]; onAnnule: () => void }) {
+function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: readonly RestitutionFaite[]; onAnnule: () => void } & Repli) {
   const [confirmer, setConfirmer] = useState<number | null>(null);
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
@@ -372,7 +388,7 @@ function RestitutionsFaites({ faites, onAnnule }: { faites: readonly Restitution
   };
   return (
     <section className="vgp-bloc vgp-faites" aria-label={TITRE_RESTITUTIONS_FAITES} data-vgp-faites={faites.length}>
-      <details className="vgp-repli">
+      <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         <summary className="vgp-titre">{TITRE_RESTITUTIONS_FAITES} ({faites.length})</summary>
         {faites.length === 0 ? <p className="loc-muet" data-vgp-faites-aucune>Aucune restitution enregistrée.</p> : (
           <ul className="vgp-liste">{faites.map((f) => (

@@ -366,3 +366,20 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
     || lignes.some((l) => cleDeLaLigne(l, lu.manquantes) === m.cle));
   return { ...lu, lignes, manquantes, ...(lu.faites !== undefined ? { faites: lu.faites.filter((f) => correspondRecherche([...f.locataires, f.logement], q)) } : {}) };
 }
+
+// ══ 🔴🔴 Arno (25/11/2026) — « PAR DÉFAUT TOUTES LES LIGNES DE CHAQUE CATÉGORIE SONT FERMÉES » ═══════════════════════════════════════════════════════
+/** Les blocs repliables qui suivent la recherche : les cinq catégories et « Restitutions faites ». */
+export type BlocRepliableVingt = CategorieVingt | 'faites';
+/**
+ * À l'ouverture de la page, tout est replié ; une recherche tapée ouvre les blocs qui ont des résultats ; effacée, tout se replie (`[]`). PUR.
+ */
+export function blocsOuvertsPourRecherche(lu: SuiviVingtLu, q: string): BlocRepliableVingt[] {
+  if (!rechercheActive(q)) return [];
+  const vu = filtrerVingtPourcent(lu, q);
+  const cl = classerVingtPourcent(vu);
+  return [
+    ...(vu.manquantes.length > 0 ? ['manquantes' as const] : []),
+    ...(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => cl[k].length > 0),
+    ...((vu.faites ?? []).length > 0 ? ['faites' as const] : []),
+  ];
+}

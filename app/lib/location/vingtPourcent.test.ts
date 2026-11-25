@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -221,5 +221,21 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche', () => {
     expect(filtrerVingtPourcent(lu, 'ecoles').manquantes.map((m) => m.cle)).toEqual(['copro-9']);
     expect(filtrerVingtPourcent(lu, 'zoe').faites?.map((f) => f.id)).toEqual([1]);
     expect(filtrerVingtPourcent(lu, 'zoe').lignes).toEqual([]);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « par défaut toutes les lignes de chaque catégorie sont fermées » : la recherche ouvre les blocs qui ont des résultats. */
+describe('🔴🔴 Arno (25/11/2026) — les blocs ouverts par la recherche', () => {
+  const ok = (sortieId: number, ago: string, locataires: string[]): LigneVingtPourcent => ({ sortieId, lotId: sortieId, locataires, logement: `${sortieId} rue Test`, dateSortie: '2026-01-15',
+    valideLe: '2026-01-20', copropriete: { id: 1, libelle: 'Copro', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
+    suivi: { etat: 'ok', exercice: '2025-12-31', ago: { date: ago, statut: 'projetee' }, incertaine: false, limite: ajouterMois(ago, 1), alerte: 'a_venir', joursRestants: 0 } });
+  const lu = { aujourdhui: '2026-11-24', manquantes: [], lignes: [ok(1, '2026-09-01', ['URGENT Ana']), ok(2, '2027-09-01', ['ATTENTE Bob'])],
+    faites: [{ id: 1, sortieId: 3, locataires: ['FAIT Zoé'], logement: '8 rue Haute', dateSortie: '2026-01-01', date: '2026-11-01', montantRestitue: 1, montantRetenuCharges: null, commentaire: null, par: 'x', le: '2026-11-01 10:00' }] };
+  it('sans recherche (ou que des espaces) : rien d’ouvert ; avec : les blocs qui ont des résultats, dans l’ordre de l’écran', () => {
+    expect(blocsOuvertsPourRecherche(lu, '')).toEqual([]);
+    expect(blocsOuvertsPourRecherche(lu, '   ')).toEqual([]);
+    expect(blocsOuvertsPourRecherche(lu, 'ana')).toEqual(['urgence']);
+    expect(blocsOuvertsPourRecherche(lu, 'rue')).toEqual(['urgence', 'en_attente', 'faites']);
+    expect(blocsOuvertsPourRecherche(lu, 'introuvable')).toEqual([]);
   });
 });
