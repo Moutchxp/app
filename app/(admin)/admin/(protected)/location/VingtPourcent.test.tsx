@@ -47,7 +47,8 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(lectures[0]).toMatch(/^\/api\/admin\/gestion\/preavis\?vingtPourcent=1/);
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
     // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates manquantes » toujours en tête)
-    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites', 'Alerte du lundi']);
+    // 🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
+    expect(blocs).toEqual(['Dates manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     // 🔴 (Arno, 24/11/2026, 23h40) un bloc de trois lignes : l'immeuble, les locataires concernés, ce qui manque (orange)
@@ -208,7 +209,7 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
   it('« Restitutions faites (1) » repliée en bas de page : la restitution, puis « Annuler » → confirmation → POST d’annulation', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
-    expect(blocs.slice(-2)).toEqual(['Restitutions faites', 'Alerte du lundi']);
+    expect(blocs.at(-1)).toBe('Restitutions faites'); // 🔴 (25/11/2026) la dernière, l'alerte du lundi étant passée en deuxième
     const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
     expect(d.open).toBe(false);
     expect(d.querySelector('summary')?.textContent).toBe('Restitutions faites (1)');
@@ -484,7 +485,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     expect(champ.compareDocumentPosition(container.querySelector('[data-vgp-categorie]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.querySelector('h1')!.compareDocumentPosition(champ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await taper('LÉO dur');
-    expect(visibles()).toEqual(['Urgence', 'Alerte du lundi']);
+    expect(visibles()).toEqual(['Alerte du lundi', 'Urgence']);
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
     await taper('martin');
     expect(visibles()).toEqual(['Dates manquantes', 'Alerte du lundi']);
@@ -497,7 +498,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
     expect((container.querySelector('[data-vgp-recherche]') as HTMLInputElement).value).toBe('');
     expect(container.querySelector('[data-vgp-aucun-resultat]')).toBeNull();
-    expect(visibles().slice(0, 5)).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
+    expect(visibles().slice(0, 6)).toEqual(['Dates manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
     expect(readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8')).not.toContain('recherche');
   });
 });
@@ -575,5 +576,26 @@ describe('🔴🔴 Arno (25/11/2026) — tout replié à l’ouverture', () => {
     await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); }); await calmer();
     expect(lectures).toHaveLength(2);
     expect(ouverts()).toEqual(['En attente']);
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » ; son contenu ne change pas. */
+describe('🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position', () => {
+  it('ordre : Dates manquantes, Alerte du lundi, Urgence, AG passée, À préparer, En attente, Restitutions faites ; l’alerte garde son contenu', async () => {
+    donnees = { ...LU, faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(
+      ['Dates manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
+    const a = container.querySelector('[data-vgp-alerte-lundi]')!;
+    expect(a.querySelector('summary')?.textContent).toBe('Alerte du lundi');
+    expect(a.textContent).toContain('Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.');
+    expect(a.querySelector('[data-vgp-alerte-essai]')?.textContent).toBe('Voir le mail tel qu’il partirait (essai : rien n’est envoyé)');
+    expect((a.querySelector('details') as HTMLDetailsElement).open).toBe(false);
+  });
+  it('sans « Dates manquantes » (recherche qui ne les trouve pas), l’alerte passe en tête', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'dupont'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'En attente']);
   });
 });

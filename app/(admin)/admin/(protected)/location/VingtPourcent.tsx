@@ -97,13 +97,14 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
             return <>
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
               {!(active && vu.manquantes.length === 0) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
+              {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates manquantes » (contenu inchangé) */}
+              <AlerteDuLundi api={api} />
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
                 .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
               {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
               {!(active && (vu.faites ?? []).length === 0) && <RestitutionsFaites key={`faites:${replis}`} {...ouvert('faites')} faites={vu.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />}
             </>;
           })()}
-          <AlerteDuLundi api={api} />
         </GestesLigne.Provider>}
       {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
         onFermer={(fait) => { setRestituer(null); if (fait) setVersion((v) => v + 1); }} />}
