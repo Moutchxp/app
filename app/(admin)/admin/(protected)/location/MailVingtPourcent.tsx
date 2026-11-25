@@ -72,7 +72,8 @@ export function brouillonsDuModele(base: BrouillonEcran, l: LigneVingtPourcent, 
     : sansDoublon((l.contacts?.proprietaires ?? []).map((p) => p.email ?? '').filter((x) => x !== ''));
   const noms = (gens: readonly { nom: string }[] | undefined, repli: readonly string[]): string[] => ((gens ?? []).length > 0 ? gens!.map((p) => p.nom) : [...repli]);
   const { objet, texte } = texteModeleVingt(cle, {
-    copro: l.copropriete?.libelle ?? l.logement ?? `Bien ${l.lotId}`, logement: l.logement ?? `Bien ${l.lotId}`, numLot: l.numLot ?? null,
+    // 🔴 (Arno, 25/11/2026) l'adresse du bien (une seule fois), le nom de la copropriété (cité s'il diffère), les lots, bâtiment et étage de la fiche
+    logement: l.logement ?? `Bien ${l.lotId}`, coproNom: l.copropriete?.nom ?? null, numLots: l.numLots ?? [], batiment: l.batiment ?? null, etage: l.etage ?? null,
     exercice: l.suivi.exercice, ago: l.suivi.etat === 'ok' ? l.suivi.ago : null, dateSortie: l.dateSortie,
     locataires: noms(l.contacts?.locataires, l.locataires),
     // 🔴 (Arno, 25/11/2026) les propriétaires « civilité Prénom NOM » (fiche)

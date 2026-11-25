@@ -1359,8 +1359,8 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     await choisir('syndic');
     expect(modules()).toEqual(['syndic@exemple.test']);
     let b = derniers(1)[0].brouillon;
-    expect(b.objet).toBe('Date de la prochaine AGO — Copro A');
-    expect(b.corps).toContain('Nous sommes le cabinet CRITERIMMO, gestionnaire du lot situé 1 rue A, 92800 Puteaux, pour le compte de notre client M. Jean DURAND, copropriétaire de la résidence Copro A');
+    expect(b.objet).toBe('Date de la prochaine AGO — 1 rue A, 92800 Puteaux');
+    expect(b.corps).toContain('Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte de notre client M. Jean DURAND, du lot situé 1 rue A, 92800 Puteaux. Notre client est copropriétaire dans cette résidence');
     expect(b.corps.trim().endsWith('— Gestion')).toBe(true);
     expect(b.vingtPourcent).toEqual({ sortieId: 5 });
     await choisir('proprietaire');

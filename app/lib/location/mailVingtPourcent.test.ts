@@ -48,48 +48,73 @@ describe('🔴🔴 le contrôle du serveur', () => {
   });
 });
 
-import { destinatairesModeleVingt, MODELES_VINGT, texteModeleVingt } from './mailVingtPourcent';
+import { destinatairesModeleVingt, MODELES_VINGT, nomDeResidence, texteModeleVingt } from './mailVingtPourcent';
 /** 🔴🔴 Arno (25/11/2026) — les quatre modèles validés : le texte exact, et les destinataires qu'ils sélectionnent d'office. */
 describe('🔴🔴 les quatre modèles', () => {
-  const D = { copro: 'Résidence Les Tilleuls, 3 rue A', logement: '3 rue A, 75011 Paris', exercice: '2026-06-30', ago: { date: '2026-12-10', statut: 'projetee' as const },
+  const D = { logement: '3 rue A, 75011 Paris', exercice: '2026-06-30', ago: { date: '2026-12-10', statut: 'projetee' as const },
     dateSortie: '2026-03-01', locataires: ['Alice DUPONT'], proprietaires: ['Jean DURAND'] };
   it('les libellés, dans l’ordre', () => {
     expect(MODELES_VINGT.map((m) => m.libelle)).toEqual(['Syndic — date de la prochaine AGO', 'Propriétaire — date de la prochaine AGO',
       'Syndic, propriétaire(s) en copie — date de la prochaine AGO', 'Locataire — restitution du solde effectuée']);
   });
-  // 🔴 (Arno, 25/11/2026) nouvelle présentation pour a et c ; plus aucune phrase d'estimation (a, b, c)
-  const INTRO1 = 'Nous sommes le cabinet CRITERIMMO, gestionnaire du lot n° 12 situé 3 rue A, 75011 Paris, pour le compte de notre client M. Jean DURAND, copropriétaire de la résidence Résidence Les Tilleuls, 3 rue A dont vous assurez le syndic de copropriété.';
-  const INTRO2 = 'Pour finaliser la restitution du solde du dépôt de garantie de son ancien locataire, nous avons besoin de la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice clos le 30/06/2026.';
+  // 🔴🔴 (Arno, 25/11/2026) — l'adresse UNE fois ; « connaître » ; lots, bâtiment et étage de la fiche ; nom de copropriété seulement s'il diffère
   const QUESTION = 'Pourriez-vous nous indiquer la date retenue, ou nous transmettre la convocation dès qu’elle sera disponible ?';
   const FIN = 'Nous vous remercions par avance et restons à votre disposition.';
-  const DS = { ...D, numLot: '12', proprietaires: ['M. Jean DURAND'] };
-  it('a. syndic : présentation du cabinet, du lot n°, de l’adresse et du client ; le locataire n’est pas nommé', () => {
-    expect(texteModeleVingt('syndic', DS)).toEqual({ objet: 'Date de la prochaine AGO — Résidence Les Tilleuls, 3 rue A', texte: [INTRO1, INTRO2, QUESTION, FIN].join('\n\n') });
-    expect(texteModeleVingt('syndic', DS).texte).not.toContain('Alice');
+  const RICHE = { ...D, numLots: ['12'], batiment: 'A', etage: '3', coproNom: 'Résidence Les Tilleuls', proprietaires: ['M. Jean DURAND'] };
+  const INTRO_RICHE = 'Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte de notre client M. Jean DURAND, du lot n° 12 (bâtiment A, 3e étage), situé 3 rue A, 75011 Paris. Notre client est copropriétaire dans la résidence Les Tilleuls, dont vous assurez le syndic de copropriété.';
+  const BESOIN = 'Pour finaliser la restitution du solde du dépôt de garantie de son ancien locataire, nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice clos le 30/06/2026.';
+  const nb = (t: string, x: string): number => t.split(x).length - 1;
+  it('a. lot avec bâtiment et étage, copropriété nommée : la présentation, l’adresse UNE fois, « Résidence » non doublé, le locataire non nommé', () => {
+    const r = texteModeleVingt('syndic', RICHE);
+    expect(r).toEqual({ objet: 'Date de la prochaine AGO — 3 rue A, 75011 Paris', texte: [INTRO_RICHE, BESOIN, QUESTION, FIN].join('\n\n') });
+    expect(nb(r.texte, '3 rue A')).toBe(1);
+    expect(r.texte).not.toMatch(/r[ée]sidence R[ée]sidence/i);
+    expect(r.texte).not.toContain('Alice');
   });
-  it('a. sans numéro de lot sur la fiche : « gestionnaire du lot situé … » ; plusieurs propriétaires : « de nos clients A et B, copropriétaires … de leur ancien locataire »', () => {
-    expect(texteModeleVingt('syndic', { ...DS, numLot: null }).texte).toContain('Nous sommes le cabinet CRITERIMMO, gestionnaire du lot situé 3 rue A, 75011 Paris, pour le compte');
-    expect(texteModeleVingt('syndic', { ...DS, numLot: '  ' }).texte).not.toContain('n°');
-    const t = texteModeleVingt('syndic', { ...DS, proprietaires: ['M. Jean DURAND', 'Mme Anne DURAND'] }).texte;
-    expect(t).toContain('pour le compte de nos clients M. Jean DURAND et Mme Anne DURAND, copropriétaires de la résidence');
+  it('a. sans lot, sans propriétaire, copropriété = l’adresse (la donnée d’essai) : « du lot situé … », « pour le compte de notre client, », « dans cette résidence »', () => {
+    const t = texteModeleVingt('syndic', { ...D, proprietaires: [], logement: '1 rue du Préavis de Test (FICTIF), 00000 TEST', coproNom: '1 rue du Préavis de Test (FICTIF)' }).texte;
+    expect(t.split('\n\n')[0]).toBe('Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte de notre client, du lot situé 1 rue du Préavis de Test (FICTIF), 00000 TEST. Notre client est copropriétaire dans cette résidence, dont vous assurez le syndic de copropriété.');
+    expect(nb(t, '1 rue du Préavis')).toBe(1);
+    expect(t).not.toMatch(/ ,|,,/);
+  });
+  it('a. lots multiples (le bien et ses annexes), bâtiment seul, étage seul, plusieurs propriétaires', () => {
+    expect(texteModeleVingt('syndic', { ...RICHE, numLots: ['12', '45', '78'], etage: null }).texte)
+      .toContain('des lots n° 12, 45 et 78 (bâtiment A), situés 3 rue A, 75011 Paris.');
+    expect(texteModeleVingt('syndic', { ...RICHE, batiment: null, etage: '0' }).texte).toContain('du lot n° 12 (rez-de-chaussée), situé 3 rue A');
+    expect(texteModeleVingt('syndic', { ...RICHE, batiment: ' ', etage: null }).texte).toContain('du lot n° 12, situé 3 rue A');
+    expect(texteModeleVingt('syndic', { ...RICHE, numLots: [], batiment: 'B', etage: null }).texte).toContain('du lot (bâtiment B) situé 3 rue A');
+    const t = texteModeleVingt('syndic', { ...RICHE, proprietaires: ['M. Jean DURAND', 'Mme Anne DURAND'] }).texte;
+    expect(t).toContain('pour le compte de nos clients M. Jean DURAND et Mme Anne DURAND, du lot n° 12');
+    expect(t).toContain('Nos clients sont copropriétaires dans la résidence Les Tilleuls');
     expect(t).toContain('du dépôt de garantie de leur ancien locataire');
-    expect(texteModeleVingt('syndic', { ...DS, exercice: null }).texte).toContain('les comptes de l’exercice concerné.');
   });
-  it('🔴 la phrase d’estimation n’est plus dans AUCUN modèle, quel que soit le statut de l’AGO', () => {
+  it('le nom de la copropriété : cité s’il diffère de l’adresse ; « Résidence » retiré en tête ; ni l’adresse ni une adresse qui la contient', () => {
+    expect(nomDeResidence('Résidence Les Tilleuls', '3 rue A, 75011 Paris')).toBe('Les Tilleuls');
+    expect(nomDeResidence('Les Jardins', '3 rue A, 75011 Paris')).toBe('Les Jardins');
+    expect(nomDeResidence('3 rue A', '3 rue A, 75011 Paris')).toBeNull();
+    expect(nomDeResidence('Résidence du 3 rue A', '3 Rue A, 75011 Paris')).toBeNull();
+    expect(nomDeResidence(null, '3 rue A')).toBeNull();
+    expect(nomDeResidence('  ', '3 rue A')).toBeNull();
+  });
+  it('🔴 « nous avons besoin de connaître la date » partout ; plus AUCUNE phrase d’estimation, quel que soit le statut de l’AGO', () => {
+    for (const cle of ['syndic', 'syndic_copie'] as const) expect(texteModeleVingt(cle, RICHE).texte).toContain('nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire');
     for (const statut of ['projetee', 'officielle'] as const) for (const cle of ['syndic', 'proprietaire', 'syndic_copie', 'locataire'] as const) {
-      const t = texteModeleVingt(cle, { ...DS, ago: { date: '2026-12-10', statut } }).texte;
-      expect(t, `${cle} ${statut}`).not.toMatch(/estim|aux environs|À défaut d’information/);
+      const t = texteModeleVingt(cle, { ...RICHE, ago: { date: '2026-12-10', statut } }).texte;
+      expect(t, `${cle} ${statut}`).not.toMatch(/estim|aux environs|À défaut d’information|besoin de la date/);
     }
   });
-  it('b. propriétaire : inchangé, hors la phrase d’estimation (singulier ; colocation au pluriel)', () => {
-    expect(texteModeleVingt('proprietaire', DS)).toEqual({ objet: 'Date de la prochaine AGO — 3 rue A, 75011 Paris', texte:
-      'Suite au départ de votre locataire Alice DUPONT le 01/03/2026, nous avons conservé 20 % de son dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice clos le 30/06/2026 par l’assemblée générale de la copropriété Résidence Les Tilleuls, 3 rue A.\n\n'
+  it('b. propriétaire : l’adresse dans l’objet seulement, la copropriété nommée si elle a un nom distinct ; pluriel des colocataires', () => {
+    expect(texteModeleVingt('proprietaire', RICHE)).toEqual({ objet: 'Date de la prochaine AGO — 3 rue A, 75011 Paris', texte:
+      'Suite au départ de votre locataire Alice DUPONT le 01/03/2026, nous avons conservé 20 % de son dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice clos le 30/06/2026 par l’assemblée générale de la copropriété Les Tilleuls.\n\n'
       + 'Si vous avez reçu la convocation, ou si vous en connaissez la date, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.\n\nMerci par avance.' });
-    expect(texteModeleVingt('proprietaire', { ...DS, locataires: ['Paul MARTIN', 'Léa MARTIN'] }).texte).toContain('Suite au départ de vos locataires Paul MARTIN et Léa MARTIN le 01/03/2026, nous avons conservé 20 % de leur dépôt');
+    expect(texteModeleVingt('proprietaire', { ...RICHE, coproNom: '3 rue A' }).texte).toContain('par l’assemblée générale de la copropriété.');
+    expect(texteModeleVingt('proprietaire', RICHE).texte).not.toContain('3 rue A');
+    expect(texteModeleVingt('proprietaire', { ...RICHE, locataires: ['Paul MARTIN', 'Léa MARTIN'] }).texte).toContain('Suite au départ de vos locataires Paul MARTIN et Léa MARTIN le 01/03/2026, nous avons conservé 20 % de leur dépôt');
   });
-  it('c. le modèle a, avec la ligne de copie juste avant les remerciements (un propriétaire ; plusieurs)', () => {
-    expect(texteModeleVingt('syndic_copie', DS).texte).toBe([INTRO1, INTRO2, QUESTION, 'M. Jean DURAND, propriétaire, est en copie de ce mail.', FIN].join('\n\n'));
-    expect(texteModeleVingt('syndic_copie', { ...DS, proprietaires: ['M. Jean DURAND', 'SCI Les Tilleuls'] }).texte)
+  it('c. le modèle a, avec la ligne de copie juste avant les remerciements (un propriétaire ; plusieurs) ; même objet', () => {
+    const c = texteModeleVingt('syndic_copie', RICHE);
+    expect(c).toEqual({ objet: 'Date de la prochaine AGO — 3 rue A, 75011 Paris', texte: [INTRO_RICHE, BESOIN, QUESTION, 'M. Jean DURAND, propriétaire, est en copie de ce mail.', FIN].join('\n\n') });
+    expect(texteModeleVingt('syndic_copie', { ...RICHE, proprietaires: ['M. Jean DURAND', 'SCI Les Tilleuls'] }).texte)
       .toContain('M. Jean DURAND et SCI Les Tilleuls, propriétaires, sont en copie de ce mail.\n\nNous vous remercions');
   });
   it('d. locataire : restitution enregistrée (montant retenu dit s’il existe) ; sinon les champs « [à compléter] »', () => {

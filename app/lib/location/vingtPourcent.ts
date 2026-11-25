@@ -120,13 +120,14 @@ export interface LigneVingtPourcent {
   lotId: number;
   /** 🔴 (Arno, 25/11/2026) la clé WIPPIMMO du bien (le bien pré-coché d'« Envoyer un mail ») ; absente : non lue */
   lotCle?: string | null;
-  /** 🔴 (Arno, 25/11/2026) le numéro du lot principal (fiche du bien), pour le mail au syndic ; absent ou `null` : non renseigné */
-  numLot?: string | null;
+  /** 🔴 (Arno, 25/11/2026) pour le mail au syndic (fiche du bien) : les numéros de lot (le bien, puis ses annexes rattachées), le bâtiment, l'étage */
+  numLots?: string[]; batiment?: string | null; etage?: string | null;
   locataires: string[];
   logement: string | null;
   dateSortie: string;
   valideLe: string;
-  copropriete: { id: number | null; libelle: string; aRattacher: boolean } | null;
+  /** `nom` (🔴 25/11/2026) : le nom de la copropriété (fiche), distinct de `libelle` (l'immeuble) ; absent : non lu */
+  copropriete: { id: number | null; libelle: string; aRattacher: boolean; nom?: string | null } | null;
   arrete: ArreteComptes | null;
   suivi: SuiviVingt;
   /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates / copropriétés manquantes » ; absente : déduite */

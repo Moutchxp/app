@@ -27,10 +27,18 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   const aujourdhui = j[0].j;
   if (!(await vingtPourcentDisponible())) return { aujourdhui, lignes: [], manquantes: [] };
   const avec513 = await restitutionVingtDisponible();
-  // 🔴 (Arno, 25/11/2026) le numéro du lot (fiche du bien) pour le mail au syndic ; colonne absente : non lu
+  // 🔴 (Arno, 25/11/2026) pour le mail au syndic : les numéros de lot (le bien et ses annexes rattachées), le bâtiment, l'étage ; colonne absente : non lu
   const avecNumLot = await colonneExisteMemo('gestion_annuaire_lot', 'num_lot_copro');
-  const { rows } = await query<{ id: string; lot_id: string; lot_cle: string | null; num_lot: string | null; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
-    `SELECT s.id::text, s.lot_id::text, lo.wippimmo_id::text AS lot_cle, ${avecNumLot ? "nullif(btrim(lo.num_lot_copro::text), '')" : 'NULL::text'} AS num_lot, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
+  const avecBatiment = await colonneExisteMemo('gestion_annuaire_lot', 'batiment');
+  const avecEtage = await colonneExisteMemo('gestion_annuaire_lot', 'etage');
+  const avecAnnexes = avecNumLot && await colonneExisteMemo('gestion_lot_annexe', 'annexe_id');
+  const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
+  const numAnnexe = "nullif(btrim(af.num_lot_copro::text), '')";
+  const sqlAnnexes = avecAnnexes ? `(SELECT array_agg(${numAnnexe} ORDER BY ax.id) FILTER (WHERE ${numAnnexe} IS NOT NULL)
+        FROM gestion_lot_annexe ax JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id${avecDetache ? ' AND af.annexe_detachee_le IS NULL' : ''})` : 'NULL::text[]';
+  const { rows } = await query<{ id: string; lot_id: string; lot_cle: string | null; num_lot: string | null; num_annexes: string[] | null; batiment: string | null; etage: string | null; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
+    `SELECT s.id::text, s.lot_id::text, lo.wippimmo_id::text AS lot_cle, ${avecNumLot ? "nullif(btrim(lo.num_lot_copro::text), '')" : 'NULL::text'} AS num_lot, ${sqlAnnexes} AS num_annexes,
+            ${avecBatiment ? "nullif(btrim(lo.batiment), '')" : 'NULL::text'} AS batiment, ${avecEtage ? "nullif(btrim(lo.etage), '')" : 'NULL::text'} AS etage, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
             (SELECT array_agg(l.nom ORDER BY l.nom_normalise) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.id = ANY(s.occupation_ids)) AS noms
@@ -53,12 +61,19 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   }
   const ids = [...new Set([...parLot.values()].map((x) => x.copro?.coproprieteId).filter((x): x is number => typeof x === 'number'))];
   const arretes = await arretesDe(ids);
+  // 🔴 (Arno, 25/11/2026) le NOM de la copropriété (distinct de `libelle`, qui porte l'immeuble) : le mail au syndic ne le cite que s'il diffère de l'adresse
+  const nomsCopro = new Map<number, string>();
+  if (ids.length > 0 && await colonneExisteMemo('gestion_copropriete', 'nom')) {
+    const { rows: n } = await query<{ id: string; nom: string | null }>(`SELECT id::text, nullif(btrim(nom), '') AS nom FROM gestion_copropriete WHERE id = ANY($1::bigint[])`, [ids]);
+    for (const x of n) if (x.nom !== null) nomsCopro.set(Number(x.id), x.nom);
+  }
   const lignes: LigneVingtPourcent[] = rows.map((r) => {
     const p = parLot.get(Number(r.lot_id))!;
     const arrete = p.copro?.coproprieteId != null ? arretes.get(p.copro.coproprieteId) ?? null : null;
     return {
-      sortieId: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, numLot: r.num_lot, locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
-      copropriete: p.copro.coproprieteId === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: false },
+      sortieId: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, numLots: [...new Set([r.num_lot, ...(r.num_annexes ?? [])].filter((x): x is string => x !== null))],
+      batiment: r.batiment, etage: r.etage, locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
+      copropriete: p.copro.coproprieteId === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: false, nom: nomsCopro.get(p.copro.coproprieteId) ?? null },
       arrete, suivi: suiviVingtPourcent({ dateSortie: r.date_sortie, valideLe: r.valide_le, arrete, officielles: p.officielles, aujourdhui }),
       cleCopro: p.copro.cle, immeuble: p.copro.immeuble,
       derniereAgo: [...p.officielles].filter((d) => d <= aujourdhui).pop() ?? null,

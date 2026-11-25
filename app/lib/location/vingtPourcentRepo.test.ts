@@ -106,3 +106,22 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
     expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
   });
 });
+
+/** 🔴 Arno (25/11/2026) — pour le mail au syndic : les numéros de lot (le bien, puis ses annexes rattachées), le bâtiment, l'étage, le nom de la copropriété. */
+describe('🔴 Arno (25/11/2026) — lots, bâtiment, étage, nom de la copropriété', () => {
+  it('lus sur la fiche (colonnes présentes) : numLots = le lot puis ses annexes non détachées, sans doublon ; nom de la copropriété à part de son libellé', async () => {
+    sorties = [{ id: '5', lot_id: '1', lot_cle: 'W1', num_lot: '12', num_annexes: ['45', '12', '78'], batiment: 'A', etage: '3', date_sortie: '2026-11-15', valide_le: '2026-11-20', logement: '1 rue A', noms: ['DUPONT Alice'] }];
+    query.mockImplementation(async (sql: string) => {
+      const s = sql.replace(/\s+/g, ' '); appels.push(s);
+      if (s.includes('AS j')) return { rows: [{ j: '2026-11-23' }] };
+      if (s.includes('FROM gestion_copropriete WHERE id = ANY')) return { rows: [{ id: '10', nom: 'Résidence Les Tilleuls' }] };
+      if (s.includes('FROM gestion_location_sortie_validee')) return { rows: sorties };
+      return { rows: [] };
+    });
+    const l = (await lireSuiviVingtPourcent()).lignes[0];
+    expect([l.numLots, l.batiment, l.etage, l.copropriete?.nom, l.copropriete?.libelle]).toEqual([['12', '45', '78'], 'A', '3', 'Résidence Les Tilleuls', 'Copro A']);
+    const s = appels.find((x) => x.includes('FROM gestion_location_sortie_validee'))!;
+    expect(s).toContain('FROM gestion_lot_annexe ax JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id AND af.annexe_detachee_le IS NULL');
+    expect(s).toContain("nullif(btrim(lo.batiment), '') AS batiment");
+  });
+});
