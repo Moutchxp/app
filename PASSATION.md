@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `e7817637`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `e7817637`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **64 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `c1cf0891`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `c1cf0891`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **68 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -328,7 +328,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   locataires proposés limités aux sortis `5ab06e63`, la conversation de la ligne `c0312cc7`, « Répondre » et module fermé `5a8c43c1`, « N mails
   échangés » sous la capsule AGO `9f31e125`, la passation `fbcbd36f`, la nouvelle règle Urgence / Alerte `2c97de46`, les échanges dans
   « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, les passations `e6c0c7b7` et `1bde3793`, les échanges dans
-  « Dates / copropriétés manquantes » `e7817637` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  « Dates / copropriétés manquantes » `e7817637`, la passation `108e8f84`, l'ordre du plus récent au plus ancien `3251b835`, l'œil des pièces
+  jointes `129d9e81`, les mails fermés par défaut `c1cf0891` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -345,13 +346,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `c44bc880`) : `npm test` VERT du premier coup (1 873 fichiers, 28 050 tests, 21 ignorés, 93 s ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-S.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
+- **Contrôles** (dernier lot, `c1cf0891`) : `npm test` VERT du premier coup (1 873 fichiers, 28 055 tests, 21 ignorés, 93 s ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-V.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
   (`npm-test-complet-25-11-L2.txt`) — la passe précédente (`npm-test-complet-25-11-L.txt`) avait rougi sur deux GARDES de
   la Location (`<select>` natif, mot « HistoriqueDuBien » dans un commentaire), corrigées par `cfdf2faf` ; le flake connu `PreavisAccueil.test.tsx`
   (3 061 ms) est revenu une fois en suite filtrée, fichier seul vert deux fois. Chrome recette, ordinateur et 390 px, clair et sombre, APERÇU SEULEMENT :
   aucun mail envoyé, aucun POST d'écriture (seul l'appel de LECTURE `POST /api/admin/gestion/classement` du module, bloqué par le garde de
-  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `c44bc880`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
+  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `c1cf0891`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
   table des restitutions de la recette inchangée (2 lignes du 24/11). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
@@ -1000,6 +1001,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       rouge 13 (4 + 3 + 6), verte 7 (4 + 3) ; niveau 1 « N mails échangés » sous la capsule sur chaque ligne à mails ; niveau 2 conversation visible
       (dont « Dates manquantes » et « Restitutions faites ») ; niveau 3 « Répondre » prérempli — « Envoyer » jamais cliqué, aucun brouillon.
       Captures `25-11-U-*`.
+    · Demande d'Arno du 25/11, 21h24 (trois commits, tout dans `EchangesVingt.tsx`, PROPRE à l'écran ; la boîte Gestion ne change pas) :
+      `3251b835` « Échanges (N) » du plus RÉCENT au plus ancien (plusRecentDabord à l'affichage ; fusion chronologique gardée ; mails pas encore
+      capturés en tête ; bandeau « Envoyé depuis cette page » au-dessus de son mail) — lignes, « Dates manquantes », « Restitutions faites » ;
+      `129d9e81` l'ŒIL des pièces jointes : la carte PiecesJointes (partagée) l'affiche dès qu'on lui passe onVisualiser — la boîte Gestion le
+      passait déjà (œil déjà présent, RIEN ajouté là-bas), les échanges non ; il ouvre la liseuse habituelle ApercuFichierDrive (source « piece »,
+      Précédent / Suivant entre les pièces de la conversation, sans « Ranger dans le Drive ») ; `c1cf0891` mails FERMÉS par défaut (plus
+      d'ouverture auto du dernier sur cet écran), l'en-tête de la carte (bouton pleine largeur, inchangé) ouvre / referme d'un clic, « Répondre »
+      et « ⋮ » à côté n'ouvrent rien, plusieurs ouverts possibles. Vérifié dans Chrome sur « _TEST JEU 20 POURCENT Alerte officielle » (8 mails,
+      PDF factice affiché dans la liseuse), ordinateur et 390 px, clair et sombre. Captures `25-11-V-*`.
+      ⚠️ Brouillons 171 (21:29) et 172 (21:30) en recette, « nouveau », auteur Arnaud Jorel (le compte de la session), destinataires
+      a.jorel+syndic / +proprio, objet « Date de la prochaine AGO — 58 rue _TEST JEU … » : PAS écrits par les vérifications (aucune action Chrome
+      entre 21:23 et 21:33) — très probablement les essais d'Arno ; laissés tels quels.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
