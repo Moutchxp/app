@@ -25,3 +25,24 @@ describe('la date d’arrêté des comptes (module pur)', () => {
     expect(joursDuMois(12)).toBe(31);
   });
 });
+
+/** 🔴 (Arno, 25/11/2026, 23h13) — « afficher la date de clôture des comptes en toutes lettres, par exemple "1er MARS" » (écran seulement). */
+describe('🔴 arreteEnLettres', () => {
+  it('1er, 2, 28 février, 29, 30, 31 ; mois en MAJUSCULES avec leurs accents', async () => {
+    const { arreteEnLettres } = await import('./arreteComptes');
+    expect(arreteEnLettres({ jour: 1, mois: 3 })).toBe('1er MARS');
+    expect(arreteEnLettres({ jour: 1, mois: 1 })).toBe('1er JANVIER');
+    expect(arreteEnLettres({ jour: 2, mois: 5 })).toBe('2 MAI');
+    expect(arreteEnLettres({ jour: 15, mois: 6 })).toBe('15 JUIN');
+    expect(arreteEnLettres({ jour: 28, mois: 2 })).toBe('28 FÉVRIER');
+    expect(arreteEnLettres({ jour: 29, mois: 2 })).toBe('29 FÉVRIER');            // jamais saisi (le 29/02 est refusé), mais écrit sans erreur
+    expect(arreteEnLettres({ jour: 31, mois: 8 })).toBe('31 AOÛT');
+    expect(arreteEnLettres({ jour: 30, mois: 9 })).toBe('30 SEPTEMBRE');
+    expect(arreteEnLettres({ jour: 31, mois: 12 })).toBe('31 DÉCEMBRE');
+    expect(arreteEnLettres(null)).toBe('non renseignée');
+  });
+  it('le format en chiffres reste celui du journal et du mail aux partenaires de la sortie', async () => {
+    const { arreteFr } = await import('./arreteComptes');
+    expect(arreteFr({ jour: 1, mois: 3 })).toBe('01/03');
+  });
+});

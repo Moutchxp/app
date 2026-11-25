@@ -23,7 +23,7 @@ import {
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
-import { LIBELLE_ARRETE_COMPTES, arreteFr } from '../../../../lib/location/arreteComptes';
+import { LIBELLE_ARRETE_COMPTES, arreteEnLettres } from '../../../../lib/location/arreteComptes';
 import { AgSortie, ARRETE_AUCUNE_COPROPRIETE, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
 import { avecMentionAgLocataire, moisAnnee, quandRestitution, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
@@ -53,7 +53,7 @@ const montantVingtDit = (m: MontantVingt): string => `${montantFr(m.montant)} ($
 
 /** 🔴🔴 Arno (24/11/2026) — « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de l'AGO projetée » : la valeur de la
  *  rubrique « Date d'arrêté des comptes » du récapitulatif, lue sur la copropriété (« 31/12 », « non renseignée », « aucune copropriété rattachée »). PUR. */
-export const valeurArreteRecap = (lu: Pick<LuAgSortie, 'copropriete' | 'arrete'>): string => (lu.copropriete === null ? ARRETE_AUCUNE_COPROPRIETE : arreteFr(lu.arrete));
+export const valeurArreteRecap = (lu: Pick<LuAgSortie, 'copropriete' | 'arrete'>): string => (lu.copropriete === null ? ARRETE_AUCUNE_COPROPRIETE : arreteEnLettres(lu.arrete));
 
 /** Les lignes AG du récapitulatif et du résultat (avec la copropriété, ou « à rattacher »). `arrete` : la rubrique de l'arrêté des comptes, juste
  *  avant « Dernière AGO » (récapitulatif seulement). */

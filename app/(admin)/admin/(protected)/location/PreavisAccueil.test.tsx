@@ -3741,7 +3741,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   // 🔴🔴 Arno (24/11/2026) — « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de l'AGO projetée »
   it('récapitulatif : « Date d’arrêté des comptes » juste avant « Dernière AGO » — « 31/12 », « non renseignée », « aucune copropriété rattachée »', async () => {
     const rubriques = (): string[] => [...document.querySelectorAll('[data-resume-validation] > div')].map((x) => x.querySelector('dt')?.textContent ?? '');
-    const cas: [Record<string, unknown>, string][] = [[{ arrete: { jour: 31, mois: 12 } }, '31/12'], [{ arrete: null }, 'non renseignée'],
+    const cas: [Record<string, unknown>, string][] = [[{ arrete: { jour: 31, mois: 12 } }, '31 DÉCEMBRE'], [{ arrete: null }, 'non renseignée'],
       [{ copropriete: null, arrete: null }, 'aucune copropriété rattachée']];
     for (const [o, attendu] of cas) {
       luAg = LU(o);

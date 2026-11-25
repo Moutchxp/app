@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import {
-  AIDE_ARRETE_COMPTES, arreteFr, joursDuMois, LIBELLE_ARRETE_COMPTES, MOIS_FR, verifierArrete, type ArreteComptesLu,
+  AIDE_ARRETE_COMPTES, arreteEnLettres, arreteFr, joursDuMois, LIBELLE_ARRETE_COMPTES, MOIS_FR, verifierArrete, type ArreteComptesLu,
 } from '../../../../lib/location/arreteComptes';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 
@@ -77,7 +77,7 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
       <p className={`arc-arrete-ligne arc-arrete-ligne--grande${alerteSiManquante && d.arrete === null ? ' arc-bandeau' : ''}`} {...(alerteSiManquante && d.arrete === null ? { role: 'status', 'data-arrete-bandeau': '' } : {})}>
         {alerteSiManquante && d.arrete === null && '⚠ '}<span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {d.arrete === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
-          : <strong data-arrete-valeur={arreteFr(d.arrete)}>{arreteFr(d.arrete)}</strong>}
+          : <strong data-arrete-valeur={arreteFr(d.arrete)}>{arreteEnLettres(d.arrete)}</strong>}
         {alerteSiManquante && d.arrete === null && <> — {MOT_ARRETE_MANQUANT}</>}
       </p>
       {d.arrete !== null && d.par !== null && (
@@ -127,6 +127,8 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
 export const CSS_ARRETE_COMPTES = `
 .arc-arrete{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0 0 10px}
 .arc-arrete-ligne{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
+/* (Arno, 25/11/2026, 23h13) la date en toutes lettres ne se coupe jamais entre le jour et le mois (« 1er MARS ») */
+.arc-arrete-ligne strong[data-arrete-valeur]{white-space:nowrap}
 .arc-arrete--manquante{padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft)}
 .arc-bandeau{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .arc-arrete-libelle{font-weight:800}
@@ -161,7 +163,7 @@ export function ArreteComptesLocal({ valeur, onChange, desactive = false }: { va
       <p className="arc-arrete-ligne arc-arrete-ligne--grande">
         <span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {valeur === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
-          : <strong data-arrete-valeur={arreteFr(valeur)}>{arreteFr(valeur)}</strong>}
+          : <strong data-arrete-valeur={arreteFr(valeur)}>{arreteEnLettres(valeur)}</strong>}
       </p>
       {valeur !== null && <p className="loc-muet arc-arrete-qui" data-arrete-qui>{MOT_ARRETE_AVEC_LA_FICHE}</p>}
       {!edition ? (

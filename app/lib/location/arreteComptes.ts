@@ -29,5 +29,13 @@ export function verifierArrete(jour: unknown, mois: unknown): { ok: true; arrete
   return { ok: true, arrete: { jour: j, mois: m } };
 }
 
-/** « 31/12 » ; `null` : « non renseignée ». PUR. */
+/** « 31/12 » ; `null` : « non renseignée ». Gardé pour le journal (valeurs avant / après) et le mail aux partenaires de la sortie. PUR. */
 export const arreteFr = (a: ArreteComptes | null): string => (a === null ? 'non renseignée' : `${String(a.jour).padStart(2, '0')}/${String(a.mois).padStart(2, '0')}`);
+
+/**
+ * 🔴 (Arno, 25/11/2026, 23h13) — « ici il faut afficher la date de clôture des comptes en toutes lettres, par exemple "1er MARS" » : le jour en chiffres
+ * (« 1er » pour le premier du mois), puis le mois en lettres MAJUSCULES, accents compris (« 15 JUIN », « 28 FÉVRIER », « 31 AOÛT », « 31 DÉCEMBRE »).
+ * Pour l'ÉCRAN seulement (fenêtre de sortie, récapitulatif, fiche Copropriété) ; `null` : « non renseignée ». PUR.
+ */
+export const arreteEnLettres = (a: ArreteComptes | null): string =>
+  (a === null ? 'non renseignée' : `${a.jour === 1 ? '1er' : String(a.jour)} ${(MOIS_FR[a.mois - 1] ?? '').toLocaleUpperCase('fr-FR')}`.trim());

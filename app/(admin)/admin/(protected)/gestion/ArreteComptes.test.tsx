@@ -40,7 +40,7 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
     await choisir('[data-arrete-jour]', '31');
     await clic('[data-arrete-enregistrer]');
     expect(posts).toEqual([{ action: 'arrete-comptes', coproprieteId: 7, jour: '31', mois: '12' }]);
-    expect(container.querySelector('[data-arrete-valeur]')?.textContent).toBe('31/12');
+    expect(container.querySelector('[data-arrete-valeur]')?.textContent).toBe('31 DÉCEMBRE'); // 🔴 (23h13) en toutes lettres à l'écran
     expect(container.querySelector('[data-arrete-enregistree]')).not.toBeNull();
   });
   it('saisie incomplète : le message après la tentative, rien n’est envoyé ; « Annuler » referme', async () => {
@@ -57,7 +57,7 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
   it('renseignée : la date, qui l’a saisie ; « Modifier » prérempli ; juin n’offre que 30 jours', async () => {
     lu = { arrete: { jour: 30, mois: 6 }, par: 'arno@exemple.fr', le: '2026-11-20T09:00:00.000Z', disponible: true };
     await rendre();
-    expect(container.querySelector('[data-arrete-valeur]')?.textContent).toBe('30/06');
+    expect(container.querySelector('[data-arrete-valeur]')?.textContent).toBe('30 JUIN'); // 🔴 (23h13) en toutes lettres à l'écran
     await clic('[data-arrete-modifier]');
     expect((container.querySelector('[data-arrete-jour]') as HTMLSelectElement).value).toBe('30');
     expect((container.querySelector('[data-arrete-mois]') as HTMLSelectElement).value).toBe('6');
@@ -141,7 +141,7 @@ describe('🔴 la date en gros, la légende dessous', () => {
     lu = { arrete: { jour: 1, mois: 3 }, par: 'Arnaud Jorel', le: '2026-11-23T09:00:00.000Z', disponible: true };
     await rendre();
     const l1 = container.querySelector('.arc-arrete-ligne') as HTMLElement;
-    expect(l1.textContent).toBe('Date d’arrêté des comptes : 01/03');
+    expect(l1.textContent).toBe('Date d’arrêté des comptes : 1er MARS'); // 🔴 (Arno, 23h13) « 1er MARS »
     expect(l1.classList.contains('arc-arrete-ligne--grande')).toBe(true);
     const l2 = container.querySelector('[data-arrete-qui]') as HTMLElement;
     expect(l2.textContent).toBe('saisie par Arnaud JOREL le 23/11/2026');

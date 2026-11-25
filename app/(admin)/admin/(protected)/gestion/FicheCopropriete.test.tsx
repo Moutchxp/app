@@ -686,7 +686,7 @@ describe('🔴 les messages verts de la fiche Copropriété', () => {
     await clic('[data-fcp-ag] [data-arrete-modifier]');
     await choisir('[data-fcp-ag] [data-arrete-mois]', '12'); await choisir('[data-fcp-ag] [data-arrete-jour]', '31');
     await clic('[data-fcp-ag] [data-arrete-enregistrer]');
-    expect($('[data-fcp-info]').textContent).toBe('Date d’arrêté des comptes enregistrée : 31/12.');
+    expect($('[data-fcp-info]').textContent).toBe('Date d’arrêté des comptes enregistrée : 31 DÉCEMBRE.'); // 🔴 (23h13) en toutes lettres
   });
   it('« Valider » : rien de changé → « Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout. » (la requête part comme avant) ; un changement → « Fiche copropriété enregistrée. »', async () => {
     await ouvrir();

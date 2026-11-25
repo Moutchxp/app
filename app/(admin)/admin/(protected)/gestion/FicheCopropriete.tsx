@@ -8,7 +8,7 @@ import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { AgCopropriete, AgFicheNouvelle } from './AgCopropriete';
 import { ArreteComptes, ArreteComptesLocal } from './ArreteComptes';
 import { dateFr, type SaisiePv } from '../../../../lib/location/agCopropriete';
-import { arreteFr } from '../../../../lib/location/arreteComptes';
+import { arreteEnLettres } from '../../../../lib/location/arreteComptes';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
@@ -52,7 +52,7 @@ const versEdition = (f: Fiche): ContactEdit[] => f.contacts.map((c) => ({ cle: c
 export const MOT_FICHE_ENREGISTREE = 'Fiche copropriété enregistrée.';
 export const MOT_AUCUNE_MODIFICATION = 'Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout.';
 export const motDateAgEnregistree = (jour: string): string => `Date d’AG du ${dateFr(jour)} enregistrée.`;
-export const motArreteEnregistre = (a: { jour: number; mois: number } | null): string => (a === null ? 'Date d’arrêté des comptes effacée.' : `Date d’arrêté des comptes enregistrée : ${arreteFr(a)}.`);
+export const motArreteEnregistre = (a: { jour: number; mois: number } | null): string => (a === null ? 'Date d’arrêté des comptes effacée.' : `Date d’arrêté des comptes enregistrée : ${arreteEnLettres(a)}.`);
 /** Ce que « Valider » enregistre, figé pour savoir si quelque chose a changé depuis l'ouverture (la clé locale des contacts n'en fait pas partie). PUR. */
 const signatureSaisie = (x: { nom: string; hors: boolean; adresses: readonly Adresse[]; contacts: readonly ContactEdit[]; syndic: number | null; retrait: boolean }): string =>
   JSON.stringify({ nom: x.nom.trim(), hors: x.hors, adresses: x.adresses, contacts: x.contacts.map(({ cle: _c, ...c }) => c), syndic: x.syndic, retrait: x.retrait });
