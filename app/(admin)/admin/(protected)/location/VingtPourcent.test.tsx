@@ -1143,3 +1143,30 @@ describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer u
     expect(src).toContain("const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });");
   });
 });
+
+/** 🔴 Arno (25/11/2026) — le compteur de « AGO passée » et de « AGO < 1 mois – À préparer » : une pastille à fond VERT, comme les rouges des autres. */
+describe('🔴 Arno (25/11/2026) — pastilles vertes de « AGO passée » et « AGO < 1 mois – À préparer »', () => {
+  const L = (sortieId: number, ago: string, limite: string) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [`V ${sortieId}`], cleCopro: 'copro-10',
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' as const }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
+  it('vertes quand la catégorie a des locataires ; grises à 0 ; les autres catégories gardent leur pastille (rouge / grise)', async () => {
+    donnees = { ...LU, lignes: [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2027-09-01', '2027-10-01')] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const cls = (cat: string) => container.querySelector(`[data-vgp-categorie="${cat}"] summary [data-vgp-compteur]`)?.className;
+    expect(cls('ag_passee')).toBe('vgp-pastille vgp-pastille--vert');
+    expect(cls('a_preparer')).toBe('vgp-pastille vgp-pastille--vert');
+    expect(cls('urgence')).toBe('vgp-pastille');
+    expect(cls('en_attente')).toBe('loc-pastille');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = LU;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-categorie="ag_passee"] summary [data-vgp-compteur]')?.className).toBe('loc-pastille');
+  });
+  it('texte lisible en clair et en sombre : chiffre --color-svv-surface sur --color-svv-green-ink (≥ 4,5:1)', () => {
+    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8')).toContain('.vgp-pastille.vgp-pastille--vert{background:var(--color-svv-green-ink)}');
+    const css = readFileSync('app/globals.css', 'utf8');
+    const v = (n: string): string[] => [...css.matchAll(new RegExp(`${n}:\\s*(#[0-9a-fA-F]{6})`, 'g'))].map((m) => m[1]);
+    const lum = (h: string): number => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const ct = (a: string, b: string): number => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    for (const i of [0, 1]) expect(ct(v('--color-svv-surface')[i], v('--color-svv-green-ink')[i]), `thème ${i}`).toBeGreaterThanOrEqual(4.5);
+  });
+});

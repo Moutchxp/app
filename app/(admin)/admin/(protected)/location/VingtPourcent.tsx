@@ -135,6 +135,8 @@ type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
 function Categorie({ cle, lignes, aujourdhui, onRestituer, ouvert, onBasculer, children }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[];
   aujourdhui: string; onRestituer: (l: LigneVingtPourcent) => void; children?: ReactNode } & Repli) {
   const rouge = (cle === 'urgence' || cle === 'retard') && lignes.length > 0;
+  // 🔴 (Arno, 25/11/2026) « AGO passée » et « AGO < 1 mois – À préparer » : le compteur devient une pastille à fond VERT (grise à 0, comme les rouges)
+  const vert = (cle === 'ag_passee' || cle === 'a_preparer') && lignes.length > 0;
   // 🔴🔴 Arno (25/11/2026) — « lorsque l'on clique sur l'un des deux cartouches AGO à droite de la ligne de catégorie, il ne doit s'afficher que les
   //    locataires concernés par ce statut, et pas l'autre ; lorsque l'on clique ailleurs sur la ligne, ne pas changer le comportement actuel ».
   //    Filtre PROPRE à la catégorie (état local : retiré au rechargement, et quand la recherche est effacée — la catégorie est alors remontée) ;
@@ -159,7 +161,7 @@ function Categorie({ cle, lignes, aujourdhui, onRestituer, ouvert, onBasculer, c
     <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${rouge ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-filtre={actif ?? ''} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         {/* un clic ailleurs sur l'en-tête : le comportement d'avant (ouvrir / fermer, tout le contenu) — le filtre est retiré */}
-        <summary className="vgp-titre" onClick={() => setFiltre(null)}>{TITRES_CATEGORIES[cle]} <span className={rouge ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
+        <summary className="vgp-titre" onClick={() => setFiltre(null)}>{TITRES_CATEGORIES[cle]} <span className={rouge ? 'vgp-pastille' : vert ? 'vgp-pastille vgp-pastille--vert' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
           {/* 🔴🔴 Arno (25/11/2026) — deux capsules empilées, visibles même repliée : verte « AGO officielle · N », rouge « AGO projetée · N » ; à 0, grisée */}
           <span className="vgp-capsules" data-vgp-capsules>
             {capsule('officielle', 'vert', 'AGO officielle')}
@@ -575,6 +577,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-dl dd.vgp-depasse{color:var(--color-svv-red);font-weight:800}
 .vgp-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vgp-pastille{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:.8rem;font-weight:800}
+.vgp-pastille.vgp-pastille--vert{background:var(--color-svv-green-ink)}
 .vgp-aide{margin:0;font-size:.9rem}
 .vgp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
 .vgp-carte{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere}
