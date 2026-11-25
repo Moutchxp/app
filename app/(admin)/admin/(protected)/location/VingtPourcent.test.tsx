@@ -89,18 +89,18 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
 });
 
 describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Location avec pastille', () => {
-  it('la pastille ROUGE dit le nombre de copropriétés à compléter ; le bouton ouvre la pleine page', async () => {
+  it('la pastille ROUGE dit le total des alertes (🔴 25/11 : 1 copropriété à compléter + DURAND Léo en urgence) ; le bouton ouvre la pleine page', async () => {
     await rendre(createElement(BoutonVingtPourcent));
     const b = container.querySelector('a[data-bouton-vingt-pourcent]')!;
     expect(b.getAttribute('href')).toBe('/admin/location/vingt-pourcent');
-    expect(b.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
+    expect(b.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('2');
     expect(lectures[0]).toMatch(/^\/api\/admin\/location\?vingtPourcent=1/);
   });
   it('AUCUNE pastille à 0', async () => {
-    donnees = { ...LU, manquantes: [] };
+    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId !== 7) };
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('a[data-bouton-vingt-pourcent]')).not.toBeNull();
-    expect(container.querySelector('[data-pastille-vingt-pourcent]')).toBeNull();
+    expect(container.querySelector('[data-pastille-vingt-total]')).toBeNull();
   });
   it('accueil Location : le bouton est dans la zone « actions » de la ligne de titre, rien d’autre ne change', () => {
     const page = readFileSync('app/(admin)/admin/(protected)/location/page.tsx', 'utf8');
@@ -129,7 +129,7 @@ describe('🔴 Arno (23/11/2026) — « Bien sans copropriété » dans « Dates
     expect(m.querySelector('[data-vgp-completer]')).not.toBeNull();
     act(() => root.unmount()); root = createRoot(container);
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('2');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('3'); // 2 copropriétés + DURAND Léo en urgence
   });
 });
 
@@ -246,29 +246,27 @@ describe('🔴🔴 Arno (24/11/2026) — la pastille « Urgence » (accueil Loca
   const urgence = { sortieId: 21, lotId: 21, locataires: ['URG Ent'], logement: null, dateSortie: '2026-03-01', valideLe: '2026-03-03',
     copropriete: { id: 60, libelle: 'Copro U', aRattacher: false }, arrete: { jour: 30, mois: 6 }, cleCopro: 'copro-60',
     suivi: { etat: 'ok' as const, exercice: '2026-06-30', ago: { date: '2026-09-15', statut: 'officielle' as const }, incertaine: false, limite: '2026-10-15', alerte: 'depassee' as const, joursRestants: -39 } };
-  it('accueil Location : la pastille des copropriétés reste (1), la pastille « Urgence » s’ajoute (rouge vif) ; aucune à 0', async () => {
+  it('accueil Location : les locataires en urgence comptent dans la pastille unique (🔴 25/11 : plus de seconde pastille)', async () => {
     donnees = { ...LU, lignes: [...LU.lignes, urgence, { ...urgence, sortieId: 22 }] };
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
-    const u = container.querySelector('[data-pastille-vingt-urgence]')!;
-    // les deux ajoutées + DURAND Léo (date provisoire dépassée, décision du 24/11 23h20)
-    expect([u.textContent, u.className]).toEqual(['3', 'bvp-pastille bvp-pastille--urgence']);
-    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence — 1 copropriété en attente de données');
+    // les deux ajoutées + DURAND Léo (date provisoire dépassée, décision du 24/11 23h20) + 1 copropriété
+    const t = container.querySelector('[data-pastille-vingt-total]')!;
+    expect([t.textContent, t.className]).toEqual(['4', 'bvp-pastille']);
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence · 1 copropriété à compléter');
     act(() => root.unmount()); root = createRoot(container);
     donnees = { ...LU, lignes: LU.lignes.filter((l) => l.sortieId !== 7) }; // personne en urgence
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-urgence]')).toBeNull();
-    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('1');
   });
-  it('colonne de gauche de la Gestion : les deux pastilles sur « 20 % à restituer », lues sur la route de la Gestion ; le reste inchangé', () => {
+  it('colonne de gauche de la Gestion : la pastille unique sur « 20 % à restituer », lue sur la route de la Gestion ; le reste inchangé', () => {
     const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
     expect(g).toContain('const pastillesVingt = usePastillesVingt(API_PREAVIS_GESTION);');
     expect(g).toContain('vingtCopros={pastillesVingt.copros}');
     expect(g).toContain('vingtUrgences={pastillesVingt.urgences}');
     const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
     const entree = s.slice(s.indexOf('data-raccourci="vingt-pourcent"'), s.indexOf('{onSyndics && ('));
-    expect(entree).toContain('data-pastille-vingt-copros');
-    expect(entree).toContain('className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-urgence');
+    expect(entree).toContain('className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total}');
+    expect(entree).not.toContain('data-pastille-vingt-copros');
     expect(readFileSync('app/globals.css', 'utf8').match(/--color-svv-rouge-vif:/g)).toHaveLength(3); // clair, sombre, système
   });
 });
@@ -715,8 +713,8 @@ describe('🔴 Arno (25/11/2026) — la pastille « Urgence » compte des locata
     const coloc = { ...LU.lignes[1], sortieId: 31, lotId: 31, locataires: ['COLOC Un', 'COLOC Deux'] };
     donnees = { ...LU, lignes: [...LU.lignes, coloc] };
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-urgence]')?.textContent).toBe('3');
-    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence — 1 copropriété en attente de données');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('4'); // 3 locataires en urgence + 1 copropriété (🔴 25/11 pastille unique)
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence · 1 copropriété à compléter');
     act(() => root.unmount()); root = createRoot(container);
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('3');
@@ -765,10 +763,10 @@ describe('🔴 Arno (25/11/2026, 10h14) — le bloc des dates manquantes seuleme
     await taper('');
     expect(blocs()[0]).toBe('manquantes');
   });
-  it('la pastille de l’accueil reste celle d’aujourd’hui (masquée à 0)', async () => {
-    donnees = { ...LU, manquantes: [] };
+  it('la pastille de l’accueil reste masquée à 0', async () => {
+    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId !== 7) };
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-pourcent]')).toBeNull();
+    expect(container.querySelector('[data-pastille-vingt-total]')).toBeNull();
   });
 });
 
@@ -783,5 +781,48 @@ describe('🔴 Arno (25/11/2026, 10h14) — « Dates / copropriétés manquantes
     for (const f of ['app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'app/lib/location/vingtPourcent.ts', 'app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx',
       'app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'app/lib/location/alerteVingt.ts']) expect(readFileSync(f, 'utf8'), f).not.toMatch(/[Dd]ates manquantes/);
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8')).toContain('date limite de restitution, dates / copropriétés manquantes');
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes » (bouton de l'accueil Location ET entrée de la colonne de gauche de la Gestion). */
+describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les alertes', () => {
+  const urgents = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LU.lignes[1], sortieId: 100 + i, lotId: 100 + i, locataires: [`URG ${i}`] }));
+  const copros = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LU.manquantes[0], cle: `copro-${200 + i}`, coproprieteId: 200 + i }));
+  it('accueil Location : UNE pastille rouge vif en haut à droite, total = urgences + copropriétés (2 + 4 = 6) ; le détail au survol et pour les lecteurs d’écran', async () => {
+    donnees = { ...LU, manquantes: copros(4), lignes: urgents(2) };
+    await rendre(createElement(BoutonVingtPourcent));
+    const b = container.querySelector('a[data-bouton-vingt-pourcent]')!;
+    const p = b.querySelectorAll('.bvp-pastille');
+    expect(p).toHaveLength(1);
+    expect(p[0].textContent).toBe('6');
+    expect(p[0].getAttribute('title')).toBe('2 locataires en urgence · 4 copropriétés à compléter');
+    expect(b.getAttribute('aria-label')).toBe('20 % à restituer — 2 locataires en urgence · 4 copropriétés à compléter');
+    const css = readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8');
+    expect(css).toContain('.bvp-pastille{position:absolute;top:-8px;right:-8px;');
+    expect(css).toContain('background:var(--color-svv-rouge-vif)');
+    expect(css).not.toContain('bvp-pastille--urgence');
+  });
+  it('un seul côté : « 1 locataire en urgence · 0 copropriété à compléter » ; masquée à 0 (nom accessible : le titre seul)', async () => {
+    donnees = { ...LU, manquantes: [], lignes: urgents(1) };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-total]')?.getAttribute('title')).toBe('1 locataire en urgence · 0 copropriété à compléter');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = { ...LU, manquantes: [], lignes: [] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('.bvp-pastille')).toBeNull();
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer');
+  });
+  it('colonne de gauche de la Gestion : une seule pastille, même total, même détail au survol et pour les lecteurs d’écran', () => {
+    const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
+    const entree = s.slice(s.indexOf('data-raccourci="vingt-pourcent"'), s.indexOf('{onSyndics && ('));
+    expect(entree.match(/cm-pastille-jour/g)).toHaveLength(1);
+    expect(entree).toContain("pastilleVingt({ urgences: vingtUrgences, copros: vingtCopros })");
+    expect(entree).toContain('title={p.detail} aria-label={p.detail}>{p.total}</span>); })()}');
+    expect(entree).not.toMatch(/data-pastille-vingt-(copros|urgence)/);
+  });
+  it('les compteurs de l’écran « 20 % à restituer » ne changent pas', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
   });
 });

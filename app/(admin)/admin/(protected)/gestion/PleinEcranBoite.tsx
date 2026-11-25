@@ -14,6 +14,7 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { preremplirDemande, type DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
+import { pastilleVingt } from '../../../../lib/location/vingtPourcent';
 // La traduction « brouillon en base → brouillon d'éditeur », PURE et éprouvée sans écran.
 import { cleFenetreBrouillon, reprendreBrouillon, type BrouillonEnregistre as BrouillonLu }
   from '../../../../lib/gestion/brouillonReprise';
@@ -1064,15 +1065,10 @@ export function PleinEcranBoite({
                   onClick={() => { onVingtPourcent(); setPanneauMobile('contenu'); }}
                   title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates / copropriétés manquantes">
                   <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
-                  {/* 🔴 Arno (24/11/2026) — les copropriétés à compléter (rouge) et, en plus, les locataires en « Urgence » (rouge vif) */}
-                  {(vingtCopros > 0 || vingtUrgences > 0) && <span className="cm-pastilles">
-                  {vingtCopros > 0 && (
-                    <span className="cm-pastille-jour" data-pastille-vingt-copros aria-label={`${vingtCopros} copropriété${vingtCopros > 1 ? 's' : ''} à compléter`}>{vingtCopros}</span>
-                  )}
-                  {vingtUrgences > 0 && (
-                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-urgence aria-label={`${vingtUrgences} locataire${vingtUrgences > 1 ? 's' : ''} en urgence`}>{vingtUrgences}</span>
-                  )}
-                  </span>}
+                  {/* 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes » : UNE pastille rouge vif, total =
+                      locataires en urgence + copropriétés à compléter (masquée à 0), le détail au survol et pour les lecteurs d'écran */}
+                  {(() => { const p = pastilleVingt({ urgences: vingtUrgences, copros: vingtCopros }); return p.total > 0 && (
+                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total} title={p.detail} aria-label={p.detail}>{p.total}</span>); })()}
                 </button>
               </li>
             )}

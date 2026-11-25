@@ -371,6 +371,17 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
   return { ...lu, lignes, manquantes, ...(lu.faites !== undefined ? { faites: lu.faites.filter((f) => correspondRecherche([...f.locataires, f.logement], q)) } : {}) };
 }
 
+// ══ 🔴 Arno (25/11/2026) — « FAIRE UNE SEULE CAPSULE ROUGE QUI CUMULE LE NOMBRE D'ALERTES » ══════════════════════════════════════════════════════
+/**
+ * La pastille unique du bouton « 20 % à restituer » (accueil Location, colonne de gauche de la Gestion) : total = locataires en « Urgence » +
+ * copropriétés à compléter (0 : pas de pastille) ; le détail, au survol et pour les lecteurs d'écran : « 2 locataires en urgence · 4 copropriétés à
+ * compléter ». PUR.
+ */
+export function pastilleVingt(n: { urgences: number; copros: number }): { total: number; detail: string } {
+  const u = n.urgences; const c = n.copros;
+  return { total: u + c, detail: `${u} locataire${u > 1 ? 's' : ''} en urgence · ${c} copropriété${c > 1 ? 's' : ''} à compléter` };
+}
+
 // ══ 🔴 Arno (25/11/2026, 10h14) — « LE BLOC DATES MANQUANTES NE DOIT APPARAÎTRE QUE S'IL CONTIENT DES LOCATAIRES » ═══════════════════════════════
 /**
  * Le bloc est montré seulement si au moins un locataire en attente des 20 % s'y trouve : un nom sur une copropriété à compléter, ou une ligne sans

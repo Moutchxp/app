@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -262,5 +262,14 @@ describe('🔴 Arno (25/11/2026, 10h14) — datesManquantesVisibles', () => {
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', [])] })).toBe(false);
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', ['A'])] })).toBe(true);
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [sansDate], manquantes: [] })).toBe(true);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes ». */
+describe('🔴🔴 Arno (25/11/2026) — pastilleVingt', () => {
+  it('total = urgences + copropriétés ; détail au singulier / pluriel', () => {
+    expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '2 locataires en urgence · 4 copropriétés à compléter' });
+    expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '1 locataire en urgence · 1 copropriété à compléter' });
+    expect(pastilleVingt({ urgences: 0, copros: 0 }).total).toBe(0);
   });
 });
