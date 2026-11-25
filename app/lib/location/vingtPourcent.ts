@@ -341,6 +341,22 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
 }
 
 /**
+ * 🔴🔴 Arno (25/11/2026) — « lorsque l'on enregistre la validation de restitution, il faut afficher une modale qui indique qu'en confirmant son choix
+ * l'utilisateur confirme que la restitution de la somme d'argent est effective, que ce locataire sortira du suivi de restitution et qu'il passera
+ * dans l'historique "Restitutions faites" » : le texte de la confirmation (le montant retenu seulement s'il est saisi). PUR.
+ */
+export const TITRE_CONFIRMER_RESTITUTION = 'Confirmer la restitution';
+export function texteConfirmationRestitution(o: { noms: readonly string[]; date: string; montantRestitue: number; montantRetenuCharges: number | null }): string[] {
+  const noms = o.noms.length === 0 ? 'ce locataire' : o.noms.length === 1 ? o.noms[0] : `${o.noms.slice(0, -1).join(', ')} et ${o.noms[o.noms.length - 1]}`;
+  const plusieurs = o.noms.length > 1;
+  const d = `${o.date.slice(8, 10)}/${o.date.slice(5, 7)}/${o.date.slice(0, 4)}`;
+  return [
+    `En confirmant, vous attestez que la restitution de ${montantFr(o.montantRestitue)} à ${noms} a bien été effectuée le ${d}. ${plusieurs ? 'Ces locataires sortiront' : 'Ce locataire sortira'} du suivi des 20 % et ${plusieurs ? 'passeront' : 'passera'} dans l’historique « ${TITRE_RESTITUTIONS_FAITES} ».`,
+    ...(o.montantRetenuCharges !== null ? [`Montant retenu au titre des charges : ${montantFr(o.montantRetenuCharges)}.`] : []),
+  ];
+}
+
+/**
  * 🔴 Arno (24/11/2026) — la seconde pastille (accueil Location, colonne de gauche) : le nombre de locataires en « Urgence » (0 : aucune pastille).
  * 🔴 (Arno, 25/11/2026) « compter en locataires partout » : des LOCATAIRES (colocataires un par un), le même total que le compteur de la catégorie
  * (avant : des sorties). PUR.

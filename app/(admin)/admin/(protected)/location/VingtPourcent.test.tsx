@@ -11,6 +11,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
   FicheCopropriete: (p: { immeuble?: string | null; onFerme: () => void }) => { fiche(p); return createElement('button', { 'data-stub-fiche': p.immeuble ?? '', onClick: p.onFerme }, 'fermer'); },
 }));
 const { EcranVingtPourcent } = await import('./VingtPourcent');
+const { texteConfirmationRestitution } = await import('../../../../lib/location/vingtPourcent');
 const { BoutonVingtPourcent } = await import('./BoutonVingtPourcent');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -204,6 +205,9 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
     await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '312,50'); });
     await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'Virement _TEST'); });
     await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); }); await calmer();
+    // 🔴 (25/11/2026) la confirmation d'abord : rien n'est écrit avant « Confirmer la restitution »
+    expect(posts).toEqual([]);
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
     expect(posts).toEqual([{ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantRetenuCharges: '', commentaire: 'Virement _TEST' }]);
     expect((global.fetch as unknown as { mock: { calls: [string, RequestInit | undefined][] } }).mock.calls.find(([, i]) => i?.method === 'POST')?.[0]).toBe('/api/admin/location');
     expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
@@ -1053,5 +1057,89 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules AGO filtrent la catégorie
     expect(det().open).toBe(false); // tout se replie (décision du 25/11), filtre compris
     await act(async () => { det().open = true; det().dispatchEvent(new Event('toggle')); });
     expect(vues().sort((a, b) => a - b)).toEqual([31, 32, 33]);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « lorsque l'on enregistre la validation de restitution, il faut afficher une modale qui indique qu'en confirmant son choix
+ * l'utilisateur confirme que la restitution de la somme d'argent est effective, que ce locataire sortira du suivi de restitution et qu'il passera
+ * dans l'historique "Restitutions faites" ».
+ */
+describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer une restitution', () => {
+  let posts: Record<string, unknown>[];
+  let resoudre: (() => void) | null;
+  beforeEach(() => {
+    posts = []; resoudre = null;
+    donnees = { ...LU, restitutionDisponible: true, faites: [], lignes: [{ ...LU.lignes[0], contacts: { locataires: [{ nom: 'Alice DUPONT', email: null, telephone: null }], proprietaires: [] } }, LU.lignes[1], LU.lignes[2]] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        await new Promise<void>((r) => { resoudre = r; }); // l'enregistrement « prend du temps » : un double clic tombe pendant l'envoi
+        return { status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response;
+      }
+      lectures.push(String(u));
+      return { status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  const saisir = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const ouvrir = async (montant: string, retenu = '') => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    const f = container.querySelector('[data-fenetre-restitution="5"]')!;
+    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, montant); });
+    if (retenu !== '') await act(async () => { saisir(f.querySelector('[data-restitution-retenu]') as HTMLInputElement, retenu); });
+    await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'Virement _TEST'); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    return f;
+  };
+  const conf = () => container.querySelector('[data-confirmation-restitution="5"]');
+  it('après les contrôles du formulaire : la confirmation, son titre et son texte (sans montant retenu) ; rien n’est écrit', async () => {
+    await ouvrir('312,50');
+    expect(conf()?.querySelector('[role="alertdialog"] h2')?.textContent).toBe('Confirmer la restitution');
+    expect([...conf()!.querySelectorAll('[data-confirmation-texte]')].map((p) => p.textContent)).toEqual([
+      'En confirmant, vous attestez que la restitution de 312,50 € à Alice DUPONT a bien été effectuée le 23/11/2026. Ce locataire sortira du suivi des 20 % et passera dans l’historique « Restitutions faites ».']);
+    expect([...conf()!.querySelectorAll('button')].map((b) => [b.textContent, b.className])).toEqual([
+      ['Revenir', 'svv-btn svv-btn-outline gst-btn'], ['Confirmer la restitution', 'svv-btn svv-btn-primary gst-btn']]);
+    expect(posts).toEqual([]);
+  });
+  it('un formulaire incomplet ne va pas jusqu’à la confirmation (contrôles habituels)', async () => {
+    await ouvrir('');
+    expect(conf()).toBeNull();
+    expect(container.querySelector('[data-restitution-refus]')?.textContent).toContain('Indiquez le montant restitué');
+  });
+  it('avec un montant retenu : la phrase « Montant retenu au titre des charges : … € »', async () => {
+    await ouvrir('300', '40');
+    expect([...conf()!.querySelectorAll('[data-confirmation-texte]')].map((p) => p.textContent)).toEqual([
+      'En confirmant, vous attestez que la restitution de 300,00 € à Alice DUPONT a bien été effectuée le 23/11/2026. Ce locataire sortira du suivi des 20 % et passera dans l’historique « Restitutions faites ».',
+      'Montant retenu au titre des charges : 40,00 €.']);
+  });
+  it('« Revenir » : la confirmation se ferme, rien n’est écrit, la saisie est conservée', async () => {
+    const f = await ouvrir('312,50', '40');
+    await act(async () => { (container.querySelector('[data-confirmation-revenir]') as HTMLButtonElement).click(); });
+    expect(conf()).toBeNull();
+    expect(posts).toEqual([]);
+    expect([(f.querySelector('[data-restitution-montant]') as HTMLInputElement).value, (f.querySelector('[data-restitution-retenu]') as HTMLInputElement).value,
+      (f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement).value]).toEqual(['312,50', '40', 'Virement _TEST']);
+    expect(container.querySelector('[data-fenetre-restitution="5"]')).not.toBeNull();
+  });
+  it('« Confirmer la restitution » : UN enregistrement, même sur un double clic ; puis la fenêtre se ferme et la liste se relit', async () => {
+    await ouvrir('312,50');
+    const b = container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement;
+    await act(async () => { b.click(); b.click(); });
+    await act(async () => { b.click(); });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toEqual({ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantRetenuCharges: '', commentaire: 'Virement _TEST' });
+    await act(async () => { resoudre?.(); }); await calmer();
+    expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
+    expect(lectures).toHaveLength(2);
+  });
+  it('colocataires : « A et B », au pluriel ; l’annulation depuis « Restitutions faites » est inchangée (sans confirmation nouvelle)', () => {
+    expect(texteConfirmationRestitution({ noms: ['Paul MARTIN', 'Léa MARTIN'], date: '2026-11-20', montantRestitue: 100, montantRetenuCharges: null })).toEqual([
+      'En confirmant, vous attestez que la restitution de 100,00 € à Paul MARTIN et Léa MARTIN a bien été effectuée le 20/11/2026. Ces locataires sortiront du suivi des 20 % et passeront dans l’historique « Restitutions faites ».']);
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(src).toContain("const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });");
   });
 });

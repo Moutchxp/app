@@ -1,12 +1,12 @@
 'use client';
 
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  agoAConfirmer, agoOfficielleDuDossier, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -384,20 +384,37 @@ function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent
   const [commentaire, setCommentaire] = useState('');
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // 🔴🔴 Arno (25/11/2026) — « Enregistrer la restitution » (après les contrôles du formulaire) ouvre une CONFIRMATION par-dessus ; rien n'est écrit
+  //    avant « Confirmer la restitution » ; « Revenir » la ferme, la saisie est gardée. Un seul enregistrement, même sur un double clic (`enCours`).
+  const [aConfirmer, setAConfirmer] = useState<{ date: string; montantRestitue: number; montantRetenuCharges: number | null } | null>(null);
+  const enCours = useRef(false);
+  const confirmId = useId();
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi) onFermer(false); };
+    const clavier = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || envoi) return;
+      if (aConfirmer !== null) setAConfirmer(null); else onFermer(false); // Échap : d'abord « Revenir »
+    };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
-  }, [envoi, onFermer]);
-  const enregistrer = async (): Promise<void> => {
+  }, [envoi, onFermer, aConfirmer]);
+  const enregistrer = (): void => {
     const v = verifierRestitution({ date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire }, { dateSortie: l.dateSortie, aujourdhui });
     if (!v.ok) { setRefus(v.motif); return; }
+    setRefus(null);
+    setAConfirmer({ date: v.valeur.date, montantRestitue: v.valeur.montantRestitue, montantRetenuCharges: v.valeur.montantRetenuCharges });
+  };
+  const confirmer = async (): Promise<void> => {
+    if (enCours.current) return;
+    enCours.current = true;
     setEnvoi(true); setRefus(null);
     const motif = await geste({ action: 'restitution-20-faite', sortieId: l.sortieId, date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire });
     setEnvoi(false);
-    if (motif !== null) { setRefus(motif); return; }
+    enCours.current = false;
+    if (motif !== null) { setRefus(motif); setAConfirmer(null); return; }
     onFermer(true);
   };
+  // « Prénom NOM » : les coordonnées du dossier quand elles sont lues, sinon le nom de la ligne
+  const noms = (l.contacts?.locataires ?? []).length > 0 ? l.contacts!.locataires.map((p) => p.nom) : l.locataires;
   return (
     <div className="vgp-voile" data-fenetre-restitution={l.sortieId}>
       <div className="vgp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId}>
@@ -415,10 +432,22 @@ function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent
         {refus !== null && <p className="cp-refus" role="alert" data-restitution-refus>{refus}</p>}
         <div className="vgp-actions">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onFermer(false)} disabled={envoi} data-restitution-annuler>Annuler</button>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }} disabled={envoi} data-restitution-enregistrer>
-            {envoi ? 'Enregistrement…' : 'Enregistrer la restitution'}</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={enregistrer} disabled={envoi || aConfirmer !== null} data-restitution-enregistrer>
+            Enregistrer la restitution</button>
         </div>
       </div>
+      {aConfirmer !== null && (
+        <div className="vgp-voile vgp-voile--confirmation" data-confirmation-restitution={l.sortieId}>
+          <div className="vgp-boite vgp-boite--confirmation" role="alertdialog" aria-modal="true" aria-labelledby={confirmId}>
+            <h2 id={confirmId} className="vgp-titre">{TITRE_CONFIRMER_RESTITUTION}</h2>
+            {texteConfirmationRestitution({ noms, ...aConfirmer }).map((t, i) => <p key={i} className="vgp-aide" data-confirmation-texte>{t}</p>)}
+            <div className="vgp-actions">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(null)} disabled={envoi} data-confirmation-revenir autoFocus>Revenir</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void confirmer(); }} disabled={envoi} data-confirmation-confirmer>
+                {envoi ? 'Enregistrement…' : TITRE_CONFIRMER_RESTITUTION}</button>
+            </div>
+          </div>
+        </div>)}
     </div>
   );
 }
@@ -614,6 +643,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .vgp-boite{width:min(560px,100%);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.vgp-voile.vgp-voile--confirmation{z-index:91}
 .vgp-champ{display:flex;flex-direction:column;gap:3px;font-size:.88rem;font-weight:700;min-width:0}
 .vgp-champ input,.vgp-champ textarea{min-height:44px;box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;
   background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:400}
