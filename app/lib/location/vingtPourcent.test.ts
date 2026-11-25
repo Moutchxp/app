@@ -91,7 +91,7 @@ describe('ce qui sert au calcul, et l’alerte', () => {
   });
 });
 
-describe('🔴 la rubrique « Dates manquantes » (règle 5)', () => {
+describe('🔴 la rubrique « Dates / copropriétés manquantes » (règle 5)', () => {
   const copro = (cle: string, libelle: string, id: number | null = 1) => ({ cle, coproprieteId: id, libelle, immeuble: libelle, lotId: 9 });
   it('ce qui manque, les locataires (noms, sans doublon) ; une copropriété complète n’y figure pas ; triée par nom', () => {
     expect(datesManquantes([
@@ -131,7 +131,7 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     expect(categorieVingt(ligne(plus(1)), AUJ)).toBe('a_preparer');
     expect(categorieVingt(ligne(plus(200), 'officielle'), AUJ)).toBe('a_preparer');
   });
-  // 🔴🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable restent dans « Dates manquantes » ; une date
+  // 🔴🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable restent dans « Dates / copropriétés manquantes » ; une date
   // PROVISOIRE (dernière AGO connue, arrêté manquant ; ou bien sans copropriété avec une AGO connue) classe dans la catégorie réelle
   it('a : SEULEMENT sans aucune date calculable ; une date provisoire classe dans la catégorie réelle', () => {
     expect(categorieVingt(ligne(null), AUJ)).toBe('manquantes');

@@ -125,7 +125,7 @@ export interface LigneVingtPourcent {
   copropriete: { id: number | null; libelle: string; aRattacher: boolean } | null;
   arrete: ArreteComptes | null;
   suivi: SuiviVingt;
-  /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates manquantes » ; absente : déduite */
+  /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates / copropriétés manquantes » ; absente : déduite */
   cleCopro?: string;
   /** 🔴 (Arno, 24/11/2026, 23h16) l'immeuble par lequel la fiche Copropriété s'ouvre (`null` : par le bien, `lotId`) ; et la dernière AGO tenue */
   immeuble?: string | null;
@@ -194,10 +194,10 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  * « classer les locataires sortis avec retenue de 20 % en catégories exclusives (un locataire = une seule catégorie, la plus avancée), chaque catégorie
  * triée de la restitution la plus urgente à la plus lointaine. » L'AG qui compte : celle du calcul b0453dc2 (`suiviVingtPourcent`) ; la date limite :
  * AG + 1 mois. Une ligne = une sortie validée (ses colocataires partagent le même dépôt et les mêmes dates).
- *   a. « Dates manquantes » — la copropriété n'a pas de dernière AGO et/ou pas de date d'arrêté des comptes, ou le bien n'a pas de copropriété ;
+ *   a. « Dates / copropriétés manquantes » — la copropriété n'a pas de dernière AGO et/ou pas de date d'arrêté des comptes, ou le bien n'a pas de copropriété ;
  *      🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable y restent ; une date PROVISOIRE calculable
  *      (dernière AGO connue, arrêté manquant) classe le locataire dans sa catégorie réelle (b à e), avec la mention « date provisoire — arrêté des
- *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates manquantes » et la pastille ;
+ *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates / copropriétés manquantes » et la pastille ;
  *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
  *   c. « AG passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
  *   d. « À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
@@ -207,7 +207,7 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
 export type CategorieVingt = 'manquantes' | 'urgence' | 'ag_passee' | 'a_preparer' | 'en_attente';
 export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'];
 export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
-  manquantes: 'Dates manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'À préparer', en_attente: 'En attente',
+  manquantes: 'Dates / copropriétés manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'À préparer', en_attente: 'En attente',
 };
 /** b / c : au-delà de AG + 20 jours, l'urgence. */
 export const JOURS_APRES_AG_URGENCE = 20;
@@ -220,7 +220,7 @@ export const datesIncompletes = (l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' 
 
 /** La catégorie d'une ligne à la date `aujourdhui` (AAAA-MM-JJ, Paris). PUR. */
 export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>, aujourdhui: string): CategorieVingt {
-  // 🔴 (Arno, 24/11/2026, 23h20) « Dates manquantes » : seulement sans AUCUNE date calculable
+  // 🔴 (Arno, 24/11/2026, 23h20) « Dates / copropriétés manquantes » : seulement sans AUCUNE date calculable
   if (l.suivi.etat !== 'ok') return 'manquantes';
   const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
   if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
@@ -351,7 +351,7 @@ export function compteAReboursVingt(s: { ago: { date: string }; limite: string; 
 /**
  * « Au-dessus du listing et sous le titre de la page, un champ de saisie de recherche qui trouve un bloc par nom du locataire, adresse du logement ou
  * nom du propriétaire » : sans accents ni majuscules, mots partiels (chaque mot tapé doit se trouver quelque part) ; sur toutes les catégories,
- * « Dates manquantes » (son immeuble, ses locataires, ou un de ses locataires concernés trouvé) et « Restitutions faites » comprises. PUR.
+ * « Dates / copropriétés manquantes » (son immeuble, ses locataires, ou un de ses locataires concernés trouvé) et « Restitutions faites » comprises. PUR.
  */
 export const PLACEHOLDER_RECHERCHE_VINGT = 'Rechercher un locataire, une adresse ou un propriétaire';
 const pourRecherche = (x: string): string => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -387,7 +387,7 @@ export function datesManquantesVisibles(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'l
  * « pour chaque bloc de catégorie, […] une capsule verte "AGO officielle" avec le nombre de locataires dont le dossier contient une AGO officielle, et
  * la même chose en rouge pour "AGO projetée" ; le cumul des deux doit être égal au chiffre indiqué à droite de l'intitulé ».
  * On compte des LOCATAIRES (une ligne = une sortie, ses colocataires ensemble ; une sortie sans nom compte pour un). Une date PROVISOIRE (arrêté
- * manquant) compte comme projetée, même si l'AG qu'elle retient est officielle. Une ligne sans date (« Dates manquantes ») compte comme projetée :
+ * manquant) compte comme projetée, même si l'AG qu'elle retient est officielle. Une ligne sans date (« Dates / copropriétés manquantes ») compte comme projetée :
  * elle n'est jamais dans ces catégories. PUR.
  */
 export const locatairesDeLaLigne = (l: Pick<LigneVingtPourcent, 'locataires'>): number => Math.max(1, l.locataires.length);

@@ -1062,7 +1062,7 @@ export function PleinEcranBoite({
               <li>
                 <button type="button" className="cm-entree" data-raccourci="vingt-pourcent"
                   onClick={() => { onVingtPourcent(); setPanneauMobile('contenu'); }}
-                  title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates manquantes">
+                  title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates / copropriétés manquantes">
                   <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
                   {/* 🔴 Arno (24/11/2026) — les copropriétés à compléter (rouge) et, en plus, les locataires en « Urgence » (rouge vif) */}
                   {(vingtCopros > 0 || vingtUrgences > 0) && <span className="cm-pastilles">

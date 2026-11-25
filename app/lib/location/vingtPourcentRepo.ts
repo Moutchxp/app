@@ -42,7 +42,7 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   for (const lotId of new Set(rows.map((r) => Number(r.lot_id)))) {
     const c = await contexteAgDuLot(lotId);
     const entrees = await entreesAg({ coproprieteId: c?.copropriete?.id ?? null, cle: c?.immeuble?.cle ?? null, lotId });
-    // 🔴 Arno (23/11/2026) — un bien SANS copropriété figure aussi dans « Dates manquantes » (sous « Bien sans copropriété », compté dans la pastille)
+    // 🔴 Arno (23/11/2026) — un bien SANS copropriété figure aussi dans « Dates / copropriétés manquantes » (sous « Bien sans copropriété », compté dans la pastille)
     const copro: CoproConcernee = c !== null && c.copropriete !== null ? { cle: `copro-${c.copropriete.id}`, coproprieteId: c.copropriete.id, libelle: c.copropriete.libelle, immeuble: c.copropriete.cle, lotId }
       : c !== null && c.immeuble !== null ? { cle: `immeuble-${c.immeuble.cle}`, coproprieteId: null, libelle: c.immeuble.libelle, immeuble: c.immeuble.cle, lotId }
         : { cle: `lot-${lotId}`, coproprieteId: null, libelle: `Bien ${lotId}`, immeuble: null, lotId };

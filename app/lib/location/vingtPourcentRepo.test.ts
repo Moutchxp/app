@@ -50,7 +50,7 @@ describe('lireSuiviVingtPourcent', () => {
     expect(a).toMatchObject({ locataires: ['DUPONT Alice'], copropriete: { id: 10, libelle: 'Copro A' }, arrete: { jour: 31, mois: 12 },
       suivi: { etat: 'ok', exercice: '2026-12-31', ago: { date: '2027-03-25', statut: 'projetee' }, limite: '2027-04-25' } });
   });
-  it('« Dates manquantes » : la copropriété sans AGO ni arrêté, avec ses locataires ; la copropriété complète n’y est pas', async () => {
+  it('« Dates / copropriétés manquantes » : la copropriété sans AGO ni arrêté, avec ses locataires ; la copropriété complète n’y est pas', async () => {
     const r = await lireSuiviVingtPourcent();
     expect(r.manquantes).toEqual([{ cle: 'copro-20', coproprieteId: 20, libelle: 'Copro B', immeuble: 'b', lotId: 2, manque: ['derniere_ago', 'arrete'], locataires: ['MARTIN Paul', 'MARTIN Léa'] }]);
     expect(r.lignes.find((l) => l.sortieId === 6)!.suivi).toEqual({ etat: 'sans_ago', exercice: null, mention: 'Dernière AGO inconnue' });
@@ -66,8 +66,8 @@ describe('lireSuiviVingtPourcent', () => {
       [5, { jour: 31, mois: 12 }, '2026-12-31'], [8, { jour: 31, mois: 12 }, '2026-12-31']]);
     expect(r.manquantes).toEqual([]);
   });
-  // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : le bien figure dans « Dates manquantes » sous « Bien sans copropriété » (compté)
-  it('un bien SANS copropriété : dans « Dates manquantes » (arrêté manquant), les dates gardées avec une sortie n’y comptent plus', async () => {
+  // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : le bien figure dans « Dates / copropriétés manquantes » sous « Bien sans copropriété » (compté)
+  it('un bien SANS copropriété : dans « Dates / copropriétés manquantes » (arrêté manquant), les dates gardées avec une sortie n’y comptent plus', async () => {
     sorties = [{ id: '12', lot_id: '9', date_sortie: '2026-11-10', valide_le: '2026-11-12', logement: '9 rue C', noms: ['SANS Copro'] }];
     const r = await lireSuiviVingtPourcent();
     expect(r.manquantes).toEqual([{ cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }]);

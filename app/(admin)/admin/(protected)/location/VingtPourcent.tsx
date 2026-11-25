@@ -17,7 +17,7 @@ import {
  * l'annuaire ; à sa fermeture la liste se relit : une copropriété complétée en sort). Puis les locataires sortis avec 20 % retenus : logement,
  * copropriété, date de sortie, exercice concerné, AGO qui compte (projetée / officielle, « incertaine » si besoin), limite de restitution,
  * alerte (toujours en mots). Tout est CALCULÉ à la lecture (`lireSuiviVingtPourcent`), rien n'est stocké par locataire. LECTURE SEULE.
- * 🔴🔴 Arno (24/11/2026) — CINQ CATÉGORIES EXCLUSIVES (`classerVingtPourcent`) : « Dates manquantes » (par copropriété, chaque locataire concerné
+ * 🔴🔴 Arno (24/11/2026) — CINQ CATÉGORIES EXCLUSIVES (`classerVingtPourcent`) : « Dates / copropriétés manquantes » (par copropriété, chaque locataire concerné
  * avec sa ligne complète dessous — rien n'est masqué), « Urgence », « AG passée — restitution à faire », « À préparer », « En attente » ; chacune
  * repliable, avec son compteur, triée de la restitution la plus urgente à la plus lointaine.
  * Le même écran sert la Location (`/api/admin/location`) et la Gestion (`/api/admin/gestion/preavis`). Jetons --color-svv-* ; cibles ≥ 44 px.
@@ -98,7 +98,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
               {/* 🔴 (Arno, 25/11/2026, 10h14) le bloc n'apparaît que s'il contient des locataires (et, en recherche, s'il y trouve quelque chose) */}
               {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
-              {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates manquantes » (contenu inchangé) */}
+              {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates / copropriétés manquantes » (contenu inchangé) */}
               <AlerteDuLundi api={api} />
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
                 .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
@@ -118,7 +118,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
 /**
  * 🔴🔴 Arno (25/11/2026) — « une couleur de trame de fond par catégorie, du moins urgent en vert au plus urgent, l'Alerte du lundi en rouge, en passant
  * par l'orange » : la teinte de chaque bloc (jetons --color-svv-vgp-<teinte>-fond / -accent de globals.css ; -accent = liseré ET fond du titre).
- * « Dates manquantes » garde son allure actuelle (pas de teinte).
+ * « Dates / copropriétés manquantes » garde son allure actuelle (pas de teinte).
  */
 export const TEINTES_BLOCS_VINGT = {
   alerte: 'alerte', urgence: 'urgence', ag_passee: 'agpassee', a_preparer: 'preparer', en_attente: 'attente', faites: 'faites',
@@ -181,7 +181,7 @@ function Coordonnees({ c, unSeulLocataire = false }: { c: ContactsSortie | undef
 const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'dernière AGO', arrete: 'arrêté des comptes' };
 
 /**
- * La rubrique « Dates manquantes » : en tête de l'écran.
+ * La rubrique « Dates / copropriétés manquantes » : en tête de l'écran.
  * 🔴🔴 Arno (24/11/2026, 23h40) — « pourquoi ces blocs sont aussi grands avec des boutons en doublon : réduire sur 3 lignes le bloc principal,
  * déployable comme les autres ; tous les blocs principaux doivent avoir la même taille ». UN bloc de trois lignes par copropriété à compléter
  * (TOUTES celles de la pastille, même si leurs locataires ont une date provisoire) : l'immeuble, les locataires concernés, ce qui manque (orange) ;
@@ -200,9 +200,9 @@ function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onR
   const triees = cartes.sort((a, b) => premiere(a).localeCompare(premiere(b)) || a.libelle.localeCompare(b.libelle, 'fr'));
   // 🔴 (Arno, 24/11/2026, 23h20) le compteur : les COPROPRIÉTÉS à compléter (la pastille) ; leurs locataires datés sont classés ailleurs
   return (
-    <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label="Dates manquantes" data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
+    <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label={TITRES_CATEGORIES.manquantes} data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
-      <summary className="vgp-titre">Dates manquantes <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
+      <summary className="vgp-titre">{TITRES_CATEGORIES.manquantes} <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
       {cartes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Toutes les copropriétés concernées ont leur dernière AGO et leur date d’arrêté des comptes.</p> : <>
         <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
         {/* 🔴 (Arno, 24/11/2026, 23h53) « N copropriétés à compléter » retiré : la pastille de la rubrique le dit déjà */}
@@ -215,7 +215,7 @@ function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onR
   );
 }
 
-/** Un bloc de « Dates manquantes » : même taille que les lignes des autres catégories. */
+/** Un bloc de « Dates / copropriétés manquantes » : même taille que les lignes des autres catégories. */
 function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestituer }: { m: LigneDatesManquantes; concernes: readonly LigneVingtPourcent[]; aujourdhui: string;
   onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
   const [ouvert, setOuvert] = useState(false);
@@ -274,7 +274,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
 /** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
 const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void }>({ onFiche: () => {} });
 
-/** Ce qui manque à une ligne SANS date calculable (« Dates manquantes »), à la place de la date. PUR. */
+/** Ce qui manque à une ligne SANS date calculable (« Dates / copropriétés manquantes »), à la place de la date. PUR. */
 export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'suivi' | 'arrete'>): string[] {
   if (l.copropriete === null) return ['Aucune copropriété'];
   return [...(l.suivi.etat !== 'ok' ? ['Dernière AGO manquante'] : []), ...(l.arrete === null ? ['Arrêté des comptes manquant'] : [])];
