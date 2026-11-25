@@ -48,6 +48,8 @@ interface MailPrevu { sorte: string; objet: string; a: string[]; cc: string[]; t
 interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRattacher: boolean; motif?: string | null }
 interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; montantVingt?: MontantVingt | null; ag?: ResumeAg }
 interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean; montantVingt?: MontantVingt | null; ag?: ResumeAg }
+/** 🔴 (Arno, 25/11/2026, 23h15) la date de sortie proposée n'est pas validée : le refus, sous le champ. */
+export const MOTIF_DATE_SORTIE_A_VALIDER = 'Validez la date de sortie (bouton à droite) avant de continuer.';
 /** 🔴 (Arno, 25/11/2026, 22h06) « 400,00 € (calculé : 20 % de 2 000,00 €) » / « 380,00 € (saisi à la main) ». PUR. */
 const montantVingtDit = (m: MontantVingt): string => `${montantFr(m.montant)} (${origineDite(m)})`;
 
@@ -108,6 +110,11 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const [etape, setEtape] = useState<Etape>({ etape: 'saisie' });
   const [realise, setRealise] = useState(false);
   const [date, setDate] = useState(jour);
+  /* 🔴🔴 Arno (25/11/2026, 23h15) — « la date de sortie qui s'autocomplète toute seule est la date du jour […] elle ne doit pas être validée par défaut,
+     elle est juste proposée ; la validation doit être obligatoire ; il est bien évidemment possible de modifier la date à sa convenance » : proposée
+     NON validée ; « Valider cette date » la valide ; toute modification fait tomber la validation */
+  const [dateValidee, setDateValidee] = useState(false);
+  const [erreurDate, setErreurDate] = useState<string | null>(null);
   const [sortants, setSortants] = useState<number[]>(l.locataires.map((x) => x.occupationId));
   const [compteRendu, setCompteRendu] = useState('');
   const [destinataires, setDestinataires] = useState<string[]>([]);
@@ -216,8 +223,20 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     montrerErreurMontant(v.motif);
     return false;
   };
+  /** 🔴 (23h15) la date de sortie doit être VALIDÉE (bouton à droite) avant d'avancer ; sinon le refus sous le champ, le champ amené à l'écran */
+  const dateValideeOuDit = (): boolean => {
+    if (dateValidee) return true;
+    setErreurDate(MOTIF_DATE_SORTIE_A_VALIDER);
+    setTimeout(() => {
+      const champ = document.querySelector('[data-fenetre-validation-sortie] [data-date-sortie-effective]') as HTMLInputElement | null;
+      champ?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      champ?.focus({ preventScroll: true });
+    }, 0);
+    return false;
+  };
   const voirRecap = async (): Promise<void> => {
-    setRefus(null); setErreurMontant(null);
+    setRefus(null); setErreurMontant(null); setErreurDate(null);
+    if (!dateValideeOuDit()) return;
     if (!montantLisible()) return;
     setEnvoi(true);
     const r = await envoyer({ action: 'apercu-validation-sortie', ...corps }, { propre: true });
@@ -227,6 +246,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   };
   const confirmer = async (): Promise<void> => {
     setRefus(null);
+    if (!dateValidee) { setEtape({ etape: 'saisie' }); dateValideeOuDit(); return; }
     if (!montantLisible()) { setEtape({ etape: 'saisie' }); return; }
     setEnvoi(true);
     const r = await envoyer({ action: 'valider-sortie-edls', ...corps }, { propre: true });
@@ -248,8 +268,20 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
       <label className="pvv-case vse-realise"><input type="checkbox" checked={realise} onChange={(e) => { setRealise(e.target.checked); setRefus(null); }} data-edls-realise />
         <span>L’état des lieux de sortie a été réalisé *</span></label>
-      <label className="pvs-champ vse-date"><span className="pvs-libelle">{'Date de sortie effective *'}</span>
-        <input type="date" value={date} max={jour} onChange={(e) => { setDate(e.target.value); setRefus(null); }} data-date-sortie-effective /></label>
+      {/* 🔴🔴 Arno (25/11/2026, 23h15) — la date du jour est PROPOSÉE (bord orange, « Date proposée — à valider ») ; « Valider cette date » à droite
+          (sous le champ à 390 px) → « ✓ Date validée », bord vert ; une modification fait tomber la validation */}
+      <div className={`vse-date-bloc vse-date-bloc--${dateValidee ? 'validee' : 'proposee'}`} data-date-sortie-etat={dateValidee ? 'validee' : 'proposee'}>
+        <div className="vse-date-ligne">
+          <label className="pvs-champ vse-date"><span className="pvs-libelle">{'Date de sortie effective *'}</span>
+            <input type="date" value={date} max={jour} aria-invalid={erreurDate !== null} aria-describedby={`${titreId}-date-etat`}
+              onChange={(e) => { setDate(e.target.value); setDateValidee(false); setRefus(null); setErreurDate(null); }} data-date-sortie-effective /></label>
+          <button type="button" className={`svv-btn gst-btn vse-date-valider${dateValidee ? ' vse-date-valider--ok' : ' svv-btn-outline'}`} aria-pressed={dateValidee}
+            disabled={!/^\d{4}-\d{2}-\d{2}$/.test(date)} onClick={() => { setDateValidee(true); setErreurDate(null); setRefus(null); }} data-valider-date-sortie>
+            {dateValidee ? '✓ Date validée' : 'Valider cette date'}</button>
+        </div>
+        {!dateValidee && <p id={`${titreId}-date-etat`} className="vse-date-mention" data-date-sortie-proposee>Date proposée — à valider</p>}
+        {erreurDate !== null && <p className="cp-refus vse-erreur-champ" role="alert" data-date-sortie-erreur>{erreurDate}</p>}
+      </div>
       <fieldset className="pvv-choix" data-locataires-concernes>
         <legend className="pvs-libelle">Locataires concernés *</legend>
         {l.locataires.map((x) => (
@@ -467,6 +499,16 @@ export const CSS_VALIDATION_SORTIE = `
 .vse-plein-actions .gst-btn{min-height:48px;width:100%;margin:0;box-sizing:border-box}
 .vse-realise{font-weight:800}
 .vse-date input{min-height:44px}
+/* 🔴 (Arno, 25/11/2026, 23h15) la date de sortie proposee (bord orange) / validee (bord vert) ; le bouton a droite, sous le champ a 390 px */
+.vse-date-bloc{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vse-date-ligne{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;min-width:0}
+.vse-date-ligne .vse-date{flex:1 1 14rem;min-width:0}
+.vse-date-bloc--proposee .vse-date input{border-color:var(--color-svv-urgence-orange)}
+.vse-date-bloc--validee .vse-date input{border-color:var(--color-svv-green)}
+.vse-date-valider{flex:0 0 auto;min-height:48px;min-width:11rem;margin:0;width:auto;white-space:nowrap}
+.vse-date-valider--ok{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border:2px solid var(--color-svv-green)}
+.vse-date-mention{margin:0;font-size:.85rem;font-weight:700;color:var(--color-svv-urgence-orange-texte)}
+@media (max-width:600px){.vse-date-ligne{flex-direction:column;align-items:stretch}.vse-date-ligne .vse-date{flex:0 0 auto}.vse-date-valider{width:100%}}
 .vse-famille{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface);min-width:0}
 .vse-famille--vert{border-left-color:var(--color-svv-green)}
 .vse-famille--rouge{border-left-color:var(--color-svv-red)}
@@ -487,7 +529,7 @@ export const CSS_VALIDATION_SORTIE = `
    le bloc s'etire, le champ perd la borne de 22rem du style commun des champs du preavis */
 .vse-retenue .vse-montant-vingt{align-self:stretch;box-sizing:border-box;width:100%;min-width:0;display:flex;flex-direction:column;gap:4px}
 .vse-montant-vingt .pvs-champ input{width:100%;max-width:none}
-.vse-erreur-champ{margin:0}
+.vse-erreur-champ{margin:0;color:var(--color-svv-red);font-weight:700;overflow-wrap:anywhere}
 .vse-pieces-mail{margin:0;font-weight:700;overflow-wrap:anywhere}
 .vse-frise{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:600px){.vse-frise{grid-template-columns:1fr 1fr}}

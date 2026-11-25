@@ -349,6 +349,7 @@ describe('la ligne dépliée', () => {
     expect((f().querySelector('button[data-recap-validation]') as HTMLButtonElement).disabled).toBe(true);
     act(() => (f().querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f().querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     expect((f().querySelector('button[data-recap-validation]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (f().querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
@@ -385,6 +386,7 @@ describe('la ligne dépliée', () => {
     const f = (): Element => document.querySelector('[data-fenetre-validation-sortie]')!;
     act(() => (f().querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f().querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     await act(async () => { (f().querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
     expect(f().querySelector('[data-alerte-coordonnees="loc-11"]')?.textContent).toContain('Attention : ce texte contient les coordonnées de Jean DUPONT');
@@ -801,6 +803,69 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
   beforeEach(() => { copro = true; postsPieces = []; reponseDrive = null; });
 
   /** 🔴🔴 (Arno, 25/11/2026, 23h12) PANNE : « j'ai bien instruit le champ des 20 % mais j'ai l'impression qu'il n'en tient pas compte » — dépôt inconnu. */
+  /** 🔴🔴 (Arno, 25/11/2026, 23h15) « elle ne doit pas être validée par défaut, elle est juste proposée ; la validation doit être obligatoire » */
+  describe('🔴🔴 (23h15) la date de sortie proposée, à valider', () => {
+    const etat = (f: Element): string | null => f.querySelector('[data-date-sortie-etat]')?.getAttribute('data-date-sortie-etat') ?? null;
+    const bouton = (f: Element): HTMLButtonElement => f.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement;
+    it('à l’ouverture : la date du jour PROPOSÉE, non validée — « Date proposée — à valider », bouton « Valider cette date » sur la même ligne que le champ', async () => {
+      const f = await ouvrir();
+      const champ = f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement;
+      expect(champ.value).toBe(champ.max);                                          // la date du jour, proposée
+      expect(etat(f)).toBe('proposee');
+      expect(f.querySelector('[data-date-sortie-proposee]')?.textContent).toBe('Date proposée — à valider');
+      expect(bouton(f).textContent).toBe('Valider cette date');
+      expect(bouton(f).getAttribute('aria-pressed')).toBe('false');
+      expect(bouton(f).parentElement).toBe(champ.closest('label')!.parentElement); // même rangée
+    });
+    it('sans validation, « Voir le récapitulatif » n’avance pas : le message SOUS le champ, le champ amené à l’écran, rien ne part', async () => {
+      const vus: Element[] = [];
+      const avant = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element) { vus.push(this); };
+      try {
+        const f = await ouvrir();
+        act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+        const n = posts.length;
+        await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+        await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+        expect(posts.length).toBe(n);
+        expect(f.querySelector('[data-date-sortie-etat] [data-date-sortie-erreur]')?.textContent).toBe('Validez la date de sortie (bouton à droite) avant de continuer.');
+        expect(vus.some((x) => x.hasAttribute('data-date-sortie-effective'))).toBe(true);
+      } finally { Element.prototype.scrollIntoView = avant; }
+    });
+    it('« Valider cette date » → « ✓ Date validée », bord vert ; le récapitulatif s’ouvre avec CETTE date', async () => {
+      const f = await ouvrir();
+      act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+      act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      act(() => bouton(f).click());
+      expect(etat(f)).toBe('validee');
+      expect(bouton(f).textContent).toBe('✓ Date validée');
+      expect(bouton(f).getAttribute('aria-pressed')).toBe('true');
+      expect(f.querySelector('[data-date-sortie-proposee]')).toBeNull();
+      await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+      await attendre();
+      expect(posts.filter((c) => c.action === 'apercu-validation-sortie').at(-1)).toMatchObject({ date: HIER });
+    });
+    it('une modification APRÈS validation fait tomber la validation : « Valider cette date » revient, et le récapitulatif est de nouveau refusé', async () => {
+      const f = await ouvrir();
+      act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+      act(() => bouton(f).click());
+      expect(etat(f)).toBe('validee');
+      act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      expect(etat(f)).toBe('proposee');
+      expect(bouton(f).textContent).toBe('Valider cette date');
+      const n = posts.length;
+      await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+      expect(posts.length).toBe(n);
+      expect(f.querySelector('[data-date-sortie-erreur]')).not.toBeNull();
+    });
+    it('les styles : bord orange proposée, vert validée ; à 390 px le bouton passe sous le champ, pleine largeur', () => {
+      const src = readFileSync('app/(admin)/admin/(protected)/location/ValidationSortieEdls.tsx', 'utf8');
+      expect(src).toContain('.vse-date-bloc--proposee .vse-date input{border-color:var(--color-svv-urgence-orange)}');
+      expect(src).toContain('.vse-date-bloc--validee .vse-date input{border-color:var(--color-svv-green)}');
+      expect(src).toContain('@media (max-width:600px){.vse-date-ligne{flex-direction:column;align-items:stretch}.vse-date-ligne .vse-date{flex:0 0 auto}.vse-date-valider{width:100%}}');
+    });
+  });
+
   describe('🔴🔴 (23h12) le montant des 20 % tapé à la main', () => {
     beforeEach(() => { depotEssai = null; });
     afterEach(() => { depotEssai = DEPOT_CONNU; });
@@ -808,6 +873,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
       const f = await ouvrir();
       act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
       act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
       const champ = f.querySelector('input[data-montant-vingt-champ]') as HTMLInputElement;
       expect(champ.value).toBe('');                                                 // dépôt inconnu : rien de prérempli
       act(() => saisir(champ, montantTape));
@@ -849,6 +915,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
       expect((f.querySelector('input[data-montant-vingt-champ]') as HTMLInputElement).value).toBe('400,00');
       act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
       act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
       await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
       await attendre();
       expect(posts.filter((c) => c.action === 'apercu-validation-sortie').at(-1)).toMatchObject({ retenue: true, montantVingt: '400,00' });
@@ -872,6 +939,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(para, 'Provision conservée.'); para.dispatchEvent(new Event('input', { bubbles: true })); });
     act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-validation-sortie', retenue: true, paragrapheRetenue: 'Provision conservée.' });
@@ -970,6 +1038,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     const f = await ouvrir();
     act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
     expect(document.querySelector('[data-pieces-mail]')?.textContent).toBe('📎 Pièces jointes : salon.jpg');
@@ -983,6 +1052,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     const f = await ouvrir();
     act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
     return f;
@@ -1041,6 +1111,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
       const f = await ouvrir();
       act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
       act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
       await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
       await attendre();
       expect(document.querySelector('[data-avertissement-sans-edl]')?.textContent).toBe('Aucun état des lieux joint : le mail ne l’annoncera pas.');
@@ -1170,6 +1241,7 @@ describe('🔴🔴 Arno (11/11/2026) — la page DÉFILE toujours après chaque 
     await preparer();
     await ouvrirFenetre('[data-valider-sortie]');
     await act(async () => { (document.querySelector('input[data-edls-realise]') as HTMLInputElement).click(); });
+    await cliquer('button[data-valider-date-sortie]'); // 🔴 (23h15) la date proposée se valide
     await cliquer('button[data-recap-validation]');
     await cliquer('[data-revenir-validation]');
     await cliquer('[data-annuler-validation]');
@@ -3685,6 +3757,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     const f = document.querySelector('[data-fenetre-validation-sortie]')!;
     act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     return f;
   };
   const q = (s: string) => document.querySelector(s) as HTMLElement;
@@ -4263,6 +4336,7 @@ describe('🔴🔴 Arno (24/11/2026) — « Valider la sortie » : les partenair
     const f = document.querySelector('[data-fenetre-validation-sortie]')!;
     act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
     act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    act(() => (document.querySelector('button[data-valider-date-sortie]') as HTMLButtonElement).click()); // 🔴 (23h15) la date proposée se valide
     return f;
   };
   const cases = (): [string, boolean][] => [...document.querySelectorAll<HTMLInputElement>('input[data-partenaire-sortie]')]
