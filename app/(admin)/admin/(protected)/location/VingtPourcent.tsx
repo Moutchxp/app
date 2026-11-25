@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -96,7 +96,8 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
             const rien = active && vu.lignes.length === 0 && vu.manquantes.length === 0 && (vu.faites ?? []).length === 0;
             return <>
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
-              {!(active && vu.manquantes.length === 0) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
+              {/* 🔴 (Arno, 25/11/2026, 10h14) le bloc n'apparaît que s'il contient des locataires (et, en recherche, s'il y trouve quelque chose) */}
+              {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
               {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates manquantes » (contenu inchangé) */}
               <AlerteDuLundi api={api} />
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))

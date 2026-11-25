@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -249,5 +249,18 @@ describe('🔴🔴 Arno (25/11/2026) — capsulesAgo', () => {
     const c = capsulesAgo([l(['A', 'B'], 'officielle'), l([], 'officielle'), l(['C'], 'officielle', true), l(['D'], 'projetee')]);
     expect(c).toEqual({ officielle: 3, projetee: 2, total: 5 });
     expect(c.officielle + c.projetee).toBe(c.total);
+  });
+});
+
+/** 🔴 Arno (25/11/2026, 10h14) — le bloc des dates manquantes n'apparaît que s'il contient des locataires. */
+describe('🔴 Arno (25/11/2026, 10h14) — datesManquantesVisibles', () => {
+  const m = (cle: string, locataires: string[]) => ({ cle, coproprieteId: 1, libelle: 'Copro', immeuble: null, lotId: 1, manque: ['arrete' as const], locataires });
+  const sansDate: LigneVingtPourcent = { sortieId: 1, lotId: 1, locataires: ['X'], logement: null, dateSortie: '2026-01-01', valideLe: '2026-01-02',
+    copropriete: { id: 1, libelle: 'Copro', aRattacher: false }, arrete: null, cleCopro: 'copro-1', suivi: { etat: 'sans_ago', exercice: null, mention: MENTION_SANS_AGO } };
+  it('rien à compléter, ou des copropriétés sans locataire : non ; un nom, ou une ligne sans date : oui', () => {
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [] })).toBe(false);
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', [])] })).toBe(false);
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', ['A'])] })).toBe(true);
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [sansDate], manquantes: [] })).toBe(true);
   });
 });

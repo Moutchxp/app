@@ -371,6 +371,17 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
   return { ...lu, lignes, manquantes, ...(lu.faites !== undefined ? { faites: lu.faites.filter((f) => correspondRecherche([...f.locataires, f.logement], q)) } : {}) };
 }
 
+// ══ 🔴 Arno (25/11/2026, 10h14) — « LE BLOC DATES MANQUANTES NE DOIT APPARAÎTRE QUE S'IL CONTIENT DES LOCATAIRES » ═══════════════════════════════
+/**
+ * Le bloc est montré seulement si au moins un locataire en attente des 20 % s'y trouve : un nom sur une copropriété à compléter, ou une ligne sans
+ * date, ou une ligne rattachée à l'une de ces copropriétés. Sur les données filtrées par la recherche, il disparaît quand elle n'y trouve rien. PUR.
+ */
+export function datesManquantesVisibles(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'>): boolean {
+  if (lu.manquantes.some((m) => m.locataires.length > 0)) return true;
+  const cles = new Set(lu.manquantes.map((m) => m.cle));
+  return lu.lignes.some((l) => categorieVingt(l, lu.aujourdhui) === 'manquantes' || cles.has(cleDeLaLigne(l, lu.manquantes)));
+}
+
 // ══ 🔴🔴 Arno (25/11/2026) — LES CAPSULES « AGO OFFICIELLE » / « AGO PROJETÉE » ET LE COMPTEUR DES CATÉGORIES ════════════════════════════════════
 /**
  * « pour chaque bloc de catégorie, […] une capsule verte "AGO officielle" avec le nombre de locataires dont le dossier contient une AGO officielle, et
@@ -399,7 +410,7 @@ export function blocsOuvertsPourRecherche(lu: SuiviVingtLu, q: string): BlocRepl
   const vu = filtrerVingtPourcent(lu, q);
   const cl = classerVingtPourcent(vu);
   return [
-    ...(vu.manquantes.length > 0 ? ['manquantes' as const] : []),
+    ...(datesManquantesVisibles(vu) ? ['manquantes' as const] : []),
     ...(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => cl[k].length > 0),
     ...((vu.faites ?? []).length > 0 ? ['faites' as const] : []),
   ];

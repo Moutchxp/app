@@ -63,8 +63,8 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); });
     await calmer();
     expect(lectures).toHaveLength(2);
-    expect(container.querySelector('[data-vgp-manquantes]')?.getAttribute('data-vgp-manquantes')).toBe('0');
-    expect(container.querySelector('[data-vgp-manquantes-aucune]')).not.toBeNull();
+    // 🔴 (Arno, 25/11/2026, 10h14) plus rien à compléter : le bloc n'apparaît plus (avant : « Toutes les copropriétés concernées ont… »)
+    expect(container.querySelector('[data-vgp-manquantes]')).toBeNull();
   });
   it('chaque locataire : logement, copropriété, sortie, exercice, AGO qui compte (projetée / officielle, incertaine), limite, alerte EN MOTS', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -736,5 +736,38 @@ describe('🔴 Arno (25/11/2026, 10h14) — l’écart des deux blocs gris d’e
     expect(css).toContain('.vgp-bloc.vgp-faites{margin-top:14px}');
     const mobile = css.slice(css.indexOf('@media (max-width:640px)'));
     expect(mobile).not.toMatch(/vgp-manquantes|vgp-faites|\.vgp\{/);
+  });
+});
+
+/** 🔴 Arno (25/11/2026, 10h14) — « Le bloc Dates manquantes ne doit apparaître que s'il contient des locataires ». */
+describe('🔴 Arno (25/11/2026, 10h14) — le bloc des dates manquantes seulement s’il contient des locataires', () => {
+  const taper = async (v: string) => {
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const blocs = () => [...container.querySelectorAll('section')].map((s) => s.getAttribute('data-vgp-categorie') ?? s.getAttribute('data-vgp-teinte'));
+  it('aucune copropriété à compléter : bloc absent, l’Alerte du lundi passe en tête (son écart disparaît avec lui)', async () => {
+    donnees = { ...LU, manquantes: [], lignes: [LU.lignes[0], LU.lignes[1]], faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')).toBeNull();
+    expect(blocs()[0]).toBe('alerte');
+  });
+  it('des copropriétés à compléter mais aucun locataire en attente dedans : bloc absent', async () => {
+    donnees = { ...LU, manquantes: [{ ...LU.manquantes[0], cle: 'copro-99', coproprieteId: 99, locataires: [] }], lignes: [LU.lignes[0]], faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')).toBeNull();
+  });
+  it('avec des locataires : présent ; la recherche qui n’y trouve rien le retire, l’effacer le rend', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(blocs()[0]).toBe('manquantes');
+    await taper('dupont');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')).toBeNull();
+    await taper('');
+    expect(blocs()[0]).toBe('manquantes');
+  });
+  it('la pastille de l’accueil reste celle d’aujourd’hui (masquée à 0)', async () => {
+    donnees = { ...LU, manquantes: [] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-pourcent]')).toBeNull();
   });
 });
