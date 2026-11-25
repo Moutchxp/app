@@ -90,7 +90,8 @@ export async function GET(request: Request): Promise<Response> {
     const tf = /^(lot|locataire):(\d{1,12})$/.exec(url.searchParams.get('traceFiche') ?? '');
     if (tf !== null) {
       const [repere, historique] = await Promise.all([repereJournal(), historiqueFiche(tf[1] as 'lot' | 'locataire', Number(tf[2]))]);
-      return Response.json({ etat: 'ok', data: { repere, historique, derniere: historique[0] ?? null } }, { headers: ENTETES });
+      // 🔴 (Arno, 26/11/2026) une restitution des 20 % figure dans l'historique du locataire, mais n'est pas une modification de sa fiche
+      return Response.json({ etat: 'ok', data: { repere, historique, derniere: historique.find((h) => h.restitution === undefined) ?? null } }, { headers: ENTETES });
     }
     // 🔴 Arno (24/10/2026) — « DOSSIER DE LOCATION » : les 4 blocs de « Nouveau locataire », lus pour une ligne de suivi rattachée.
     const dl = identifiant(url.searchParams.get('dossierLocation'));

@@ -9,7 +9,9 @@ import { dateHeureParis, mentionDerniereModification, type EcranTrace } from '..
  * champ, ancienne valeur → nouvelle valeur, écran. Le REPÈRE du journal lu à l'ouverture accompagne l'enregistrement : une
  * modification faite entre-temps par quelqu'un d'autre fait refuser l'enregistrement (rien n'est écrasé).
  */
-export interface LigneTrace { id: number; quand: string; par: string; champ: string | null; avant: string | null; apres: string | null; texte: string; ecran: string | null }
+export interface LigneTrace { id: number; quand: string; par: string; champ: string | null; avant: string | null; apres: string | null; texte: string; ecran: string | null;
+  /** 🔴 (Arno, 26/11/2026) une restitution des 20 % (historique du locataire) : son texte, « par …, le … à HHhMM », son annulation dessous */
+  restitution?: { texte: string; par: string; annulee: string | null } }
 export interface EtatTrace { repere: number | null; historique: LigneTrace[]; derniere: LigneTrace | null; lu: boolean }
 
 export const TRACE_SUIVI: { ecran: EcranTrace } = { ecran: 'Suivi du mois' };
@@ -27,7 +29,7 @@ export function useTraceFiche(sujet: 'lot' | 'locataire', id: number, actif = tr
         if (!vivant) return;
         const x = d.etat === 'ok' ? d.data : undefined;
         // Une réponse sans historique lisible : « aucune modification » (et pas de repère : le contrôle de conflit n'est pas posé).
-        if (x !== undefined && Array.isArray(x.historique)) setEtat({ repere: typeof x.repere === 'number' ? x.repere : null, historique: x.historique, derniere: x.historique[0] ?? null, lu: true });
+        if (x !== undefined && Array.isArray(x.historique)) setEtat({ repere: typeof x.repere === 'number' ? x.repere : null, historique: x.historique, derniere: x.historique.find((h) => h.restitution === undefined) ?? null, lu: true });
         else setEtat((e) => ({ ...e, lu: true }));
       })
       .catch(() => { if (vivant) setEtat((e) => ({ ...e, lu: true })); });
@@ -47,6 +49,14 @@ export function BlocTraceFiche({ trace }: { trace: EtatTrace }) {
           <summary>Historique des modifications ({trace.historique.length})</summary>
           <ol className="trf-liste">
             {trace.historique.map((l) => {
+              // 🔴🔴 (Arno, 26/11/2026) une restitution des 20 % : « Restitution des 20 % validée le … — … », puis « par Prénom NOM, le … à HHhMM »,
+              //    son annulation dessous ; les autres lignes gardent leur format
+              if (l.restitution !== undefined) return (
+                <li key={l.id} data-ligne-historique={l.id} data-ligne-restitution>
+                  <span className="trf-quoi trf-restitution" data-restitution-texte>{l.restitution.texte}</span>
+                  <span className="trf-quand trf-restitution-par" data-restitution-par>{l.restitution.par}</span>
+                  {l.restitution.annulee !== null && <span className="trf-restitution-annulee" data-restitution-annulee>{l.restitution.annulee}</span>}
+                </li>);
               const { date, heure } = dateHeureParis(l.quand);
               return (
                 <li key={l.id} data-ligne-historique={l.id}>
@@ -71,4 +81,7 @@ export const CSS_TRACE_FICHE = `
 .trf-quand{color:var(--color-svv-muted);font-variant-numeric:tabular-nums}
 .trf-ecran{color:var(--color-svv-muted)}
 .trf-quoi{display:block;overflow-wrap:anywhere;white-space:pre-line}
+.trf-restitution{font-weight:700;color:var(--color-svv-ink)}
+.trf-restitution-par{display:block}
+.trf-restitution-annulee{display:block;font-weight:700;color:var(--color-svv-red)}
 `;
