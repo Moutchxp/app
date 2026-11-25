@@ -31,11 +31,11 @@ export function refusUnLocataireParMail(locataires: readonly (readonly string[])
  * La marque qu'un mail est parti de l'écran « 20 % à restituer » (lue STRICTEMENT par le serveur : un entier positif) ; 🔴 (25/11/2026) et le modèle choisi
  * (l'un des quatre, sinon `null` = message libre). PUR.
  */
-export function marqueVingtPourcent(x: unknown): { sortieId: number; modele: CleModeleVingt | null } | null {
+export function marqueVingtPourcent(x: unknown): { sortieId: number; modele: CleMarqueVingt | null } | null {
   if (x === null || typeof x !== 'object') return null;
   const id = (x as { sortieId?: unknown }).sortieId;
   const m = (x as { modele?: unknown }).modele;
-  const modele = typeof m === 'string' && MODELES_VINGT.some((c) => c.cle === m) ? (m as CleModeleVingt) : null;
+  const modele = typeof m === 'string' && [...MODELES_VINGT, ...MODELES_RESTITUTION].some((c) => c.cle === m) ? (m as CleMarqueVingt) : null;
   return typeof id === 'number' && Number.isInteger(id) && id > 0 ? { sortieId: id, modele } : null;
 }
 
@@ -52,6 +52,13 @@ export const MODELES_VINGT: readonly { cle: CleModeleVingt; libelle: string }[] 
   { cle: 'proprietaire', libelle: 'Propriétaire — date de la prochaine AGO' },
   { cle: 'syndic_copie', libelle: 'Syndic, propriétaire(s) en copie — date de la prochaine AGO' },
   { cle: 'locataire', libelle: 'Locataire — restitution du solde effectuée' },
+];
+/** 🔴 (Arno, 25/11/2026, 22h06, 518) les mails partis de la fenêtre « Faire restitution » (pas des modèles au choix du module : la fenêtre les écrit) */
+export type CleRestitutionVingt = 'restitution_locataire' | 'restitution_partenaire';
+export type CleMarqueVingt = CleModeleVingt | CleRestitutionVingt;
+export const MODELES_RESTITUTION: readonly { cle: CleRestitutionVingt; libelle: string }[] = [
+  { cle: 'restitution_locataire', libelle: 'Restitution des 20 % — mail au locataire' },
+  { cle: 'restitution_partenaire', libelle: 'Restitution des 20 % — mail au partenaire' },
 ];
 export const A_COMPLETER = '[à compléter]';
 

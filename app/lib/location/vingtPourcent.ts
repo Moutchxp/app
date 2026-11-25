@@ -368,6 +368,8 @@ export const origineDite = (m: MontantVingt): string =>
 export interface RestitutionFaite {
   id: number; sortieId: number; locataires: string[]; logement: string | null; dateSortie: string;
   date: string; montantRestitue: number; montantRetenuCharges: number | null; commentaire: string | null; par: string; le: string;
+  /** 🔴 (Arno, 25/11/2026, 22h06, 518) le motif de la différence (restitution partielle) ; absent / `null` : aucune */
+  motifDifference?: string | null;
   /** 🔴🔴 (Arno, 25/11/2026) « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : les échanges de la SORTIE, jusqu'ici */
   mails?: MailVingtEnvoye[]; echanges?: EchangesVingt;
   /** 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus ; `null` : à saisir ; absent : non lu */

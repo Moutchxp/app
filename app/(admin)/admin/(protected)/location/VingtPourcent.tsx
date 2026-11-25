@@ -1,14 +1,15 @@
 'use client';
 
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { brouillonReponseDeLaLigne, ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
 import { EchangesLigne } from './EchangesVingt';
+import { CSS_FENETRE_RESTITUTION, FenetreRestitutionVingt } from './FenetreRestitutionVingt';
 import type { BrouillonEcran } from '../gestion/Redaction';
 import {
-  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -104,7 +105,7 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
   }, [mailInitial, lu]);
   return (
     <div className="loc-page vgp" data-ecran-vingt-pourcent>
-      <style>{CSS_LOCATION_ECRANS + CSS_VINGT_POURCENT}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_VINGT_POURCENT + CSS_FENETRE_RESTITUTION}</style>
       {retour}
       <header className="svv-page-head">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">{TITRE_VINGT_POURCENT}</h1></div>
@@ -137,7 +138,8 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
             </>;
           })()}
         </GestesLigne.Provider>}
-      {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
+      {/* 🔴🔴 (Arno, 25/11/2026, 22h06) la fenêtre « Faire restitution » retravaillée (montants, motif, mails aux locataires et aux partenaires) */}
+      {restituer !== null && lu.etat === 'ok' && <FenetreRestitutionVingt l={restituer} aujourdhui={lu.data.aujourdhui} mail={mail}
         onFermer={(fait) => { setRestituer(null); if (fait) setVersion((v) => v + 1); }} />}
       {fiche !== null && <FicheCopropriete immeuble={fiche.immeuble} lotId={fiche.immeuble === null ? fiche.lotId : null}
         onFerme={() => { setFiche(null); setVersion((v) => v + 1); }} />}
@@ -494,83 +496,6 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
 }
 
 /** 🔴 Arno (24/11/2026) — la fenêtre « Restitution faite » : date, montant restitué, montant retenu au titre des charges (facultatif), commentaire. */
-function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent; aujourdhui: string; onFermer: (fait: boolean) => void }) {
-  const titreId = useId();
-  const [date, setDate] = useState(aujourdhui);
-  const [restitue, setRestitue] = useState('');
-  const [retenu, setRetenu] = useState('');
-  const [commentaire, setCommentaire] = useState('');
-  const [refus, setRefus] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
-  // 🔴🔴 Arno (25/11/2026) — « Enregistrer la restitution » (après les contrôles du formulaire) ouvre une CONFIRMATION par-dessus ; rien n'est écrit
-  //    avant « Confirmer la restitution » ; « Revenir » la ferme, la saisie est gardée. Un seul enregistrement, même sur un double clic (`enCours`).
-  const [aConfirmer, setAConfirmer] = useState<{ date: string; montantRestitue: number; montantRetenuCharges: number | null } | null>(null);
-  const enCours = useRef(false);
-  const confirmId = useId();
-  useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || envoi) return;
-      if (aConfirmer !== null) setAConfirmer(null); else onFermer(false); // Échap : d'abord « Revenir »
-    };
-    window.addEventListener('keydown', clavier);
-    return () => window.removeEventListener('keydown', clavier);
-  }, [envoi, onFermer, aConfirmer]);
-  const enregistrer = (): void => {
-    const v = verifierRestitution({ date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire }, { dateSortie: l.dateSortie, aujourdhui });
-    if (!v.ok) { setRefus(v.motif); return; }
-    setRefus(null);
-    setAConfirmer({ date: v.valeur.date, montantRestitue: v.valeur.montantRestitue, montantRetenuCharges: v.valeur.montantRetenuCharges });
-  };
-  const confirmer = async (): Promise<void> => {
-    if (enCours.current) return;
-    enCours.current = true;
-    setEnvoi(true); setRefus(null);
-    const motif = await geste({ action: 'restitution-20-faite', sortieId: l.sortieId, date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire });
-    setEnvoi(false);
-    enCours.current = false;
-    if (motif !== null) { setRefus(motif); setAConfirmer(null); return; }
-    onFermer(true);
-  };
-  // « Prénom NOM » : les coordonnées du dossier quand elles sont lues, sinon le nom de la ligne
-  const noms = (l.contacts?.locataires ?? []).length > 0 ? l.contacts!.locataires.map((p) => p.nom) : l.locataires;
-  return (
-    <div className="vgp-voile" data-fenetre-restitution={l.sortieId}>
-      <div className="vgp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId}>
-        <h2 id={titreId} className="vgp-titre">Restitution faite — {l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</h2>
-        {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus suit jusqu'à la restitution */}
-        <p className="vgp-montant-rappel" data-fenetre-montant-vingt>20 % retenus à la sortie : {l.montantVingt != null ? `${montantFr(l.montantVingt.montant)} (${origineDite(l.montantVingt)})` : MONTANT_VINGT_A_SAISIR.toLowerCase()}</p>
-        <p className="loc-muet vgp-aide">{l.logement ?? `Bien ${l.lotId}`} — sortie le {dateFr(l.dateSortie)}. Enregistrée, la restitution est journalisée dans le dossier du locataire
-          et la ligne quitte la liste (elle reste dans « {TITRE_RESTITUTIONS_FAITES} », où elle peut être annulée).</p>
-        <label className="vgp-champ"><span>Date de restitution *</span>
-          <input type="date" value={date} max={aujourdhui} min={l.dateSortie} onChange={(e) => setDate(e.target.value)} disabled={envoi} data-restitution-date /></label>
-        <label className="vgp-champ"><span>Montant restitué (€) *</span>
-          <ChampNombre value={restitue} placeholder="ex. 312,50" onChange={(e) => setRestitue(e.target.value)} disabled={envoi} data-restitution-montant /></label>
-        <label className="vgp-champ"><span>Montant retenu au titre des charges (€, facultatif)</span>
-          <ChampNombre value={retenu} placeholder="ex. 40,00" onChange={(e) => setRetenu(e.target.value)} disabled={envoi} data-restitution-retenu /></label>
-        <label className="vgp-champ"><span>Commentaire (facultatif)</span>
-          <textarea value={commentaire} rows={3} onChange={(e) => setCommentaire(e.target.value)} disabled={envoi} data-restitution-commentaire /></label>
-        {refus !== null && <p className="cp-refus" role="alert" data-restitution-refus>{refus}</p>}
-        <div className="vgp-actions">
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onFermer(false)} disabled={envoi} data-restitution-annuler>Annuler</button>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={enregistrer} disabled={envoi || aConfirmer !== null} data-restitution-enregistrer>
-            Enregistrer la restitution</button>
-        </div>
-      </div>
-      {aConfirmer !== null && (
-        <div className="vgp-voile vgp-voile--confirmation" data-confirmation-restitution={l.sortieId}>
-          <div className="vgp-boite vgp-boite--confirmation" role="alertdialog" aria-modal="true" aria-labelledby={confirmId}>
-            <h2 id={confirmId} className="vgp-titre">{TITRE_CONFIRMER_RESTITUTION}</h2>
-            {texteConfirmationRestitution({ noms, ...aConfirmer }).map((t, i) => <p key={i} className="vgp-aide" data-confirmation-texte>{t}</p>)}
-            <div className="vgp-actions">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(null)} disabled={envoi} data-confirmation-revenir autoFocus>Revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void confirmer(); }} disabled={envoi} data-confirmation-confirmer>
-                {envoi ? 'Enregistrement…' : TITRE_CONFIRMER_RESTITUTION}</button>
-            </div>
-          </div>
-        </div>)}
-    </div>
-  );
-}
 
 /** 🔴 Arno (24/11/2026) — « Restitutions faites (N) », repliée, en bas de page : l'historique, avec « Annuler » (journalisé) en cas d'erreur. */
 function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: readonly RestitutionFaite[]; onAnnule: () => void } & Repli) {
@@ -603,6 +528,7 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
                 <div><dt>Restituée le</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
                 <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
                 {f.montantRetenuCharges !== null && <div><dt>Retenu au titre des charges</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
+                {f.motifDifference != null && <div><dt>Motif de la différence</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
                 {f.commentaire !== null && <div><dt>Commentaire</dt><dd>{f.commentaire}</dd></div>}
                 <div><dt>Enregistrée par</dt><dd>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
               </dl>

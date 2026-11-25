@@ -285,3 +285,12 @@ describe('🔴🔴 les échanges d’une ligne', () => {
     expect(r.match(/rattachement: demande\.rattachement,/g)?.length).toBe(2);
   });
 });
+
+/** 🔴 (Arno, 25/11/2026, 22h06, 518) les mails de la fenêtre « Faire restitution » portent leur propre marque (comptés dans les échanges de la ligne). */
+describe('🔴 la marque des mails de restitution', () => {
+  it('« restitution_locataire » et « restitution_partenaire » admis, libellés ; un modèle inconnu reste « message libre »', async () => {
+    expect(marqueVingtPourcent({ sortieId: 5, modele: 'restitution_locataire' })).toEqual({ sortieId: 5, modele: 'restitution_locataire' });
+    expect(marqueVingtPourcent({ sortieId: 5, modele: 'restitution_partenaire' })).toEqual({ sortieId: 5, modele: 'restitution_partenaire' });
+    expect(marqueVingtPourcent({ sortieId: 5, modele: 'autre' })).toEqual({ sortieId: 5, modele: null });
+  });
+});

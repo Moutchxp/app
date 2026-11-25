@@ -188,7 +188,9 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     // 🔴 (Arno, 25/11/2026, 22h06) la 516 (montant des 20 % retenus) ; la 361 en attente prendra la 517
     '516_location_montant_vingt_pourcent.sql',
     // 🔴 (Arno, 25/11/2026, 22h06) la 517 (liste « Restitution des 20 % » des Paramètres Location) ; la 361 en attente prendra la 518
-    '517_location_destinataires_restitution_vingt.sql'];
+    '517_location_destinataires_restitution_vingt.sql',
+    // 🔴 (Arno, 25/11/2026, 22h06) la 518 (fenêtre « Faire restitution » : 20 %, motif, mails marqués) ; la 361 en attente prendra la 519
+    '518_location_restitution_vingt_montant_motif.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -201,7 +203,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 510, puis 512 à 517 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 510, puis 512 à 518 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -215,18 +217,18 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // dernière INSCRITE : la 511 passe si elle part avec la 512 (ou avant), et serait REFUSÉE une fois la 512 inscrite (elle prendrait alors la 513).
   // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite ») et la 514 (alerte du lundi) sont prises ; 🔴 (25/11/2026) la 515 aussi (mails du module 20 %) :
   // une fois inscrites, la 361 prend la 516.
-  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 517 dans la même mise à jour, REFUSÉE une fois inscrites (518 alors)', () => {
+  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 518 dans la même mise à jour, REFUSÉE une fois inscrites (519 alors)', () => {
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
-    const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql', '516_location_montant_vingt_pourcent.sql', '517_location_destinataires_restitution_vingt.sql'].includes(f)));
+    const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql', '516_location_montant_vingt_pourcent.sql', '517_location_destinataires_restitution_vingt.sql', '518_location_restitution_vingt_montant_motif.sql'].includes(f)));
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(510\)/);
     const avec512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(avec512.refus).toEqual([]);
-    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql', '516_location_montant_vingt_pourcent.sql', '517_location_destinataires_restitution_vingt.sql']);
+    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql', '516_location_montant_vingt_pourcent.sql', '517_location_destinataires_restitution_vingt.sql', '518_location_restitution_vingt_montant_motif.sql']);
     const apres512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(517\)/);
-    const en518 = planifier([...existants, { fichier: '518_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(en518.refus).toEqual([]);
+    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(518\)/);
+    const en519 = planifier([...existants, { fichier: '519_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
+    expect(en519.refus).toEqual([]);
   });
 });
 
@@ -1192,6 +1194,19 @@ describe('🔴 517 (Arno, 25/11/2026, 22h06 — liste « Restitution des 20 % »
     expect(a.refus).toEqual([]);
     expect(a.mode).toBe('enveloppee');
     expect(contenu).toContain("CHECK (sorte = ANY (ARRAY['nouvelle_location'::text, 'preavis'::text, 'sortie'::text, 'restitution_vingt'::text]))");
+    expect(contenu).not.toMatch(/^\s*(INSERT|UPDATE|DELETE)/mi);
+  });
+});
+
+describe('🔴 518 (Arno, 25/11/2026, 22h06 — 20 % et motif de la restitution, mails marqués) : enveloppée, colonnes ajoutées, contraintes élargies', () => {
+  const contenu = lire(MIGRATIONS, '518_location_restitution_vingt_montant_motif.sql');
+  const a = analyserMigration({ fichier: '518_location_restitution_vingt_montant_motif.sql', contenu });
+  it('passe le garde, enveloppée ; deux colonnes facultatives ; deux modèles de mail de plus ; aucune ligne écrite ni modifiée', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(contenu).toContain('ADD COLUMN IF NOT EXISTS montant_vingt numeric(12, 2) NULL;');
+    expect(contenu).toContain('ADD COLUMN IF NOT EXISTS motif_difference text NULL;');
+    expect(contenu).toContain("'restitution_locataire', 'restitution_partenaire'");
     expect(contenu).not.toMatch(/^\s*(INSERT|UPDATE|DELETE)/mi);
   });
 });

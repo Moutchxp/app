@@ -1,3 +1,4 @@
+import { lireDestinatairesDefaut } from '../../../../lib/location/mailNouvelleLocationRepo';
 import { depotsDesOccupations, saisirMontantVingt } from '../../../../lib/location/montantVingtRepo';
 import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
 import { propositionsRattachement, rattacherAdresse, refuserRattachement } from '../../../../lib/gestion/rattachementParcelleRepo';
@@ -280,6 +281,10 @@ export async function GET(request: Request): Promise<Response> {
     const sorteInfo = p('destinatairesMails');
     if (sorteInfo === 'nouvelle_location' || sorteInfo === 'preavis' || sorteInfo === 'sortie') {
       return Response.json({ etat: 'ok', data: await destinatairesPourInfo(sorteInfo, await auteurDeLaRequete(request)) }, { headers: ENTETES });
+    }
+    // 🔴 (Arno, 25/11/2026, 22h06, 517) les partenaires de la liste « Restitution des 20 % » (proposés, décochés, dans « Faire restitution ») — LECTURE SEULE.
+    if (p('partenairesRestitution') === '1') {
+      return Response.json({ etat: 'ok', data: { liste: await lireDestinatairesDefaut('restitution_vingt') } }, { headers: ENTETES });
     }
     // 🔴 Arno (11/11/2026) — la copropriété SAISIE sur le bien (la case « Retenue de 20 % ») — LECTURE SEULE.
     const idRetenue = identifiant(p('retenueSortie'));

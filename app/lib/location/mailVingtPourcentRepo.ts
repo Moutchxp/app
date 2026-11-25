@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
-import { refusUnLocataireParMail, type CleModeleVingt } from './mailVingtPourcent';
+import { refusUnLocataireParMail, type CleMarqueVingt } from './mailVingtPourcent';
 import { colonneExisteMemo } from './sondeLocation';
 import { SQL_MESSAGE_DE_L_ENVOI } from '../gestion/envoiCiblesRepo';
 import type { MailVingtEnvoye } from './vingtPourcent';
@@ -67,7 +67,7 @@ export async function comptesDesFils(filIds: readonly number[]): Promise<Map<num
 export const mailsVingtDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_vingt', 'cle_idempotence');
 
 /** À la demande d'envoi (route `envois`, après le contrôle « un mail par locataire ») : le lien envoi ↔ ligne. Sans la 515 : rien. Ne lève jamais. */
-export async function noterMailVingt(o: { sortieId: number; cleIdempotence: string; modele: CleModeleVingt | null }): Promise<void> {
+export async function noterMailVingt(o: { sortieId: number; cleIdempotence: string; modele: CleMarqueVingt | null }): Promise<void> {
   try {
     if (!(await mailsVingtDisponible())) return;
     await query(`INSERT INTO gestion_location_mail_vingt (sortie_validee_id, cle_idempotence, modele) VALUES ($1, $2, $3) ON CONFLICT (cle_idempotence) DO NOTHING`,

@@ -42,7 +42,7 @@ describe('« Restitution faite »', () => {
   it('🔴 enregistrée, puis journalisée dans le dossier de CHAQUE locataire de la sortie (entité « annuaire »)', async () => {
     expect(await enregistrerRestitution(OK, AUTEUR)).toEqual({ etat: 'ok', data: { id: 1 } });
     const ins = h.sql.find((x) => x.s.startsWith('INSERT INTO gestion_location_restitution_vingt'))!;
-    expect(ins.p).toEqual([7, '2026-11-20', 312.5, 40, 'Virement _TEST', 1, 'Arno Test']);
+    expect(ins.p).toEqual([7, '2026-11-20', 312.5, 40, 'Virement _TEST', 1, 'Arno Test', null, null]); // 🔴 (22h06, 518) + 20 % et motif (inconnus ici)
     expect(journaux().map((j) => [j.p[0], j.p[1], j.p[2]])).toEqual([
       [101, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges'],
       [102, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges'],
@@ -85,5 +85,29 @@ describe('« Annuler » une restitution', () => {
     expect(await annulerRestitution({ restitutionId: 1 }, AUTEUR)).toMatchObject({ etat: 'refus', motif: expect.stringContaining('déjà annulée') });
     // annulée : la sortie peut de nouveau être restituée
     expect((await enregistrerRestitution({ sortieId: 7, date: '2026-11-21', montantRestitue: 300 }, AUTEUR)).etat).toBe('ok');
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026, 22h06) — « 20 % retenus » prérempli, « Montant restitué », différence ; une différence exige un MOTIF ; jamais plus que les 20 %. */
+describe('🔴🔴 la restitution : 20 % retenus, différence et motif', () => {
+  const OK = { sortieId: 7, date: '2026-11-20', montantRestitue: '370,00', montantVingt: '400,00', commentaire: '' };
+  it('différence sans motif : refus (champ « motifDifference »), rien n’est écrit ; restitué > 20 % : refus', async () => {
+    expect(await enregistrerRestitution({ ...OK, motifDifference: '  ' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'motifDifference' });
+    expect(await enregistrerRestitution({ ...OK, montantRestitue: '401' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'montantRestitue' });
+    expect(await enregistrerRestitution({ ...OK, montantVingt: '' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'montantVingt' });
+    expect(h.sql.some((x) => x.s.startsWith('INSERT'))).toBe(false);
+  });
+  it('partielle : 20 %, motif, différence comme « retenu » ; les 20 % de la fenêtre deviennent le montant de la sortie ; l’historique dit le motif', async () => {
+    expect(await enregistrerRestitution({ ...OK, motifDifference: 'régularisation de charges' }, AUTEUR)).toEqual({ etat: 'ok', data: { id: 1 } });
+    const ins = h.sql.find((x) => x.s.startsWith('INSERT INTO gestion_location_restitution_vingt'))!;
+    expect(ins.s).toContain('montant_vingt, motif_difference');
+    expect(ins.p).toEqual([7, '2026-11-20', 370, 30, null, 1, 'Arno Test', 400, 'régularisation de charges']);
+    const m = h.sql.find((x) => x.s.startsWith('INSERT INTO gestion_location_montant_vingt'))!;
+    expect(m.p).toEqual([7, 400, 'saisi', null, 1, 'Arno Test']);
+    expect(journaux()[0].p[2]).toBe('restitution des 20 % faite le 20/11/2026 : 370,00 € restitués sur 400,00 € retenus à la sortie, 30,00 € conservés (motif : régularisation de charges)');
+  });
+  it('totale : pas de motif demandé ni gardé', async () => {
+    expect(await enregistrerRestitution({ ...OK, montantRestitue: '400', motifDifference: 'inutile' }, AUTEUR)).toEqual({ etat: 'ok', data: { id: 1 } });
+    expect(h.sql.find((x) => x.s.startsWith('INSERT INTO gestion_location_restitution_vingt'))!.p).toEqual([7, '2026-11-20', 400, null, null, 1, 'Arno Test', 400, null]);
   });
 });

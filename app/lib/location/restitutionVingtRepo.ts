@@ -2,8 +2,9 @@ import { query, withTransaction } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
-import { montantsDesSorties } from './montantVingtRepo';
-import { montantFr, MOTIF_SANS_513, verifierRestitution, type RestitutionFaite } from './vingtPourcent';
+import { montantsDesSorties, montantVingtDisponible, montantVingtSaisi, noterMontantVingt } from './montantVingtRepo';
+import { differenceRestitution, verifierDifference } from './mailRestitutionVingt';
+import { montantFr, MOTIF_MONTANT_VINGT_OBLIGATOIRE, MOTIF_SANS_513, verifierRestitution, type RestitutionFaite } from './vingtPourcent';
 
 /**
  * ══ 🔴🔴 « RESTITUTION FAITE » DES 20 % RETENUS — L'ÉCRITURE (Arno, 24/11/2026). IMPUR (base). ═══════════════════════════════════════════════════
@@ -69,16 +70,41 @@ export async function enregistrerRestitution(d: Record<string, unknown>, auteur:
     const { rows: deja } = await q<{ id: string }>(`SELECT 1 AS id FROM gestion_location_sortie_validee s WHERE s.id = $1 AND NOT (${SQL_SANS_RESTITUTION_EN_COURS})`, [sortieId]);
     if (deja.length > 0) return { etat: 'refus', motif: 'Cette restitution est déjà enregistrée : rechargez la page.' } as IssueRestitution;
     const x = v.valeur;
+    // 🔴🔴 (Arno, 25/11/2026, 22h06) les 20 % retenus (préremplis par la fenêtre, sinon le montant connu de la sortie) et le MOTIF d'une différence
+    //    (obligatoire dès que le restitué est inférieur aux 20 % ; jamais plus que les 20 %). Sans montant connu ni envoyé : comme avant.
+    const connu = (await montantsDesSorties([sortieId]).catch(() => new Map())).get(sortieId) ?? null;
+    let vingt: number | null = connu?.montant ?? null;
+    if (d.montantVingt !== undefined) {
+      const m = montantVingtSaisi(d.montantVingt);
+      if (m === null) return { etat: 'refus', motif: MOTIF_MONTANT_VINGT_OBLIGATOIRE, champ: 'montantVingt' } as IssueRestitution;
+      vingt = m;
+    }
+    let motifDifference: string | null = null;
+    if (vingt !== null) {
+      const vd = verifierDifference(vingt, x.montantRestitue, d.motifDifference);
+      if (!vd.ok) return { etat: 'refus', motif: vd.motif, champ: vd.champ } as IssueRestitution;
+      motifDifference = vd.motif;
+    }
+    const difference = vingt === null ? null : differenceRestitution(vingt, x.montantRestitue);
+    const retenuCharges = x.montantRetenuCharges ?? (difference !== null && difference > 0 ? difference : null);
+    const avec518 = await colonneExisteMemo('gestion_location_restitution_vingt', 'motif_difference');
+    // sans la 518 : le motif rejoint le commentaire (rien n'est perdu)
+    const commentaireSaisi = avec518 || motifDifference === null ? x.commentaire
+      : [x.commentaire, `Motif de la différence : ${motifDifference}`].filter((t): t is string => t !== null && t !== '').join(' — ');
     const { rows: ins } = await q<{ id: string }>(
-      `INSERT INTO gestion_location_restitution_vingt (sortie_validee_id, geste, date_restitution, montant_restitue, montant_retenu_charges, commentaire, saisie_par, saisie_par_libelle)
-       VALUES ($1, 'faite', $2, $3, $4, $5, $6, $7) RETURNING id::text`,
-      [sortieId, x.date, x.montantRestitue, x.montantRetenuCharges, x.commentaire, auteur.id, auteur.libelle]);
+      `INSERT INTO gestion_location_restitution_vingt (sortie_validee_id, geste, date_restitution, montant_restitue, montant_retenu_charges, commentaire, saisie_par, saisie_par_libelle${avec518 ? ', montant_vingt, motif_difference' : ''})
+       VALUES ($1, 'faite', $2, $3, $4, $5, $6, $7${avec518 ? ', $8, $9' : ''}) RETURNING id::text`,
+      [sortieId, x.date, x.montantRestitue, retenuCharges, commentaireSaisi, auteur.id, auteur.libelle, ...(avec518 ? [vingt, motifDifference] : [])]);
     const id = Number(ins[0].id);
+    // les 20 % saisis ou corrigés dans la fenêtre deviennent le montant de la sortie (ajout seul, 516)
+    if (vingt !== null && (connu === null || connu.montant !== vingt) && await montantVingtDisponible()) {
+      await noterMontantVingt({ sortieId, montant: vingt, depotCentimes: connu?.depot != null ? Math.round(connu.depot * 100) : null }, auteur, q as never);
+    }
     // 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus à la sortie suit jusqu'à l'historique (dossier du locataire, bien)
-    const vingt = (await montantsDesSorties([sortieId]).catch(() => new Map())).get(sortieId) ?? null;
     const texte = `restitution des 20 % faite le ${x.date.slice(8, 10)}/${x.date.slice(5, 7)}/${x.date.slice(0, 4)} : ${montantFr(x.montantRestitue)} restitués`
-      + (vingt !== null ? ` sur ${montantFr(vingt.montant)} retenus à la sortie` : '')
-      + (x.montantRetenuCharges !== null ? `, ${montantFr(x.montantRetenuCharges)} retenus au titre des charges` : '');
+      + (vingt !== null ? ` sur ${montantFr(vingt)} retenus à la sortie` : '')
+      + (motifDifference !== null && difference !== null ? `, ${montantFr(difference)} conservés (motif : ${motifDifference})`
+        : retenuCharges !== null ? `, ${montantFr(retenuCharges)} retenus au titre des charges` : '');
     const commentaire = `${x.commentaire ?? 'Restitution des 20 % du dépôt de garantie'} — sortie validée ${sortieId}, restitution ${id}`;
     await journaliser(q, await locatairesDeLaSortie(q, sortieId), 'location_restitution_20_faite', texte, commentaire, auteur);
     await journaliserBien(q, sortieId, 'location_restitution_20_faite', texte, commentaire, auteur);
@@ -114,17 +140,18 @@ export async function annulerRestitution(d: Record<string, unknown>, auteur: Aut
 /** Les restitutions EN COURS (section « Restitutions faites »), les plus récentes d'abord. Sans la 513 : aucune. */
 export async function lireRestitutionsFaites(): Promise<RestitutionFaite[]> {
   if (!(await restitutionVingtDisponible())) return [];
+  const avec518 = await colonneExisteMemo('gestion_location_restitution_vingt', 'motif_difference');
   const { rows } = await query<{ id: string; sortie: string; noms: string[] | null; logement: string | null; date_sortie: string; date: string; restitue: string; retenu: string | null;
-    commentaire: string | null; par: string; le: string }>(
+    commentaire: string | null; par: string; le: string; motif: string | null }>(
     `SELECT f.id::text, s.id::text AS sortie,
             (SELECT array_agg(l.nom ORDER BY l.nom_normalise) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.id = ANY(s.occupation_ids)) AS noms,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
             s.date_sortie::text, f.date_restitution::text AS date, f.montant_restitue::text AS restitue, f.montant_retenu_charges::text AS retenu,
-            f.commentaire, f.saisie_par_libelle AS par, (f.saisie_le AT TIME ZONE 'Europe/Paris')::text AS le
+            f.commentaire, ${avec518 ? 'f.motif_difference' : 'NULL::text'} AS motif, f.saisie_par_libelle AS par, (f.saisie_le AT TIME ZONE 'Europe/Paris')::text AS le
        FROM gestion_location_restitution_vingt f JOIN gestion_location_sortie_validee s ON s.id = f.sortie_validee_id JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id
       WHERE f.geste = 'faite' AND NOT EXISTS (SELECT 1 FROM gestion_location_restitution_vingt a WHERE a.annule_id = f.id)
       ORDER BY f.date_restitution DESC, f.id DESC`);
   return rows.map((r) => ({ id: Number(r.id), sortieId: Number(r.sortie), locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, date: r.date,
-    montantRestitue: Number(r.restitue), montantRetenuCharges: r.retenu === null ? null : Number(r.retenu), commentaire: r.commentaire, par: r.par, le: r.le.slice(0, 16) }));
+    montantRestitue: Number(r.restitue), montantRetenuCharges: r.retenu === null ? null : Number(r.retenu), commentaire: r.commentaire, motifDifference: r.motif, par: r.par, le: r.le.slice(0, 16) }));
 }

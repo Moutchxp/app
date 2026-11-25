@@ -9,7 +9,7 @@ import { ApercuFichierDrive } from '../gestion/ApercuFichierDrive';
 import { PARENT_PIECES_CONVERSATION, piecesDeLaConversation, voisinagePiecesConversation } from '../../../../lib/gestion/piecesConversation';
 import type { MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { VoieRedaction } from '../../../../lib/gestion/redaction';
-import { MODELES_VINGT } from '../../../../lib/location/mailVingtPourcent';
+import { MODELES_RESTITUTION, MODELES_VINGT } from '../../../../lib/location/mailVingtPourcent';
 import type { LigneVingtPourcent, MailVingtEnvoye } from '../../../../lib/location/vingtPourcent';
 
 /**
@@ -28,7 +28,7 @@ import type { LigneVingtPourcent, MailVingtEnvoye } from '../../../../lib/locati
  */
 
 /** Le libellé d'un modèle (« Message libre » sinon). PUR. */
-export const libelleModeleVingt = (m: string | null): string => MODELES_VINGT.find((x) => x.cle === m)?.libelle ?? 'Message libre';
+export const libelleModeleVingt = (m: string | null): string => [...MODELES_VINGT, ...MODELES_RESTITUTION].find((x) => x.cle === m)?.libelle ?? 'Message libre';
 const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 
 /** Les mails de plusieurs fils en UNE conversation : sans doublon, du plus ancien au plus récent (puis par numéro). PUR. */

@@ -226,16 +226,18 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
     await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
     expect(f.querySelector('[data-restitution-refus]')?.textContent).toContain('Indiquez le montant restitué');
     expect(posts).toEqual([]);
-    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '312,50'); });
+    // 🔴 (22h06) les 20 % retenus (inconnus ici) d'abord ; le montant restitué se préremplit au même montant
+    await act(async () => { saisir(f.querySelector('[data-restitution-vingt]') as HTMLInputElement, '312,50'); });
+    expect((f.querySelector('[data-restitution-montant]') as HTMLInputElement).value).toBe('312,50');
     await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'Virement _TEST'); });
     await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); }); await calmer();
     // 🔴 (25/11/2026) la confirmation d'abord : rien n'est écrit avant « Confirmer la restitution »
     expect(posts).toEqual([]);
     await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
-    expect(posts).toEqual([{ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantRetenuCharges: '', commentaire: 'Virement _TEST' }]);
+    expect(posts).toEqual([{ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantVingt: '312,50', motifDifference: '', commentaire: 'Virement _TEST' }]);
     expect((global.fetch as unknown as { mock: { calls: [string, RequestInit | undefined][] } }).mock.calls.find(([, i]) => i?.method === 'POST')?.[0]).toBe('/api/admin/location');
-    expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
-    expect(lectures).toHaveLength(2);
+    expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();          // aucun mail à envoyer (Location) : elle se ferme
+    expect(lectures.filter((u) => !u.includes('partenairesRestitution'))).toHaveLength(2);
   });
   it('« Restitutions faites (1) » repliée en bas de page : la restitution, puis « Annuler » → confirmation → POST d’annulation', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -1116,16 +1118,20 @@ describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer u
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
     const f = container.querySelector('[data-fenetre-restitution="5"]')!;
+    // 🔴 (22h06) les 20 % retenus valent le montant restitué + l'ancien « retenu » ; une différence exige un motif
+    const v = montant === '' ? '' : String(Number(montant.replace(',', '.')) + Number(retenu === '' ? 0 : retenu)).replace('.', ',');
+    await act(async () => { saisir(f.querySelector('[data-restitution-vingt]') as HTMLInputElement, v); });
     await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, montant); });
-    if (retenu !== '') await act(async () => { saisir(f.querySelector('[data-restitution-retenu]') as HTMLInputElement, retenu); });
+    if (retenu !== '') await act(async () => { saisir(f.querySelector('[data-restitution-motif]') as HTMLTextAreaElement, 'régularisation de charges'); });
     await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'Virement _TEST'); });
     await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
     return f;
   };
   const conf = () => container.querySelector('[data-confirmation-restitution="5"]');
-  it('après les contrôles du formulaire : la confirmation, son titre et son texte (sans montant retenu) ; rien n’est écrit', async () => {
+  it('après les contrôles du formulaire : la confirmation, son titre, le récapitulatif (🔴 22h06) et l’attestation d’avant ; rien n’est écrit', async () => {
     await ouvrir('312,50');
     expect(conf()?.querySelector('[role="alertdialog"] h2')?.textContent).toBe('Confirmer la restitution');
+    expect(conf()?.querySelector('[data-confirmation-recap]')?.textContent).toBe('Vous allez valider la restitution de 312,50 € et n’envoyer aucun mail.');
     expect([...conf()!.querySelectorAll('[data-confirmation-texte]')].map((p) => p.textContent)).toEqual([
       'En confirmant, vous attestez que la restitution de 312,50 € à Alice DUPONT a bien été effectuée le 23/11/2026. Ce locataire sortira du suivi des 20 % et passera dans l’historique « Restitutions faites ».']);
     expect([...conf()!.querySelectorAll('button')].map((b) => [b.textContent, b.className])).toEqual([
@@ -1137,19 +1143,19 @@ describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer u
     expect(conf()).toBeNull();
     expect(container.querySelector('[data-restitution-refus]')?.textContent).toContain('Indiquez le montant restitué');
   });
-  it('avec un montant retenu : la phrase « Montant retenu au titre des charges : … € »', async () => {
+  it('🔴 (22h06) avec une différence : la somme conservée et son MOTIF (à la place de l’ancien « Montant retenu au titre des charges »)', async () => {
     await ouvrir('300', '40');
     expect([...conf()!.querySelectorAll('[data-confirmation-texte]')].map((p) => p.textContent)).toEqual([
-      'En confirmant, vous attestez que la restitution de 300,00 € à Alice DUPONT a bien été effectuée le 23/11/2026. Ce locataire sortira du suivi des 20 % et passera dans l’historique « Restitutions faites ».',
-      'Montant retenu au titre des charges : 40,00 €.']);
+      'En confirmant, vous attestez que la restitution de 300,00 € à Alice DUPONT a bien été effectuée le 23/11/2026. Ce locataire sortira du suivi des 20 % et passera dans l’historique « Restitutions faites ».']);
+    expect(conf()?.querySelector('[data-confirmation-difference]')?.textContent).toBe('40,00 € conservés — motif : régularisation de charges');
   });
   it('« Revenir » : la confirmation se ferme, rien n’est écrit, la saisie est conservée', async () => {
     const f = await ouvrir('312,50', '40');
     await act(async () => { (container.querySelector('[data-confirmation-revenir]') as HTMLButtonElement).click(); });
     expect(conf()).toBeNull();
     expect(posts).toEqual([]);
-    expect([(f.querySelector('[data-restitution-montant]') as HTMLInputElement).value, (f.querySelector('[data-restitution-retenu]') as HTMLInputElement).value,
-      (f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement).value]).toEqual(['312,50', '40', 'Virement _TEST']);
+    expect([(f.querySelector('[data-restitution-montant]') as HTMLInputElement).value, (f.querySelector('[data-restitution-motif]') as HTMLTextAreaElement).value,
+      (f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement).value]).toEqual(['312,50', 'régularisation de charges', 'Virement _TEST']);
     expect(container.querySelector('[data-fenetre-restitution="5"]')).not.toBeNull();
   });
   it('« Confirmer la restitution » : UN enregistrement, même sur un double clic ; puis la fenêtre se ferme et la liste se relit', async () => {
@@ -1158,10 +1164,10 @@ describe('🔴🔴 Arno (25/11/2026) — la confirmation avant d’enregistrer u
     await act(async () => { b.click(); b.click(); });
     await act(async () => { b.click(); });
     expect(posts).toHaveLength(1);
-    expect(posts[0]).toEqual({ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantRetenuCharges: '', commentaire: 'Virement _TEST' });
+    expect(posts[0]).toEqual({ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantVingt: '312,5', motifDifference: '', commentaire: 'Virement _TEST' });
     await act(async () => { resoudre?.(); }); await calmer();
     expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
-    expect(lectures).toHaveLength(2);
+    expect(lectures.filter((u) => !u.includes('partenairesRestitution'))).toHaveLength(2);
   });
   it('colocataires : « A et B », au pluriel ; l’annulation depuis « Restitutions faites » est inchangée (sans confirmation nouvelle)', () => {
     expect(texteConfirmationRestitution({ noms: ['Paul MARTIN', 'Léa MARTIN'], date: '2026-11-20', montantRestitue: 100, montantRetenuCharges: null })).toEqual([
@@ -1657,5 +1663,120 @@ describe('🔴 Arno (25/11/2026, 22h06) — la ligne de détail encadrée', () =
     expect(src).toContain('.vgp-dl-sortie{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);');
     expect(src).toContain('background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent)}');
     expect(src).toContain('.vgp-dl-sortie{grid-template-columns:1fr;gap:8px}');
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 22h06) — la fenêtre « Faire restitution » retravaillée : 20 % prérempli, restitué prérempli, différence et motif OBLIGATOIRE ;
+ * une case par locataire (cochée s'il a une adresse), une par partenaire (DÉCOCHÉE) ; UN mail par destinataire ; récapitulatif ; « Renvoyer ».
+ */
+describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montants, mails aux locataires et aux partenaires', () => {
+  const envois: Record<string, unknown>[] = []; const gestes: Record<string, unknown>[] = [];
+  let echecPartenaire = 0;
+  const LIGNE_R = { ...LU.lignes[0], lotCle: 'W1', montantVingt: { montant: 400, origine: 'calcule' as const, depot: 2000 }, numLots: ['58'], batiment: 'D', etage: '6', syndic: 'Agence Rivière Copropriétés',
+    contacts: { locataires: [{ nom: 'BENOÎT Sarah', email: 'a.jorel+locataire-benoit@sansvisavis.com', telephone: null, civilite: 'Mme', nomFamille: 'BENOÎT', adresse: null },
+      { nom: 'SANS Mail', email: null, telephone: null, civilite: null, nomFamille: 'SANS', adresse: null }],
+      proprietaires: [{ nom: 'Didier PERRIN', nomCivil: 'M. Didier PERRIN', email: 'a.jorel+proprio-perrin@sansvisavis.com', telephone: null, civilite: 'M.', nomFamille: 'PERRIN', adresse: null }] } };
+  beforeEach(() => {
+    envois.length = 0; gestes.length = 0; echecPartenaire = 0;
+    donnees = { ...LU, restitutionDisponible: true, lignes: [LIGNE_R] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const url = String(u);
+      if ((init?.method ?? 'GET') === 'POST') {
+        const b = JSON.parse(String(init!.body)) as Record<string, unknown>;
+        if (url.includes('/gestion/envois')) {
+          envois.push(b);
+          if ((b.a as string[])[0] === 'partenaire@exemple.test' && echecPartenaire-- > 0) return { ok: false, status: 422, json: async () => ({ erreur: 'Refus d’essai.' }) } as Response;
+          return { ok: true, status: 200, json: async () => ({ ok: true, enFile: true }) } as Response;
+        }
+        gestes.push(b);
+        return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response;
+      }
+      lectures.push(url);
+      if (url.includes('partenairesRestitution=1')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { liste: [{ adresse: 'partenaire@exemple.test', libelle: 'ADHOC' }] } }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  const saisir = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const ouvrirFenetre = async (avecMail = true) => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', ...(avecMail ? { mail: { contexte: CONTEXTE_E } } : {}) }));
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    await calmer();
+    return container.querySelector('[data-fenetre-restitution="5"]')!;
+  };
+  it('préremplis : 20 % = 400,00, restitué = 400,00, différence 0 ; locataire avec adresse COCHÉ, sans adresse grisé ; partenaire DÉCOCHÉ', async () => {
+    const f = await ouvrirFenetre();
+    expect((f.querySelector('[data-restitution-vingt]') as HTMLInputElement).value).toBe('400,00');
+    expect((f.querySelector('[data-restitution-montant]') as HTMLInputElement).value).toBe('400,00');
+    expect(f.querySelector('[data-restitution-difference]')?.textContent).toBe('Différence : 0,00 € — restitution totale');
+    expect(f.querySelector('[data-restitution-motif]')).toBeNull();
+    const loc = (i: number) => f.querySelector(`[data-restitution-locataire="${i}"] input`) as HTMLInputElement;
+    expect([loc(0).checked, loc(0).disabled, loc(1).checked, loc(1).disabled]).toEqual([true, false, false, true]);
+    const par = f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement;
+    expect([par.checked, par.disabled]).toEqual([false, false]);
+    expect([...f.querySelectorAll('[data-restitution-apercu]')].map((x) => x.getAttribute('data-restitution-apercu'))).toEqual(['loc-0']);
+  });
+  it('différence ≠ 0 : « Motif de la différence » OBLIGATOIRE (refus à l’écran, rien n’est écrit) ; restitué > 20 % : refus', async () => {
+    const f = await ouvrirFenetre();
+    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '370'); });
+    expect(f.querySelector('[data-restitution-difference]')?.textContent).toBe('Différence : 30,00 €');
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(f.querySelector('[data-restitution-refus]')?.textContent).toContain('Indiquez le motif de la différence');
+    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '450'); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(f.querySelector('[data-restitution-refus]')?.textContent).toContain('ne peut pas dépasser les 20 % retenus');
+    expect([...gestes, ...envois]).toEqual([]);
+  });
+  it('récapitulatif « … et envoyer 2 mails à : … » ; confirmé : la restitution D’ABORD, puis UN mail par destinataire (une seule adresse chacun), marqués et classés sur le bien', async () => {
+    const f = await ouvrirFenetre();
+    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '370'); });
+    await act(async () => { saisir(f.querySelector('[data-restitution-motif]') as HTMLTextAreaElement, 'régularisation de charges'); });
+    await act(async () => { (f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).click(); });
+    const texteLoc = (f.querySelector('[data-restitution-texte="loc-0"]') as HTMLTextAreaElement).value;
+    expect(texteLoc).toContain('Bonjour Madame BENOÎT,');
+    expect(texteLoc).toContain('La somme de 30,00 € a été conservée pour le motif suivant : régularisation de charges.');
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-confirmation-recap]')?.textContent).toBe(
+      'Vous allez valider la restitution de 370,00 € et envoyer 2 mails à : BENOÎT Sarah (locataire) ; ADHOC — partenaire@exemple.test (partenaire).');
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(gestes).toEqual([{ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '370', montantVingt: '400,00', motifDifference: 'régularisation de charges', commentaire: '' }]);
+    expect(envois.map((e) => [e.a, (e.vingtPourcent as { modele: string }).modele])).toEqual([
+      [['a.jorel+locataire-benoit@sansvisavis.com'], 'restitution_locataire'], [['partenaire@exemple.test'], 'restitution_partenaire']]);
+    for (const e of envois) {
+      expect(e).toMatchObject({ cc: [], cci: [], voie: 'nouveau', interne: false, vingtPourcent: { sortieId: 5 }, cibles: [{ sorte: 'lot', cle: 'W1', id: 1 }] });
+      expect(String(e.cleIdempotence).length).toBeGreaterThanOrEqual(8);
+      expect(String(e.corps)).toContain('— Gestion');                               // la signature du compte
+    }
+    expect(String(envois[1].objet)).toBe('Restitution du solde du dépôt de garantie — 1 rue A, 92800 Puteaux — BENOÎT et SANS');
+    expect(String(envois[1].corpsHtml)).toContain('<p><strong>Le bien</strong></p>');
+    expect([...container.querySelectorAll('[data-restitution-envoi]')].map((x) => x.getAttribute('data-restitution-envoi'))).toEqual(['ok', 'ok']);
+  });
+  it('un envoi refusé : la restitution reste enregistrée, l’échec est dit avec « Renvoyer » (nouvelle clé) ; « Fermer » relit la liste', async () => {
+    echecPartenaire = 1;
+    const f = await ouvrirFenetre();
+    await act(async () => { (f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).click(); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(gestes).toHaveLength(1);
+    const echec = container.querySelector('[data-restitution-envoi="echec"]')!;
+    expect(echec.textContent).toContain('Échec de l’envoi à ADHOC — partenaire@exemple.test (partenaire) : Refus d’essai.');
+    const cle1 = envois[1].cleIdempotence;
+    await act(async () => { (echec.querySelector('[data-restitution-renvoyer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(envois).toHaveLength(3);
+    expect(envois[2].cleIdempotence).not.toBe(cle1);
+    expect([...container.querySelectorAll('[data-restitution-envoi]')].map((x) => x.getAttribute('data-restitution-envoi'))).toEqual(['ok', 'ok']);
+    const avant = lectures.length;
+    await act(async () => { (container.querySelector('[data-restitution-fermer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
+    expect(lectures.length).toBeGreaterThan(avant);
+  });
+  it('écran de la Location (sans droit d’écrire au nom de la Gestion) : cases grisées, la restitution s’enregistre sans mail, et on le dit', async () => {
+    const f = await ouvrirFenetre(false);
+    expect((f.querySelector('[data-restitution-locataire="0"] input') as HTMLInputElement).disabled).toBe(true);
+    expect(f.querySelector('[data-restitution-sans-envoi]')?.textContent).toContain('Les mails partent depuis l’écran Gestion');
+    expect(f.querySelector('[data-restitution-apercus]')).toBeNull();
   });
 });

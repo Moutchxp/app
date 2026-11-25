@@ -1,5 +1,5 @@
 import { libelleEtage } from './locationBien';
-import { montantFr } from './vingtPourcent';
+import { montantFr, type LigneVingtPourcent, type PersonneContact } from './vingtPourcent';
 
 /**
  * ══ 🔴🔴 LES MAILS DE LA RESTITUTION DES 20 % (Arno, 25/11/2026, 22h06). PUR. ═══════════════════════════════════════════════════════════════════════
@@ -162,4 +162,22 @@ export function verifierDifference(montantVingt: number, montantRestitue: number
   if (differenceRestitution(montantVingt, montantRestitue) !== 0 && m === '') return { ok: false, motif: 'Indiquez le motif de la différence (ex. « régularisation de charges défavorable de 30,00 € »).', champ: 'motifDifference' };
   if (m.length > 500) return { ok: false, motif: 'Le motif de la différence dépasse 500 caractères.', champ: 'motifDifference' };
   return { ok: true, motif: differenceRestitution(montantVingt, montantRestitue) === 0 ? null : m };
+}
+
+/** Une personne de la ligne (coordonnées réduites) en personne du mail. PUR. */
+const personneDeLaLigne = (p: PersonneContact, nomAffiche: string): PersonneRestitution => ({
+  civilite: p.civilite ?? null, nom: nomAffiche, nomFamille: p.nomFamille ?? null, telephone: p.telephone?.affiche ?? null, email: p.email, adresse: p.adresse ?? null,
+});
+
+/** Les données des deux mails, tirées de la ligne « 20 % à restituer » et de la saisie de la fenêtre. PUR. */
+export function donneesRestitutionDeLaLigne(l: LigneVingtPourcent, s: { montantVingt: number; montantRestitue: number; motif: string | null; dateValidation: string }): DonneesRestitution {
+  return {
+    logement: l.logement ?? `Bien ${l.lotId}`, numLots: l.numLots ?? [], batiment: l.batiment ?? null, etage: l.etage ?? null,
+    coproNom: l.copropriete?.nom ?? null, syndic: l.syndic ?? null, dateSortie: l.dateSortie,
+    locataires: (l.contacts?.locataires ?? []).length > 0 ? l.contacts!.locataires.map((p) => personneDeLaLigne(p, p.nom))
+      : l.locataires.map((nom) => ({ civilite: null, nom, nomFamille: null, telephone: null, email: null, adresse: null })),
+    proprietaires: (l.contacts?.proprietaires ?? []).map((p) => personneDeLaLigne(p, p.nomCivil ?? p.nom)),
+    arrete: l.arrete, derniereAgo: l.derniereAgo ?? null,
+    montantVingt: s.montantVingt, montantRestitue: s.montantRestitue, motif: s.motif, dateValidation: s.dateValidation,
+  };
 }
