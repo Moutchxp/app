@@ -21,3 +21,13 @@ describe('fusionnerEchanges', () => {
     expect(libelleModeleVingt(null)).toBe('Message libre');
   });
 });
+
+/** 🔴 Arno (25/11/2026, 21h24) — « les mails doivent être affichés du plus récent au plus ancien (l'inverse d'aujourd'hui) ». */
+describe('plusRecentDabord', () => {
+  it('l’ordre d’affichage de l’écran : l’inverse de la fusion chronologique, sans toucher la liste d’origine', async () => {
+    const { plusRecentDabord } = await import('./EchangesVingt');
+    const chrono = fusionnerEchanges([{ filId: 1, messages: [M(2, '2026-11-02T10:00:00+01:00'), M(1, '2026-11-01T10:00:00+01:00'), M(3, '2026-11-03T10:00:00+01:00')] }]);
+    expect(plusRecentDabord(chrono).map((x) => x.m.messageId)).toEqual([3, 2, 1]);
+    expect(chrono.map((x) => x.m.messageId)).toEqual([1, 2, 3]);
+  });
+});

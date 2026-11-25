@@ -1448,7 +1448,7 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     expect(lectures.some((u) => u.includes('/gestion/fils/'))).toBe(false); // repliée : rien n'est lu
   });
 
-  it('ligne dépliée : « Échanges (4) » visible, tous fils mêlés du plus ancien au plus récent, le mail parti d’ici porte son modèle et son lien ; le mail pas encore capturé ; le module FERMÉ', async () => {
+  it('ligne dépliée : « Échanges (4) » visible, tous fils mêlés 🔴 (21h24) du plus RÉCENT au plus ancien (le mail pas encore capturé en tête), le mail parti d’ici porte son modèle et son lien ; le module FERMÉ', async () => {
     donnees = { ...LU, lignes: [LIGNE()] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
     await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
@@ -1456,7 +1456,12 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     const e = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] [data-vgp-echanges]')!;
     expect(e.querySelector('.vgp-echanges-titre')?.textContent).toBe('Échanges (4)');
     expect([...e.querySelectorAll('[data-stub-carte]')].map((c) => [c.getAttribute('data-stub-carte'), c.getAttribute('data-stub-fil')]))
-      .toEqual([['901', '55'], ['904', '56'], ['903', '55']]);
+      .toEqual([['903', '55'], ['904', '56'], ['901', '55']]);
+    // le mail pas encore capturé (le plus récent) est au-dessus de tous ; chaque bandeau « Envoyé depuis cette page » reste au-dessus de SON mail
+    const ordre = [...e.querySelectorAll('[data-vgp-echange-attente], [data-vgp-echange]')].map((x) => x.getAttribute('data-vgp-echange') ?? 'attente');
+    expect(ordre).toEqual(['attente', '903', '904', '901']);
+    const bloc901 = e.querySelector('[data-vgp-echange="901"]')!;
+    expect(bloc901.firstElementChild?.hasAttribute('data-vgp-echange-modele')).toBe(true);
     expect(e.querySelector('[data-vgp-echange="901"] [data-vgp-echange-modele]')?.textContent).toBe('Envoyé depuis cette page — Syndic, propriétaire(s) en copie — date de la prochaine AGO — Voir dans l’historique');
     expect(e.querySelector('[data-vgp-echange="903"] [data-vgp-echange-modele]')).toBeNull();
     expect(e.querySelector('[data-vgp-echange-attente]')?.textContent).toBe('25/11/2026 à 10:12 — jean@exemple.test — Message libre — dans la conversation dès la prochaine relève');
@@ -1519,7 +1524,7 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     await act(async () => { (bloc.querySelector('[data-vgp-deplier]') as HTMLElement).click(); });
     await calmer();
     const r = bloc.querySelector('[data-vgp-concerne="6"] [data-vgp-concerne-echanges]')!;
-    expect([...r.querySelectorAll('[data-stub-carte]')].map((c) => c.getAttribute('data-stub-carte'))).toEqual(['901', '904', '903']);
+    expect([...r.querySelectorAll('[data-stub-carte]')].map((c) => c.getAttribute('data-stub-carte'))).toEqual(['903', '904', '901']); // 🔴 (21h24) du plus récent au plus ancien
     await act(async () => { (r.querySelector('[data-stub-repondre="903"]') as HTMLElement).click(); });
     await calmer();
     expect((redaction.mock.calls.at(-1)![0] as { brouillon: Record<string, unknown> }).brouillon).toMatchObject({ voie: 'repondre', a: ['syndic@exemple.test'], repondALeMessageId: 903, filId: 55, vingtPourcent: { sortieId: 6 } });

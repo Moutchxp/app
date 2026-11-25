@@ -16,7 +16,8 @@ import type { LigneVingtPourcent, MailVingtEnvoye } from '../../../../lib/locati
  * conversation (mail par mail) avec le syndic, les propriétaires et les locataires ; les mails échangés doivent se présenter comme dans la boîte mail
  * habituelle (même principe, même présentation). »
  * - LA CONVERSATION D'UNE LIGNE = les fils de la boîte Gestion ouverts par les mails partis de son module (migration 515 : envoi → mail capturé → fil),
- *   réponses comprises (une réponse rejoint le fil par ses en-têtes de réponse, comme dans la boîte), du plus ancien au plus récent, tous fils mêlés.
+ *   réponses comprises (une réponse rejoint le fil par ses en-têtes de réponse, comme dans la boîte), tous fils mêlés ; 🔴 (21h24) affichée du plus
+ *   RÉCENT au plus ancien.
  * - LA PRÉSENTATION est celle de la boîte : chaque mail est rendu par `MessageConversation` (la carte de la conversation Gestion — pas de copie),
  *   dépliable, pièces jointes comprises ; son contenu est lu au dépliage (`chargerCorpsDuMessage`, la même lecture). Lecture par la route du fil
  *   (`/api/admin/gestion/fils/[id]/messages`, droit Gestion) : rien n'est écrit.
@@ -35,6 +36,12 @@ export function fusionnerEchanges(fils: ReadonlyArray<{ filId: number; messages:
   return [...vus.values()].sort((a, b) => (a.m.recuLe < b.m.recuLe ? -1 : a.m.recuLe > b.m.recuLe ? 1 : a.m.messageId - b.m.messageId));
 }
 
+/**
+ * 🔴 (Arno, 25/11/2026, 21h24) « les mails doivent être affichés du plus récent au plus ancien (l'inverse d'aujourd'hui) » : l'ORDRE D'AFFICHAGE de cet
+ * écran (la fusion reste chronologique ; la boîte Gestion garde le sien). PUR.
+ */
+export const plusRecentDabord = <T,>(chrono: readonly T[]): T[] => [...chrono].reverse();
+
 type Corps = { texte: string | null; html: string | null; cssMail?: string };
 
 export function EchangesLigne({ l, maintenant, onRepondre }: {
@@ -44,7 +51,8 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
   onRepondre?: (voie: VoieRedaction, m: MessageDeFil, filId: number, corps: { texte?: string | null; html?: string | null }) => void;
 }) {
   const fils = l.echanges?.fils ?? [];
-  const enAttente = (l.mails ?? []).filter((m) => m.filId == null);
+  // pas encore capturés : les plus récents de tous, donc EN HAUT (du plus récent au plus ancien)
+  const enAttente = plusRecentDabord((l.mails ?? []).filter((m) => m.filId == null));
   const [lus, setLus] = useState<Array<{ filId: number; m: MessageDeFil }> | null>(fils.length === 0 ? [] : null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -98,7 +106,12 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
       <p className="vgp-coord-titre vgp-echanges-titre">Échanges ({nombre})</p>
       {erreur !== null && <p className="cp-refus" role="alert" data-vgp-echanges-erreur>{erreur}</p>}
       {lus === null && erreur === null && <p className="loc-muet" role="status">Lecture des échanges…</p>}
-      {(lus ?? []).map(({ filId, m }) => {
+      {enAttente.map((e, i) => (
+        <p key={`att-${i}`} className="vgp-coord-ligne vgp-echange-attente" data-vgp-echange-attente={i}>
+          {dateFr(e.le.slice(0, 10))} à {e.le.slice(11, 16)} — {e.a.length > 0 ? e.a.join(', ') : '—'}{e.copies > 0 ? ` (+ ${e.copies} en copie)` : ''} — {libelleModeleVingt(e.modele)}
+          {' — '}<span className="loc-muet">dans la conversation dès la prochaine relève</span>
+        </p>))}
+      {plusRecentDabord(lus ?? []).map(({ filId, m }) => {
         const envoi = envoiDe(m.messageId);
         const c = corps.get(m.messageId);
         return (
@@ -112,11 +125,6 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
               onRepondre={onRepondre !== undefined ? (voie) => onRepondre(voie, m, filId, { texte: c?.texte, html: c?.html }) : undefined} />
           </div>);
       })}
-      {enAttente.map((e, i) => (
-        <p key={`att-${i}`} className="vgp-coord-ligne vgp-echange-attente" data-vgp-echange-attente={i}>
-          {dateFr(e.le.slice(0, 10))} à {e.le.slice(11, 16)} — {e.a.length > 0 ? e.a.join(', ') : '—'}{e.copies > 0 ? ` (+ ${e.copies} en copie)` : ''} — {libelleModeleVingt(e.modele)}
-          {' — '}<span className="loc-muet">dans la conversation dès la prochaine relève</span>
-        </p>))}
     </section>
   );
 }
