@@ -7,7 +7,8 @@ import { montantFr, MOTIF_SANS_513, verifierRestitution, type RestitutionFaite }
 /**
  * ══ 🔴🔴 « RESTITUTION FAITE » DES 20 % RETENUS — L'ÉCRITURE (Arno, 24/11/2026). IMPUR (base). ═══════════════════════════════════════════════════
  * Table de gestes en AJOUT SEUL (migration 513) : « faite », puis éventuellement « annulee » (la restitution annulée reste en base). Chaque geste est
- * journalisé dans le dossier de CHAQUE locataire de la sortie (gestion_journal, entité « annuaire ») : rien n'est supprimé. Une restitution en
+ * journalisé dans le dossier de CHAQUE locataire de la sortie (gestion_journal, entité « annuaire ») ET, depuis le 25/11/2026 (décision d'Arno), dans
+ * l'historique du BIEN de la sortie (entité « annuaire_lot », `s.lot_id` posé à la validation — jamais le bail en cours) : rien n'est supprimé. Une restitution en
  * cours retire la sortie de l'écran « 20 % à restituer » (et donc de toute alerte) ; son annulation l'y remet. Sans la 513 : refus, rien n'est écrit.
  */
 
@@ -39,6 +40,16 @@ async function journaliser(q: Q, locataires: readonly number[], action: string, 
   }
 }
 
+/**
+ * 🔴 (Arno, 25/11/2026) « inscris aussi la restitution dans l'historique du bien » : la même ligne au journal du bien de la sortie (`s.lot_id`, figé à la
+ * validation : un logement reloué depuis garde la trace sur le bon bien). Dans la transaction du geste.
+ */
+async function journaliserBien(q: Q, sortieId: number, action: string, apres: string, commentaire: string, auteur: Auteur): Promise<void> {
+  await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+           SELECT 'annuaire_lot', s.lot_id, $2, NULL, $3, $4, $5, $6 FROM gestion_location_sortie_validee s WHERE s.id = $1`,
+    [sortieId, action, apres, commentaire, auteur.id, auteur.libelle]);
+}
+
 /** ENREGISTRE « Restitution faite » pour une sortie validée avec retenue (une seule en cours par sortie). */
 export async function enregistrerRestitution(d: Record<string, unknown>, auteur: Auteur): Promise<IssueRestitution> {
   if (!(await restitutionVingtDisponible())) return { etat: 'refus', motif: MOTIF_SANS_513 };
@@ -64,8 +75,9 @@ export async function enregistrerRestitution(d: Record<string, unknown>, auteur:
     const id = Number(ins[0].id);
     const texte = `restitution des 20 % faite le ${x.date.slice(8, 10)}/${x.date.slice(5, 7)}/${x.date.slice(0, 4)} : ${montantFr(x.montantRestitue)} restitués`
       + (x.montantRetenuCharges !== null ? `, ${montantFr(x.montantRetenuCharges)} retenus au titre des charges` : '');
-    await journaliser(q, await locatairesDeLaSortie(q, sortieId), 'location_restitution_20_faite', texte,
-      `${x.commentaire ?? 'Restitution des 20 % du dépôt de garantie'} — sortie validée ${sortieId}, restitution ${id}`, auteur);
+    const commentaire = `${x.commentaire ?? 'Restitution des 20 % du dépôt de garantie'} — sortie validée ${sortieId}, restitution ${id}`;
+    await journaliser(q, await locatairesDeLaSortie(q, sortieId), 'location_restitution_20_faite', texte, commentaire, auteur);
+    await journaliserBien(q, sortieId, 'location_restitution_20_faite', texte, commentaire, auteur);
     return { etat: 'ok', data: { id } } as IssueRestitution;
   });
 }
@@ -87,9 +99,10 @@ export async function annulerRestitution(d: Record<string, unknown>, auteur: Aut
        SELECT $1, 'annulee', $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM gestion_location_restitution_vingt a WHERE a.annule_id = $2) RETURNING id::text`,
       [Number(f.sortie), restitutionId, auteur.id, auteur.libelle]);
     if (ins.length === 0) return { etat: 'refus', motif: 'Cette restitution est déjà annulée : rechargez la page.' } as IssueRestitution;
-    await journaliser(q, await locatairesDeLaSortie(q, Number(f.sortie)), 'location_restitution_20_annulee',
-      `restitution des 20 % du ${f.date.slice(8, 10)}/${f.date.slice(5, 7)}/${f.date.slice(0, 4)} (${montantFr(Number(f.montant))}) annulée`,
-      `Restitution ${restitutionId} annulée (erreur de saisie) — la sortie ${f.sortie} revient sur « 20 % à restituer »`, auteur);
+    const texte = `restitution des 20 % du ${f.date.slice(8, 10)}/${f.date.slice(5, 7)}/${f.date.slice(0, 4)} (${montantFr(Number(f.montant))}) annulée`;
+    const commentaire = `Restitution ${restitutionId} annulée (erreur de saisie) — la sortie ${f.sortie} revient sur « 20 % à restituer »`;
+    await journaliser(q, await locatairesDeLaSortie(q, Number(f.sortie)), 'location_restitution_20_annulee', texte, commentaire, auteur);
+    await journaliserBien(q, Number(f.sortie), 'location_restitution_20_annulee', texte, commentaire, auteur);
     return { etat: 'ok', data: { id: Number(ins[0].id) } } as IssueRestitution;
   });
 }

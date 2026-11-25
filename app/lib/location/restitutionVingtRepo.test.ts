@@ -45,7 +45,11 @@ describe('« Restitution faite »', () => {
     expect(ins.p).toEqual([7, '2026-11-20', 312.5, 40, 'Virement _TEST', 1, 'Arno Test']);
     expect(journaux().map((j) => [j.p[0], j.p[1], j.p[2]])).toEqual([
       [101, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges'],
-      [102, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges']]);
+      [102, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges'],
+      // 🔴 (Arno, 25/11/2026) et dans l'historique du BIEN de la sortie (paramètre : la sortie ; le bien lu sur s.lot_id)
+      [7, 'location_restitution_20_faite', 'restitution des 20 % faite le 20/11/2026 : 312,50 € restitués, 40,00 € retenus au titre des charges']]);
+    expect(journaux()[2].s).toContain("INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle) SELECT 'annuaire_lot', s.lot_id, $2, NULL, $3, $4, $5, $6 FROM gestion_location_sortie_validee s WHERE s.id = $1");
+    expect(journaux()[2].p[3]).toBe('Virement _TEST — sortie validée 7, restitution 1');
     expect(norm(SQL_SANS_RESTITUTION_EN_COURS)).toContain("f.geste = 'faite' AND NOT EXISTS (SELECT 1 FROM gestion_location_restitution_vingt a WHERE a.annule_id = f.id)");
   });
   it('🔴 une deuxième fois sur la même sortie : refus, rien n’est écrit ; sans retenue, ou date avant la sortie / dans le futur : refus', async () => {
@@ -73,7 +77,9 @@ describe('« Annuler » une restitution', () => {
     expect(h.restitutions).toEqual([{ id: 1, sortie: 7, geste: 'faite', annule: null }, { id: 2, sortie: 7, geste: 'annulee', annule: 1 }]);
     expect(journaux().map((j) => [j.p[0], j.p[1], j.p[2]])).toEqual([
       [101, 'location_restitution_20_annulee', 'restitution des 20 % du 20/11/2026 (312,50 €) annulée'],
-      [102, 'location_restitution_20_annulee', 'restitution des 20 % du 20/11/2026 (312,50 €) annulée']]);
+      [102, 'location_restitution_20_annulee', 'restitution des 20 % du 20/11/2026 (312,50 €) annulée'],
+      [7, 'location_restitution_20_annulee', 'restitution des 20 % du 20/11/2026 (312,50 €) annulée']]);     // 🔴 (25/11) au bien aussi
+    expect(journaux()[2].s).toContain("SELECT 'annuaire_lot', s.lot_id,");
     // aucune ligne modifiée ni effacée
     expect(h.sql.some((x) => /^(UPDATE|DELETE)/.test(x.s))).toBe(false);
     expect(await annulerRestitution({ restitutionId: 1 }, AUTEUR)).toMatchObject({ etat: 'refus', motif: expect.stringContaining('déjà annulée') });
