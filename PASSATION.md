@@ -1283,8 +1283,24 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   les mentions orange débordent sur le bouton « Fiche copropriété » (colonne de l'AGO ~240 px, étiquette jusqu'à 263 px, `max-width:60%` de
   `.vgp-ligne-droite`). Au téléphone, rien ne déborde. À corriger dans un lot dédié si Arno le souhaite.
 
+### 26/11/2026, 11h36 — deux points d'Arno (NON POUSSÉS)
+- **`51c69a00` — Gestion › Syndics sans le bloc d'en-tête** (retrait accordé pour CET écran) : `sansBlocSyndics`, même mécanisme que Copropriétés
+  et « 20 % à restituer » (aux quatre mêmes endroits de `GestionVue.tsx`). La page commence par « ← Boîte · Syndics (N) · + Ajouter un syndic ».
+  Les tests qui prenaient Syndics comme exemple d'écran AVEC bloc prennent « Adresses à vérifier ». **État relevé dans Chrome (recette, 26/11)** :
+  titre « Gestion » + cadre de relève et ses boutons ENCORE affichés sur **À rattacher** (`a_trier` : Relever maintenant, Rafraîchir, Annuaire),
+  **Historique** (hors fiche personne) et **Adresses à vérifier** (les quatre boutons) ; titre « Gestion » seul sur l'**écran partagé** ; rien sur
+  Événements, Annuaire, Tâches, Préavis, Copropriétés, 20 %, Syndics. La boîte (accueil et `?ecran=boite`) n'a plus ce bandeau depuis les lots
+  ERGO-BOITE / ACCUEIL-GESTION (fonctions dans la colonne et le bouton rond « Relever et actualiser » de la liste) — inchangée par ce lot. ⚠️ Constaté
+  sans le corriger : en navigateur automatisé, la liste de la boîte reste parfois sur « Chargement de la boîte… » (requêtes `/boite/comptes`,
+  `/empreinte` sans réponse) ; l'entrée « À rattacher » n'apparaît pas dans la colonne de la boîte (à faire regarder par Arno dans son navigateur).
+- **`1c6f1c06` — « 20 % à restituer » : plus de chevauchement à l'ordinateur** : droite plafonnée à `calc(100% - 8.5rem - 52px)` (plus de 60 %),
+  gauche cède d'abord (min 8,5 rem), colonne AGO min 9,5 rem, étiquette et mentions passent à la ligne (sans points de suspension), boutons fixes,
+  tête de ligne `min-height:92px`. Mesuré sur 31 lignes : 0 chevauchement ; 1 280 px toutes à 92 px ; 1 024 px l'étiquette passe à la ligne ;
+  390 px inchangé. Captures `.captures/syndics-sans-en-tete/` et `.captures/vingt-chevauchement/` ; `npm test` vert (1 878 / 28 176).
+  ⚠️ Preuve curl à faire par Arno (vérifiée par l'agent via node : 200, 0 erreur).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussé : `fc4f3098` (bloc « Dates / copropriétés manquantes ») + sa passation. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06` + leurs passations. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
