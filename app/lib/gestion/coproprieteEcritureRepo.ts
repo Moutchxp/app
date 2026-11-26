@@ -52,6 +52,8 @@ export interface SaisieCopropriete {
   regrouperAvec: string | null;
   /** 🔴 (16/11/2026) les adresses SANS NUMÉRO confirmées à l'écran (« Confirmer »), par clé */
   sansNumeroConfirmees: string[];
+  /** 🔴 (Arno, 26/11/2026, 11h58) les adresses secondaires « à vérifier » CONFIRMÉES à l'écran (« Confirmer cette adresse »), par clé — journalisées */
+  adressesConfirmees?: string[];
 }
 /** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
 export interface CodeSaisi { code: string; aucun: boolean }
@@ -104,7 +106,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   return { ok: true, saisie: { immeuble, nom: nul(texte(b.nom, 200)), horsCopropriete: typeof b.horsCopropriete === 'boolean' ? b.horsCopropriete : null,
     adresses, contacts, syndicId, retirerSyndic: b.retirerSyndic === true, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
     regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec),
-    sansNumeroConfirmees: (Array.isArray(b.sansNumeroConfirmees) ? b.sansNumeroConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
+    sansNumeroConfirmees: (Array.isArray(b.sansNumeroConfirmees) ? b.sansNumeroConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== ''),
+    adressesConfirmees: (Array.isArray(b.adressesConfirmees) ? b.adressesConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
 }
 
 /** La copropriété (principale) d'une clé : la sienne, ou celle dont elle est une adresse en cours. */
@@ -228,6 +231,12 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     const retirees = enCours.filter((x) => !voulues.has(x.cle));
     if (retirees.length > 0) {
       await q('UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])', [retirees.map((x) => x.id), auteur.libelle]);
+      // 🔴 (Arno, 26/11/2026, 11h58) « chaque geste est journalisé dans l'historique de la copropriété » : le retrait d'une adresse aussi (« × » ou
+      // « Retirer de la copropriété »), comme son ajout
+      for (const x of retirees) {
+        await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_retiree', $2, $3, $4, $5)`,
+          [coproId, x.cle, `Adresse retirée de la copropriété : ${x.libelle}`, auteur.id, auteur.libelle]);
+      }
       // 🔴 (Arno, 20/11/2026, lot 0) une adresse posée par un REGROUPEMENT (504) n'est plus jamais retirée en silence : l'Historique de ses biens le dit,
       // et le regroupement est clos s'il n'a plus d'adresse en cours
       await noterRetraitDAdressesRegroupees(q, retirees.map((x) => x.id), 'depuis la fiche copropriété', auteur);
@@ -252,6 +261,19 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       // 🔴 (lot 7d) chaque ajout est journalisé
       await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_ajoutee', $2, $3, $4, $5)`,
         [coproId, ban ?? null, `Adresse ajoutée à la copropriété : ${adresseImmeuble(a.libelle, nul(a.codePostal), nul(a.commune))}${ban ? ` (adresse officielle ${ban})` : ''}`, auteur.id, auteur.libelle]);
+    }
+    // 🔴🔴 (Arno, 26/11/2026, 11h58) « à vérifier » → « Confirmer cette adresse » : la confirmation (une adresse secondaire en cours après cet
+    // enregistrement, pas déjà confirmée depuis son rattachement) entre dans l'historique de la copropriété ; la mention disparaît à la relecture
+    if ((s.adressesConfirmees ?? []).length > 0) {
+      const { rows: actuelles } = await q<{ cle: string; libelle: string; code_postal: string | null; commune: string | null; deja: boolean }>(
+        `SELECT a.cle_immeuble AS cle, a.libelle, a.code_postal, a.commune,
+                EXISTS (SELECT 1 FROM gestion_journal j WHERE j.entite = 'copropriete' AND j.entite_id = a.copropriete_id AND j.action = 'adresse_confirmee'
+                         AND j.valeur_apres = a.cle_immeuble AND j.survenu_le >= a.cree_le) AS deja
+           FROM gestion_copropriete_adresse a WHERE a.copropriete_id = $1 AND a.retire_le IS NULL`, [coproId]);
+      for (const a of actuelles.filter((x) => (s.adressesConfirmees ?? []).includes(x.cle) && !x.deja)) {
+        await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_confirmee', $2, $3, $4, $5)`,
+          [coproId, a.cle, `Adresse confirmée (vérifiée à l’écran) : ${adresseImmeuble(a.libelle, a.code_postal, a.commune)}`, auteur.id, auteur.libelle]);
+      }
     }
     // ── ④ les habitants et gardiens ──────────────────────────────────────────────────────────────────────────────────────────────────────
     if (s.contacts !== null) await enregistrerContactsImmeuble(q, { immeuble: lue.libelle, contacts: s.contacts }, auteur);

@@ -64,6 +64,10 @@ export interface FicheCopropriete {
   syndic: { id: number; nom: string; ville: string | null; depuis: string } | null;
   /** 🔴 (20/11/2026, journal des syndics) l'historique du syndic : le journal, et le registre des liens pour ce qui précède — du plus récent */
   historiqueSyndic?: { quand: string; le: string; texte: string; par: string; source: 'journal' | 'registre' }[];
+  /** 🔴 (Arno, 26/11/2026, 11h58) les clés des adresses secondaires CONFIRMÉES (« à vérifier » → « Confirmer cette adresse »), encore rattachées */
+  adressesConfirmees?: string[];
+  /** 🔴 (Arno, 26/11/2026, 11h58) l'historique des adresses (ajout, confirmation, retrait — journal de la copropriété), du plus récent */
+  historiqueAdresses?: { le: string; texte: string; par: string }[];
   gestionnaires: GestionnaireSyndic[];
   contacts: ContactImmeubleLu[];
   biens: BienCopropriete[];

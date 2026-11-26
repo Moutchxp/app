@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 /** 🔴🔴 Arno (16/11/2026, fiche Copropriété, lot 2) — l'écriture : refus avant toute écriture, création au premier « Valider », jamais d'effacement. */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], coproDeCle: {} as Record<string, { id: string; cle: string; libelle: string }>, syndicExiste: true,
   liens: [] as { id: string; syndic_id: string }[], enCours: [] as { id: string; cle: string; libelle: string }[], contacts: [] as unknown[], fiche: null as unknown,
-  parcelle: [] as unknown[], prise: {} as Record<string, unknown>, porteur: {} as Record<string, unknown> }));
+  parcelle: [] as unknown[], prise: {} as Record<string, unknown>, porteur: {} as Record<string, unknown>,
+  actuelles: [] as { cle: string; libelle: string; code_postal: string | null; commune: string | null; deja: boolean }[] }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const norm = (x: string): string => x.replace(/\s+/g, ' ').trim();
   const s = norm(sql); h.sql.push({ s, p });
@@ -15,6 +16,8 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   if (s.startsWith('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1')) return { rows: [{ id: '7' }] };
   if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse')) return { rows: h.enCours };
   if (s.startsWith('SELECT id::text, syndic_id::text FROM gestion_copropriete_syndic')) return { rows: h.liens };
+  // 🔴 (26/11/2026) les adresses secondaires en cours après l'enregistrement, et si elles sont déjà confirmées depuis leur rattachement
+  if (s.startsWith('SELECT a.cle_immeuble AS cle, a.libelle, a.code_postal, a.commune, EXISTS')) return { rows: h.actuelles };
   if (s.startsWith('SELECT syndic_id::text AS syndic FROM gestion_copropriete_syndic')) return { rows: [{ syndic: '9' }] };
   if (s.startsWith('SELECT immeuble, adresse, code_postal AS cp, commune FROM gestion_annuaire_lot WHERE id = $1')) {
     return { rows: p[0] === 451 ? [{ immeuble: 'Résidence Les Tilleuls', adresse: '3 allée des Tilleuls', cp: '75011', commune: 'Paris' }]
@@ -62,7 +65,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { sl.dispo = true; bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
+beforeEach(() => { sl.dispo = true; bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; h.actuelles = []; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -111,6 +114,29 @@ describe('l’enregistrement', () => {
     expect(rg.appels).toEqual([[['40'], 'depuis la fiche copropriété', AUTEUR]]);
     expect(ecritures().find((x) => x.s.includes("'syndic_retire'"))?.p[0]).toBe('1');
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
+  });
+  // 🔴🔴 (Arno, 26/11/2026, 11h58, point 1) « chaque geste est journalisé dans l'historique de la copropriété »
+  it('🔴 26/11 : le retrait d’une adresse entre au journal de la copropriété (« adresse_retiree ») ; rien n’est effacé', async () => {
+    h.enCours = [{ id: '40', cle: '12 rue des lilas', libelle: '12 rue des Lilas' }];
+    await enregistrerCopropriete({ ...SAISIE, adresses: [] }, AUTEUR);
+    const j = ecritures().find((x) => x.s.includes("'adresse_retiree'"))!;
+    expect(j.s).toContain("INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_retiree'");
+    expect(j.p).toEqual(['7', '12 rue des lilas', 'Adresse retirée de la copropriété : 12 rue des Lilas', 2, AUTEUR.libelle]);
+    expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
+  });
+  it('🔴 26/11 : « Confirmer cette adresse » : une ligne « adresse_confirmee » par adresse confirmée, en cours et pas déjà confirmée ; rien d’autre', async () => {
+    h.enCours = [{ id: '40', cle: '12 rue des lilas', libelle: '12 rue des Lilas' }];
+    h.actuelles = [{ cle: '12 rue des lilas', libelle: '12 rue des Lilas', code_postal: '75011', commune: 'Paris', deja: false },
+      { cle: '14 rue des lilas', libelle: '14 rue des Lilas', code_postal: '75011', commune: 'Paris', deja: true }];
+    const v = validerSaisieCopropriete({ ...SAISIE, adressesConfirmees: ['12 rue des Lilas', '14 rue des Lilas', '99 rue Inconnue'] });
+    expect(v.ok && v.saisie.adressesConfirmees).toEqual(['12 rue des lilas', '14 rue des lilas', '99 rue inconnue']);
+    await enregistrerCopropriete({ ...SAISIE, adressesConfirmees: ['12 rue des Lilas', '14 rue des Lilas', '99 rue Inconnue'] }, AUTEUR);
+    const j = ecritures().filter((x) => x.s.includes("'adresse_confirmee'"));
+    expect(j.map((x) => x.p)).toEqual([['7', '12 rue des lilas', 'Adresse confirmée (vérifiée à l’écran) : 12 rue des Lilas, 75011 Paris', 2, AUTEUR.libelle]]);
+    // sans confirmation : la lecture n'est même pas faite
+    h.sql = [];
+    await enregistrerCopropriete(SAISIE, AUTEUR);
+    expect(h.sql.some((x) => x.s.startsWith('SELECT a.cle_immeuble AS cle, a.libelle, a.code_postal, a.commune, EXISTS'))).toBe(false);
   });
   it('changer de syndic depuis la fiche : l’ancien lien FERMÉ (« changement de syndic »), ses gestionnaires détachés, le nouveau ouvert ; conflit confirmé noté', async () => {
     voisineDuCabinetB();

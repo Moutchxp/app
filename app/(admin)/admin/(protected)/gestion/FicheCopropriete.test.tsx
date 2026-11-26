@@ -725,3 +725,66 @@ describe('🔴 Arno (25/11/2026) — les deux boutons du bas de la fiche Copropr
     expect(src).toContain('@media (max-width:600px){.fcp-pied{flex-direction:column-reverse} .fcp-pied > .svv-btn{flex:0 0 auto;width:100%}}');
   });
 });
+
+/** 🔴🔴 Arno (26/11/2026, 11h58, point 1) — « Il y a écrit à vérifier, mais je ne peux rien vérifier (lien mort). » */
+describe('« à vérifier » sur une adresse rattachée : un bouton, l’examen, « Confirmer cette adresse » / « Retirer de la copropriété »', () => {
+  const g = { banId: 'B1', libelle: 'Résidence Les Tilleuls, 75011 Paris', court: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', cles: ['residence les tilleuls'] };
+  const EXAMEN = { ecrite: '12 rue des Lilas, 75011 Paris', statut: 'a_verifier', motif: 'Voie ressemblante à 0,62.', officielle: '12 rue des Lilas, 75011 Paris', banId: '75111_1234_00012',
+    parcelle: '751110000AB0012', position: { lat: 48.8611, lon: 2.3801 } };
+  beforeEach(() => {
+    lu = { fiche: FICHE(), coproprieteDuBien: true, officielle: { principale: g, adresses: [g], aVerifier: true, ecritures: [] } };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).startsWith('/api/admin/gestion/coproprietes/fiche') && init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'adresse-examiner') { posts.push(c); return json({ etat: 'ok', data: EXAMEN }); }
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+  });
+  it('« à vérifier » est un BOUTON ; il ouvre l’examen : adresse, adresse officielle, parcelle, position (lien vers la carte) ; le « × » reste', async () => {
+    await ouvrir();
+    const b = $('[data-fcp-adresse-a-verifier]');
+    expect(b.tagName).toBe('BUTTON');
+    expect(b.textContent).toBe('à vérifier');
+    expect(document.querySelector('[data-fcp-adresse="secondaire"] [data-fcp-retirer]')).not.toBeNull();
+    await clic('[data-fcp-adresse-a-verifier]');
+    expect(posts.find((p) => p.action === 'adresse-examiner')?.adresse).toEqual({ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris', banId: null });
+    const e = $('[data-fcp-examen]');
+    expect(e.querySelector('[data-fcp-examen-ecrite]')?.textContent).toBe('Adresse : 12 rue des Lilas, 75011 Paris');
+    expect(e.querySelector('[data-fcp-examen-parcelle]')?.textContent).toBe('Parcelle : 751110000AB0012');
+    const carte = e.querySelector('[data-fcp-examen-carte]') as HTMLAnchorElement;
+    expect([carte.textContent, carte.target, carte.href]).toEqual(['Voir sur la carte', '_blank', 'https://www.openstreetmap.org/?mlat=48.861100&mlon=2.380100#map=19/48.861100/2.380100']);
+    expect([...e.querySelectorAll('button')].map((x) => x.textContent)).toEqual(['Confirmer cette adresse', 'Retirer de la copropriété', 'Fermer']);
+    expect(posts.filter((p) => p.action === 'enregistrer')).toHaveLength(0); // l'examen n'écrit rien
+  });
+  it('« Confirmer cette adresse » : la mention disparaît ; la confirmation part avec « Valider »', async () => {
+    await ouvrir();
+    await clic('[data-fcp-adresse-a-verifier]');
+    await clic('[data-fcp-confirmer-adresse]');
+    expect(document.querySelector('[data-fcp-adresse-a-verifier]')).toBeNull();
+    expect(document.querySelector('[data-fcp-examen]')).toBeNull();
+    await clic('[data-fcp-valider]');
+    const e = posts.find((p) => p.action === 'enregistrer')!;
+    expect(e.adressesConfirmees).toEqual(['12 rue des lilas']);
+    expect(e.adresses).toEqual([{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }]);
+  });
+  it('« Retirer de la copropriété » : comme le « × », l’adresse quitte la liste, retirée à « Valider »', async () => {
+    await ouvrir();
+    await clic('[data-fcp-adresse-a-verifier]');
+    await clic('[data-fcp-retirer-adresse]');
+    expect(document.querySelector('[data-fcp-adresse="secondaire"]')).toBeNull();
+    await clic('[data-fcp-valider]');
+    const e = posts.find((p) => p.action === 'enregistrer')!;
+    expect([e.adresses, e.adressesConfirmees]).toEqual([[], []]);
+  });
+  it('une adresse déjà confirmée (relue) ne porte plus la mention ; l’historique des adresses se lit, fermé', async () => {
+    lu = { fiche: FICHE({ adressesConfirmees: ['12 rue des lilas'], historiqueAdresses: [{ le: '26/11/2026 à 12h10', texte: 'Adresse confirmée (vérifiée à l’écran) : 12 rue des Lilas, 75011 Paris', par: 'Arnaud Jorel' }] }),
+      coproprieteDuBien: true, officielle: { principale: g, adresses: [g], aVerifier: true, ecritures: [] } };
+    await ouvrir();
+    expect(document.querySelector('[data-fcp-adresse-a-verifier]')).toBeNull();
+    const h = $('[data-fcp-historique-adresses]') as HTMLDetailsElement;
+    expect([h.open, h.querySelector('summary')?.textContent]).toEqual([false, 'Historique des adresses (1)']);
+    expect(h.textContent).toContain('26/11/2026 à 12h10 — Arnaud Jorel');
+  });
+});

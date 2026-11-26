@@ -9,6 +9,7 @@ import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopro
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
 import { digicodesDesAdresses, digicodesUnifiesDisponibles, mailsGestionDesAdresses, type PlaceFiche } from './digicodesRepo';
 import { mentionEnregistre, mentionPrevu } from './digicodes';
+import { adressesConfirmees, historiqueAdresses } from './adresseCoproExamen';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -153,7 +154,11 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     horsCopropriete: copro?.hors === true, nomenclature: copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null,
     codePostal, commune,
     adresses: [{ cle, libelle, codePostal, commune, principale: true }, ...sec.map((a) => ({ cle: a.cle, libelle: a.libelle, codePostal: a.code_postal, commune: a.commune, principale: false }))],
-    syndic, historiqueSyndic: copro === undefined ? [] : await historiqueSyndic(Number(copro.id)).catch(() => []), gestionnaires, contacts: await contactsDeLImmeuble(cle), biens, desaccord: biensEnDesaccord(biens), avec476,
+    syndic, historiqueSyndic: copro === undefined ? [] : await historiqueSyndic(Number(copro.id)).catch(() => []),
+    // 🔴 (Arno, 26/11/2026, 11h58) « à vérifier » : les adresses confirmées, et l'historique des adresses (journal de la copropriété)
+    adressesConfirmees: copro === undefined ? [] : await adressesConfirmees(Number(copro.id)).catch(() => []),
+    historiqueAdresses: copro === undefined ? [] : await historiqueAdresses(Number(copro.id)).catch(() => []),
+    gestionnaires, contacts: await contactsDeLImmeuble(cle), biens, desaccord: biensEnDesaccord(biens), avec476,
   };
 }
 

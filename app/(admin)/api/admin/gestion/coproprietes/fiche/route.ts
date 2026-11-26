@@ -9,6 +9,7 @@ import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/ges
 import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, preciserAdresseBatiment, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
+import { examinerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproExamen';
 import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
 
 /**
@@ -17,6 +18,8 @@ import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContacts
  *        (461 : « Bien hors copropriété » dès le départ) — LECTURE SEULE ;
  *   POST `{ action: 'parcelle', adresses, cle }` : les adresses de la même parcelle (libres ou prises, avec leur syndic) — LECTURE SEULE ;
  *   POST `{ action: 'enregistrer', … }` : l'enregistrement (refus avant toute écriture) ;
+ *   POST `{ action: 'adresse-examiner', adresse: { libelle, codePostal, commune, banId? } }` : 🔴 (Arno, 26/11/2026, 11h58) l'examen d'une adresse
+ *        « à vérifier » (adresse officielle, parcelle, position) — LECTURE SEULE ;
  *   POST `{ action: 'digicode-corriger' | 'digicode-arbitrer', immeuble, adresseCle, batiment, digicode, code }` : 🔴 (« Digicodes unifiés », lot 3)
  *        « Corriger une erreur » / « Garder ce code », immédiats, par le chemin serveur unique (478) ;
  *   POST `{ action: 'digicode-planifier', immeuble, adresseCle, appliqueLe, changements }` / `{ action: 'digicode-annuler-changement', …, ligneId }` :
@@ -76,6 +79,14 @@ export async function POST(request: Request): Promise<Response> {
       const adresses = (Array.isArray(corps.adresses) ? corps.adresses.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>)
         .map((a) => ({ libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10), commune: t(a.commune, 120) }));
       return Response.json({ etat: 'ok', data: await propositionsParcelle(adresses, cleImmeuble(t(corps.cle, 300))) }, { headers: ENTETES });
+    }
+    // 🔴 (Arno, 26/11/2026, 11h58) « à vérifier » : l'examen de l'adresse — LECTURE SEULE (la confirmation part avec « Valider »)
+    if (corps.action === 'adresse-examiner') {
+      const a = (corps.adresse ?? {}) as Record<string, unknown>;
+      const t = (v: unknown, m: number): string => (typeof v === 'string' ? v.slice(0, m).trim() : '');
+      if (cleImmeuble(t(a.libelle, 200)) === '') return Response.json({ etat: 'refus', motif: 'Adresse vide.' }, { status: 400, headers: ENTETES });
+      return Response.json({ etat: 'ok', data: await examinerAdresseCopro({ libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10) || null, commune: t(a.commune, 120) || null,
+        banId: t(a.banId, 80) || null }) }, { headers: ENTETES });
     }
     // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse d'un bâtiment « à préciser », choisie par Arno
     if (corps.action === 'batiment-adresse') {

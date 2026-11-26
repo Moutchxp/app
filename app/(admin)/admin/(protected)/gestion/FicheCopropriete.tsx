@@ -14,6 +14,7 @@ import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
 import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
+import { lienCarte, type ExamenAdresse } from '../../../../lib/gestion/adresseCoproExamenModele';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -133,6 +134,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [sansNumero, setSansNumero] = useState<Adresse | null>(null);
   const [confirmeesSansNumero, setConfirmeesSansNumero] = useState<string[]>([]);
   const [aRetirer, setARetirer] = useState<string | null>(null);
+  /* 🔴🔴 (Arno, 26/11/2026, 11h58, point 1) « Il y a écrit à vérifier, mais je ne peux rien vérifier (lien mort). » : « à vérifier » ouvre l'examen de
+     l'adresse (adresse officielle, parcelle, position) avec « Confirmer cette adresse » et « Retirer de la copropriété » ; les confirmations partent
+     avec « Valider » (comme le « × ») et entrent dans l'historique de la copropriété */
+  const [confirmees, setConfirmees] = useState<string[]>([]);
+  const [examen, setExamen] = useState<{ cle: string; lu: ExamenAdresse | 'lecture' | { refus: string } } | null>(null);
   const [propositions, setPropositions] = useState<Proposition[]>([]);
   const [rattacheeIci, setRattacheeIci] = useState(false);
   const [edition, setEdition] = useState<ContactEdit | null>(null);
@@ -150,7 +156,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     const adr = f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
     const cts = versEdition(f);
     setNom(f.nom ?? ''); setHors(h);
-    setAdresses(adr);
+    setAdresses(adr); setConfirmees([]); setExamen(null);
     setContacts(cts);
     setInitiale(signatureSaisie({ nom: f.nom ?? '', hors: h, adresses: adr, contacts: cts, syndic: null, retrait: false })); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
     if (f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
@@ -206,6 +212,44 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       ...d.batiments.map((b) => ({ place: `bâtiment / cage ${b.libelle}`, v: valeurDe(b.etat), r: valeurDe(rep.batiments.find((y) => y.k === b.k)?.etat) }))];
     return places.filter((x) => x.v !== null && x.v !== x.r).map((x) => ({ adresse: g.libelle, place: x.place, valeur: x.v as string, ecriture: d.voie }));
   });
+  /* 🔴 (Arno, 26/11/2026, 11h58) une adresse confirmée (enregistrée, ou à l'écran avant « Valider ») ne porte plus « à vérifier » */
+  const dejaConfirmees = new Set([...(f?.adressesConfirmees ?? []), ...confirmees]);
+  const examiner = async (a: Adresse): Promise<void> => {
+    const cle = cleImmeuble(a.libelle);
+    if (examen?.cle === cle) { setExamen(null); return; }
+    setExamen({ cle, lu: 'lecture' });
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'adresse-examiner', adresse: { libelle: a.libelle, codePostal: a.codePostal, commune: a.commune, banId: a.banId ?? null } }) });
+      const d = (await r.json()) as { etat?: string; data?: ExamenAdresse; motif?: string };
+      setExamen((x) => (x?.cle !== cle ? x : { cle, lu: d.etat === 'ok' && d.data ? d.data : { refus: d.motif ?? 'Examen impossible.' } }));
+    } catch { setExamen((x) => (x?.cle !== cle ? x : { cle, lu: { refus: 'Examen impossible : le serveur n’a pas répondu.' } })); }
+  };
+  const panneauExamen = (a: Adresse) => {
+    const cle = cleImmeuble(a.libelle);
+    if (examen?.cle !== cle) return null;
+    const x = examen.lu;
+    return (
+      <div className="fcp-etape fcp-examen" role="group" aria-label={`Vérifier l’adresse ${a.libelle}`} data-fcp-examen={cle}>
+        {x === 'lecture' ? <p className="loc-muet fcp-sans-marge">Lecture…</p> : 'refus' in x ? <p className="fcp-alerte fcp-sans-marge" role="alert">{x.refus}</p> : <>
+          <p className="fcp-sans-marge" data-fcp-examen-ecrite><strong>Adresse :</strong> {x.ecrite}</p>
+          <p className="fcp-sans-marge" data-fcp-examen-officielle><strong>Adresse officielle :</strong> {x.officielle ?? 'aucune adresse officielle retrouvée'}
+            {' '}<span className="loc-muet fcp-petit">— {x.motif}</span></p>
+          <p className="fcp-sans-marge" data-fcp-examen-parcelle><strong>Parcelle :</strong> {x.parcelle ?? 'inconnue'}</p>
+          <p className="fcp-sans-marge" data-fcp-examen-position><strong>Position :</strong>{' '}
+            {x.position !== null ? <a className="fcp-lien" href={lienCarte(x.position)} target="_blank" rel="noopener noreferrer" data-fcp-examen-carte>Voir sur la carte</a>
+              : <span className="loc-muet">inconnue</span>}</p>
+        </>}
+        <div className="fcp-examen-gestes">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" disabled={x === 'lecture'}
+            onClick={() => { setConfirmees((l) => (l.includes(cle) ? l : [...l, cle])); setExamen(null); setInfo(null); }} data-fcp-confirmer-adresse>Confirmer cette adresse</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini"
+            onClick={() => { setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle)); setExamen(null); }} data-fcp-retirer-adresse>Retirer de la copropriété</button>
+          <button type="button" className="fcp-lien" onClick={() => setExamen(null)} data-fcp-examen-fermer>Fermer</button>
+        </div>
+        <p className="loc-muet fcp-petit fcp-sans-marge">Le choix s’applique à « Valider » et entre dans l’historique de la copropriété.</p>
+      </div>);
+  };
   const retirer = (a: Adresse) => (aRetirer === cleImmeuble(a.libelle)
     ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
       <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
@@ -256,12 +300,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     if (alerteDue) { setEtape('alerte'); return; }
     // 🔴 Arno (23/11/2026) — une fiche déjà enregistrée, rien de changé depuis l'ouverture : « Valider » fait sa requête COMME AVANT (elle peut
     // compléter la fiche côté serveur), mais le message le dit : les dates d'AG et l'arrêté sont enregistrés dès leur saisie
-    const inchangee = f.declaree && !passe.regrouperAvec && passe.syndicId === undefined && digicodesModifies(digi).length === 0
+    const inchangee = f.declaree && !passe.regrouperAvec && passe.syndicId === undefined && digicodesModifies(digi).length === 0 && confirmees.length === 0
       && initiale === signatureSaisie({ nom, hors, adresses, contacts, syndic: syndicChoisi?.id ?? null, retrait: retraitSyndic });
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
+        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}),
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
@@ -358,7 +403,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             saisie, et part avec « Valider ») ; une adresse que rien n'a encore rapprochée garde sa ligne, marquée « à vérifier » */}
         {rangees.filter((x) => x.mode !== 'ecriture').map(({ a, mode, libelle }) => (
           <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
-            {off !== null && mode === 'normale' && <span className="fcp-a-verifier" data-fcp-adresse-a-verifier>à vérifier </span>}{retirer(a)}</li>))}
+            {off !== null && mode === 'normale' && !dejaConfirmees.has(cleImmeuble(a.libelle)) && (
+              <button type="button" className="fcp-a-verifier fcp-a-verifier-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
+                title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(a); }} data-fcp-adresse-a-verifier>à vérifier</button>)}{' '}
+            {retirer(a)}{panneauExamen(a)}</li>))}
         {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
         {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
           <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
@@ -369,6 +417,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <ul className="fcp-liste">{off.ecritures.map((e, i) => (
             <li key={i} data-fcp-ecriture={e.statut}>« {e.ecriture} » <span className="loc-muet">— {e.biens} bien{e.biens > 1 ? 's' : ''}</span>
               {e.statut !== 'certain' && <span className="fcp-a-verifier" data-fcp-ecriture-a-verifier> · à vérifier</span>}</li>))}</ul>
+        </details>)}
+      {/* 🔴 (Arno, 26/11/2026, 11h58) l'historique des adresses : ajout, confirmation, retrait (journal de la copropriété), en lecture seule */}
+      {(f.historiqueAdresses ?? []).length > 0 && (
+        <details className="fcp-histo" data-fcp-historique-adresses>
+          <summary>Historique des adresses ({(f.historiqueAdresses ?? []).length})</summary>
+          <ul className="fcp-liste">{(f.historiqueAdresses ?? []).map((e, i) => (
+            <li key={i}><span className="loc-muet fcp-petit">{e.le} — {e.par}</span><br />{e.texte}</li>))}</ul>
         </details>)}
       {ajoutAdresse && (
         <div className="fcp-ajout" data-fcp-ajout-adresse>
@@ -724,6 +779,10 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
 .fcp-histo{margin-top:6px}
 .fcp-a-verifier{color:var(--color-svv-orange);font-weight:800}
+/* 🔴 (26/11/2026) « à vérifier » est un BOUTON (il ouvre l'examen de l'adresse) : souligné, cible de 44 px au doigt */
+.fcp-a-verifier-bouton{background:none;border:0;padding:0 2px;font:inherit;font-weight:800;color:var(--color-svv-orange);text-decoration:underline;cursor:pointer;min-height:44px}
+.fcp-examen{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.fcp-examen-gestes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fcp-petit{font-size:.82rem}
 .fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:700;color:var(--color-svv-ink);list-style:none}
 .fcp-histo summary::-webkit-details-marker{display:none}
