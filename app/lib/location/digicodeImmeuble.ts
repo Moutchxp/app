@@ -47,6 +47,10 @@ export function cleBatiment(brut: string | null | undefined): string {
  * (`cleBatiment`) est inchangée : « a » et « A » restent la même lettre. PUR.
  */
 export const majusculesBatiment = (s: string): string => s.toLocaleUpperCase('fr-FR');
+/** 🔴 (Arno, 26/11/2026, 14h35, point 2) « Les caractères saisis dans les champs de digicode doivent tous être en lettres capitales » : la saisie
+ *  pendant la frappe, l'enregistrement côté serveur et l'affichage des codes existants (chiffres et symboles inchangés). LA fonction de tout code. PUR. */
+export const majusculesDigicode = (s: string): string => s.toLocaleUpperCase('fr-FR');
+export const majusculesDigicodeOuNul = (s: string | null | undefined): string | null => (s === null || s === undefined ? null : majusculesDigicode(s));
 export const majusculesBatimentOuNul = (s: string | null | undefined): string | null => (s === null || s === undefined ? null : majusculesBatiment(s));
 
 /** Le bâtiment tel qu'on l'affiche après « bâtiment » : « Bât. B » → « B », « bâtiment b » → « B », « Les Tilleuls » → « LES TILLEULS » (🔴 26/11/2026). PUR. */
@@ -81,7 +85,7 @@ export function memeBatimentQue(annexe: AdresseImmeuble & { batiment: string | n
 /** La mention d'un bien qui lit le CODE GÉNÉRAL alors qu'il a un bâtiment (sans code propre). PUR. */
 export const MENTION_CODE_GENERAL = 'code général de l’adresse';
 
-const texteCode = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+const texteCode = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? majusculesDigicode(v.trim()) : null);
 const ouiNon = (v: unknown): boolean | null => (v === true || v === 'oui' ? true : v === false || v === 'non' ? false : null);
 
 /** La saisie (Oui / Non / vide, et le code seulement avec Oui, 8 caractères au plus) : la même règle partout. PUR. */
@@ -96,7 +100,7 @@ export const memeValeur = (a: ValeurDigicode, b: ValeurDigicode): boolean => a.d
 
 /** « oui · code 57B83 », « non », « non renseigné » : pour le journal. PUR. */
 export function libelleValeur(v: ValeurDigicode): string {
-  return v.digicode === null ? 'non renseigné' : v.digicode ? `oui${v.code ? ` · code ${v.code}` : ''}` : 'non';
+  return v.digicode === null ? 'non renseigné' : v.digicode ? `oui${v.code ? ` · code ${majusculesDigicode(v.code)}` : ''}` : 'non';
 }
 
 // ── LA REPRISE DES DIGICODES DÉJÀ SAISIS SUR DES BIENS ─────────────────────────────────────────────────────────────────────

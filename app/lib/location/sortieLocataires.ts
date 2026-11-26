@@ -16,6 +16,7 @@
  * Ce module ne lit rien et n'écrit rien : règles, phrases et composition du mail (objet, texte, HTML).
  */
 
+import { majusculesDigicode } from './digicodeImmeuble';
 import { mentionEnvoyePar } from './mentionEnvoyePar';
 import type { StatutLocataire } from '../gestion/historiqueBien';
 import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
@@ -375,7 +376,7 @@ export function lignesEncart(e: EncartLogement): LigneEncart[] {
   ajouter('exterieure', 'Surface extérieure', e.surfaceExterieure === null ? null : `${nombreFr(e.surfaceExterieure)} m²`);
   ajouter('pieces', 'Pièces', e.nombrePieces === null ? null : String(e.nombrePieces));
   ajouter('ascenseur', 'Ascenseur', e.ascenseur === null ? null : e.ascenseur ? 'oui' : 'non');
-  const digicode = e.digicode === null ? (present(e.digicodeCode) ? e.digicodeCode : null) : e.digicode ? (present(e.digicodeCode) ? e.digicodeCode : 'oui') : 'non';
+  const digicode = e.digicode === null ? (present(e.digicodeCode) ? majusculesDigicode(e.digicodeCode) : null) : e.digicode ? (present(e.digicodeCode) ? majusculesDigicode(e.digicodeCode) : 'oui') : 'non';
   ajouter('digicode', 'Digicode', digicode === null && !present(e.digicodeSuivant) ? null : [digicode ?? '—', ...(present(e.digicodeSuivant) ? [e.digicodeSuivant] : [])].join(' — '));
   ajouter('acces', 'Accès', present(e.precisionAcces) ? e.precisionAcces : null);
   ajouter('dpe', 'DPE', e.dpeNonSoumis === true ? 'non soumis'

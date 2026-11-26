@@ -1,4 +1,5 @@
 import { adressesUniques, composerMailLocation, prenomNom, type MailAvis, type ParagrapheMail, type Signature } from '../location/mailsPreavisSortie';
+import { majusculesDigicode } from '../location/digicodeImmeuble';
 import type { IdentiteEnvoi } from '../location/mentionEnvoyePar';
 import { quandChangement } from './digicodes';
 
@@ -73,7 +74,7 @@ export function regleDepart(appliqueLe: string, depart: string | null): { inclus
 }
 
 /** Le code, en mots : « 57B83 » / « plus de digicode » / « inconnu ». PUR. */
-export const motCode = (v: ValeurCode | null): string => (v === null || v.digicode === null ? 'inconnu' : v.digicode === false ? 'plus de digicode' : v.code ?? 'oui (code inconnu)');
+export const motCode = (v: ValeurCode | null): string => (v === null || v.digicode === null ? 'inconnu' : v.digicode === false ? 'plus de digicode' : v.code ? majusculesDigicode(v.code) : 'oui (code inconnu)');
 
 /** Le total, les mails à envoyer et ce qui est signalé — ce que l'écran montre AVANT l'envoi. PUR. */
 export function bilanEnvoi(a: ApercuEnvoi, proprietaires: boolean): { logements: number; mailsLocataires: number; mailsProprietaires: number; sansEmail: string[]; exclus: string[] } {

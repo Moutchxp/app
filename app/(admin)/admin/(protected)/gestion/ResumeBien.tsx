@@ -1,5 +1,6 @@
 'use client';
 
+import { majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { formaterDateIso, titreLogement } from '../../../../lib/gestion/annuaireRecherche';
@@ -181,7 +182,7 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
               <dt>Ascenseur</dt><dd data-rb="ascenseur">{ouiNon(s?.ascenseur)}</dd>
               <dt>Digicode</dt>
               {/* Le code en clair : outil interne (Arno, 20/10/2026). */}
-              <dd data-rb="digicode">{s?.digicode === true ? <>oui — code {s.digicodeCode ? <strong>{s.digicodeCode}</strong> : rien()}</> : ouiNon(s?.digicode)}
+              <dd data-rb="digicode">{s?.digicode === true ? <>oui — code {s.digicodeCode ? <strong>{majusculesDigicode(s.digicodeCode)}</strong> : rien()}</> : ouiNon(s?.digicode)}
                 {/* Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE — la mention le dit. */}
                 {s?.digicodeMention ? <span className="rb-note" data-rb="digicode-immeuble"> · {s.digicodeMention}{s.digicodeSource === 'bien' ? ' — ancien code de ce bien, l’immeuble n’en a pas encore' : ''}</span> : null}</dd>
             </Groupe>

@@ -16,7 +16,7 @@
  * Un parking nu n'a ni pièces, ni meublé, ni Carrez, ni annexes, ni caractéristiques complémentaires (époque, chauffage,
  * DPE). La famille n'a pas de colonne : elle EST la catégorie (logement / local / parking) — migration 376.
  */
-import { majusculesBatimentOuNul } from './digicodeImmeuble';
+import { majusculesBatimentOuNul, majusculesDigicodeOuNul } from './digicodeImmeuble';
 import { verifierChampsBien, type ChampsBien } from './locationBien';
 import { lireNombre } from '../gestion/honorairesGestion';
 import { aujourdhuiParis, dateDpeFuture } from './reglagesDpe';
@@ -357,7 +357,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, dpeNonSoumis: dpeNonSoumis ? true : null, commentaire: texte(l.commentaire, 4000),
       typeLocal: dans(TYPES_LOCAL, l.typeLocal), parkingSituation: dans(SITUATIONS_PARKING, l.parkingSituation),
       parkingType: dans(TYPES_PARKING, l.parkingType), surfaceM2: surface,
-      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 8) : null,
+      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? majusculesDigicodeOuNul(texte(l.digicodeCode, 8)) : null, // 🔴 (Arno, 26/11/2026, 14h35) en MAJUSCULES
       precisionAcces: texte(l.precisionAcces, 500),
       assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
       chargesCopro: dans(CHARGES_COPRO, l.chargesCopro),

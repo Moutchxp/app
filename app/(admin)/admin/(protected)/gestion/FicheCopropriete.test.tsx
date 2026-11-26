@@ -1186,3 +1186,20 @@ describe('les boutons d’action de section : pleine largeur ; les petits bouton
     expect([$('[data-fcp-choisir-syndic]').textContent, $('[data-fcp-choisir-syndic]').classList.contains('fcp-bouton-plein')]).toEqual(['Choisir / créer le syndic', true]);
   });
 });
+
+/** 🔴 Arno (26/11/2026, 14h35, point 2) — les champs de digicode : la frappe en MAJUSCULES ; un code existant en minuscules s'affiche en majuscules. */
+describe('les champs de digicode de la fiche : en MAJUSCULES', () => {
+  const taper = async (el: HTMLInputElement, v: string) => {
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
+  };
+  it('digicode copropriété et bâtiment : « 57b83 » tapé devient « 57B83 » ; l’envoi part en majuscules', async () => {
+    lu = { fiche: FICHE({ saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [],
+      digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] }] }), coproprieteDuBien: true };
+    await ouvrir();
+    const champ = $('[data-dcp-code-commun]') as HTMLInputElement;
+    await taper(champ, '57b83#');
+    expect(champ.value).toBe('57B83#');
+    await clic('[data-fcp-valider]');
+    expect(JSON.stringify(posts.find((p) => p.action === 'enregistrer')!.digicodes)).toContain('"57B83#"');
+  });
+});

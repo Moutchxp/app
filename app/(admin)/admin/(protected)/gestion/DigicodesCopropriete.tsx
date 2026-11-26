@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { avertissementApresSaisie, avertissementsDesBatiments, batimentDe, connusPourAdresse, LIBELLE_BATIMENT_CAGE, menuBatiments, nomenclatureDeLAdresse, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
-import { majusculesBatiment } from '../../../../lib/location/digicodeImmeuble';
+import { majusculesBatiment, majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
 import type { EtatPlaceDigicode, FicheCopropriete, MailGestionHisto } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, codesEnLigne, enteteLogement, locataireCochable, proprietairesRegroupes, resumeChangements, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
@@ -42,7 +42,7 @@ export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal:
 /** Une place se LIT (au lieu de se saisir) : son code est connu, ou elle est à arbitrer. PUR. */
 export const placeLue = (e: EtatPlaceDigicode | undefined): e is EtatPlaceDigicode => e !== undefined && (e.connu || e.aArbitrer.length > 0);
 /** Une valeur, en mots : « code 57B83 » / « pas de digicode ». PUR. */
-export const motValeur = (v: { digicode: boolean | null; code: string | null }): string => (v.digicode === false ? 'pas de digicode' : v.code ? `code ${v.code}` : 'oui (code inconnu)');
+export const motValeur = (v: { digicode: boolean | null; code: string | null }): string => (v.digicode === false ? 'pas de digicode' : v.code ? `code ${majusculesDigicode(v.code)}` : 'oui (code inconnu)');
 const MOT_NATURE: Record<string, string> = { retrait: 'retiré : le bâtiment lit le digicode copropriété', saisie: 'saisi', correction: 'corrigé (faute de frappe)', changement: 'changement de code', reprise: 'repris d’avant', arbitrage: 'choisi parmi des valeurs différentes' };
 /** Un geste immédiat (correction, arbitrage) : la place, la valeur ; rend le motif d'un refus, ou `null`. */
 export type GesteDigicode = (adresseCle: string, batiment: string | null, valeur: { digicode: boolean; code: string | null }) => Promise<string | null>;
@@ -282,8 +282,8 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
             <span className="dcp-code-groupe">
             <label className="dcp-champ dcp-champ-code"><span>Digicode copropriété</span>
-              <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE}
-                onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
+              <input value={majusculesDigicode(d.commun.code)} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE}
+                onChange={(e) => { const code = majusculesDigicode(e.target.value); maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code } })); }} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
               onChange={(e) => { const v = pasDeDigicode(`${d.cle}#copro`, d.commun, e.target.checked); maj(d.cle, (x) => ({ ...x, commun: v })); }} data-dcp-aucun-commun /><span>pas de digicode</span></label>
             {plus(d)}
@@ -319,7 +319,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
               </div>}
               <span className="dcp-code-groupe">
               <label className="dcp-champ dcp-champ-code"><span data-dcp-intitule-batiment={b.nouveau && b.choisi !== true ? undefined : b.libelle}>{b.nouveau && b.choisi !== true ? 'Digicode' : intituleDigicodeBatiment(b.libelle)}</span>
-                <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
+                <input value={majusculesDigicode(b.code)} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: majusculesDigicode(e.target.value) })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, pasDeDigicode(`${d.cle}#${b.k}`, b, e.target.checked))} data-dcp-aucun-batiment /><span>pas de digicode</span></label>
               {/* 🔴 (Arno, 17/11/2026) le « − » rond, dans la colonne du « + » (il remplace le « × » d'une ligne nouvelle : la même action, confirmée) */}
               {moins(d.cle, b, sorteDeSaisie(b))}
@@ -400,8 +400,8 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
           <div className="dcp-ligne">
             <label className="dcp-champ"><span>Code corrigé</span>
-              <input value={saisie.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} autoFocus
-                onChange={(e) => setSaisie({ ...saisie, code: e.target.value })} data-dcp-correction-code /></label>
+              <input value={majusculesDigicode(saisie.code)} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} autoFocus
+                onChange={(e) => setSaisie({ ...saisie, code: majusculesDigicode(e.target.value) })} data-dcp-correction-code /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={saisie.aucun} disabled={envoi} onChange={(e) => setSaisie({ code: '', aucun: e.target.checked })} /><span>pas de digicode</span></label>
           </div>
           {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-correction-erreur>{erreur}</p>}
@@ -523,8 +523,8 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
               {c !== undefined && (
                 <div className="dcp-modifier-champs" data-dcp-modifier-champs>
                   <label className="dcp-champ"><span>Nouveau digicode</span>
-                    <input value={c.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
-                      onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: e.target.value } }))} data-dcp-modifier-code /></label>
+                    <input value={majusculesDigicode(c.code)} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
+                      onChange={(e) => { const code = majusculesDigicode(e.target.value); setCoches((x) => ({ ...x, [p.cle]: { ...c, code } })); }} data-dcp-modifier-code /></label>
                   <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
                   <label className="dcp-champ"><span>Date d’activation</span>
                     <input type="date" value={c.date} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, date: e.target.value } }))} data-dcp-modifier-date /></label>

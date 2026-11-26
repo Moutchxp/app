@@ -42,6 +42,7 @@ import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from
 import type { PreavisAffiche } from '../../../../lib/location/preavis';
 import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
+import { majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
 import { AgCopropriete } from './AgCopropriete';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -862,7 +863,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
   const lignesAcces: [string, string | null][] = [
     ['Ascenseur', ouiNon(c.ascenseur)],
     // Arno (21/10/2026, 396) : le digicode de l'IMMEUBLE — la mention dit qu'il est commun à tous les biens de l'adresse.
-    ['Digicode', c.digicode === null ? null : `${c.digicode ? `oui${c.digicodeCode ? ` · code ${c.digicodeCode}` : ''}` : 'non'}${c.digicodeImmeuble?.mention ? ` — ${c.digicodeImmeuble.mention}${c.digicodeImmeuble.source === 'bien' ? ' (ancien code de ce bien : l’immeuble n’en a pas encore)' : ''}` : ''}`],
+    ['Digicode', c.digicode === null ? null : `${c.digicode ? `oui${c.digicodeCode ? ` · code ${majusculesDigicode(c.digicodeCode)}` : ''}` : 'non'}${c.digicodeImmeuble?.mention ? ` — ${c.digicodeImmeuble.mention}${c.digicodeImmeuble.source === 'bien' ? ' (ancien code de ce bien : l’immeuble n’en a pas encore)' : ''}` : ''}`],
     ['Précision d’accès', c.precisionAcces],
   ];
   const lignesParking: [string, string | null][] = [
@@ -965,7 +966,9 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} /></div>
             ) : digiCharge ? <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicodes-charge>Digicode : chargement…</p> : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
-            {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}
+            {/* 🔴 (Arno, 26/11/2026, 14h35) le code en MAJUSCULES pendant la frappe */}
+            {v.digicode === 'oui' && <label className="loc-champ">Code du digicode<input value={majusculesDigicode(v.digicodeCode)}
+              onChange={(e) => { const val = majusculesDigicode(e.target.value); setV((x) => ({ ...x, digicodeCode: val })); }} /></label>}
             {c.digicodeImmeuble?.mention && <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicode-immeuble>Digicode : {c.digicodeImmeuble.mention}. Le modifier ici le modifie pour tous ces biens.</p>}
             </>}
             {champ('precisionAcces', 'Précision d’accès')}

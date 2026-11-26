@@ -11,6 +11,7 @@
  * 🔴 Toute information absente n'est PAS affichée (jamais « non renseigné »), sauf le bandeau GLI. Le mot « client » n'apparaît
  *    nulle part. Les données viennent de la base (`mailNouvelleLocationRepo.ts`) : rien n'est saisi en plus.
  */
+import { majusculesDigicode } from './digicodeImmeuble';
 import { estGarantme, GLI_GARANTME, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
@@ -310,7 +311,7 @@ export function lignesDuLot(l: LotSource): LigneMail[] {
     : present(l.dpeClasse) ? `Classe ${l.dpeClasse.toUpperCase()}${present(l.dpeDate) ? `, du ${dateCourte(l.dpeDate)}` : ''}` : null;
   const pno = l.assurancePno === null ? null
     : l.assurancePno ? `Oui${present(l.pnoAnniversaire) ? ` · date anniversaire le ${dateCourte(l.pnoAnniversaire)}` : ''}` : 'Non';
-  const digicodeEnVigueur = l.digicode === null ? null : l.digicode ? (present(l.digicodeCode) ? l.digicodeCode.trim() : 'Oui') : 'Non';
+  const digicodeEnVigueur = l.digicode === null ? null : l.digicode ? (present(l.digicodeCode) ? majusculesDigicode(l.digicodeCode.trim()) : 'Oui') : 'Non';
   // 🔴 (16/11/2026) le code en vigueur ET, s'il est connu, le suivant avec sa date et son heure d'application
   const digicode = digicodeEnVigueur === null && !present(l.digicodeSuivant) ? null : [digicodeEnVigueur ?? '—', ...(present(l.digicodeSuivant) ? [l.digicodeSuivant.trim()] : [])].join(' — ');
   const lignes: (LigneMail | null)[] = [

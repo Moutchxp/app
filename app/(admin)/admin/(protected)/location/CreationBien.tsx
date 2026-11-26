@@ -30,6 +30,7 @@ import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
 import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
+import { majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
 import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
@@ -1070,8 +1071,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 onChoix={(v) => { digicodeTouche.current = true; setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />
               {/* Arno (17/10/2026) : le « Code » À DROITE des boutons, 8 caractères au plus ; actif seulement si Oui, vidé sur Non. */}
               <label className="loc-code-digicode">Code
-                <input value={b.digicodeCode} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
-                  onChange={(e) => { digicodeTouche.current = true; const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
+                <input value={majusculesDigicode(b.digicodeCode)} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
+                  onChange={(e) => { digicodeTouche.current = true; const val = majusculesDigicode(e.target.value.slice(0, 8)); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
               {digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{lu !== undefined ? ' — le modifier vaut pour tout l’immeuble (son bâtiment)' : digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>
                 : lu?.digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{lu.digicodeImmeuble.mention} — le modifier vaut pour tout l’immeuble (son bâtiment).</small> : null}
             </div>)}

@@ -11,6 +11,7 @@
  * 🔴 CONFIDENTIALITÉ : cette fiche est INTERNE (écran de l'agence, mails et agendas des COLLÈGUES). Elle n'entre JAMAIS dans un mail ou un
  * .ics envoyé à un locataire ou à un propriétaire. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
+import { majusculesDigicode } from './digicodeImmeuble';
 import { lignesEncart, type EncartLogement, type LigneEncart } from './sortieLocataires';
 import { dateFrPreavis } from './preavis';
 
@@ -49,7 +50,7 @@ const etageLisible = (e: string | null): string | null => {
 /** Le digicode tel qu'on le dit au pied de l'immeuble. PUR. */
 function digicodeLisible(e: Pick<EncartLogement, 'digicode' | 'digicodeCode'>): string | null {
   if (e.digicode === false) return 'aucun';
-  if (present(e.digicodeCode)) return e.digicodeCode.trim();
+  if (present(e.digicodeCode)) return majusculesDigicode(e.digicodeCode.trim());
   return e.digicode === true ? 'oui (code non renseigné)' : null;
 }
 

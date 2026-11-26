@@ -41,7 +41,7 @@ describe('🔴 la reprise des digicodes déjà saisis sur des biens', () => {
   it('un seul bien a un code, ou tous le même (blancs et casse ignorés) : il passe sur l’immeuble', () => {
     const p = planReprise([L(1, '12 rue A', true, '57b83'), L(2, '12 RUE A', true, ' 57B83 '), L(3, '12 r A', null, null), L(4, '8 rue B', true, 'X1')]);
     expect(p.aArbitrer).toEqual([]);
-    expect(p.aReprendre.map((r) => [r.adresse.voie, r.valeur, r.lots])).toEqual([['12 rue A', { digicode: true, code: '57b83' }, [1, 2, 3]], ['8 rue B', { digicode: true, code: 'X1' }, [4]]]);
+    expect(p.aReprendre.map((r) => [r.adresse.voie, r.valeur, r.lots])).toEqual([['12 rue A', { digicode: true, code: '57B83' }, [1, 2, 3]], ['8 rue B', { digicode: true, code: 'X1' }, [4]]]); // 🔴 (26/11/2026, 14h35) en MAJUSCULES
   });
   it('des codes DIFFÉRENTS à la même adresse : rien n’est choisi, « à arbitrer » avec les biens et leurs codes', () => {
     const p = planReprise([L(1, '12 rue A', true, '1111'), L(2, '12 rue A', true, '2222'), L(3, '12 rue A', null, null)]);

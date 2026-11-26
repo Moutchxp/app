@@ -1,4 +1,4 @@
-import { cleBatiment, libelleBatiment, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
+import { cleBatiment, libelleBatiment, libelleValeur, majusculesDigicode, type ValeurDigicode } from '../location/digicodeImmeuble';
 
 /**
  * ══ 🔴🔴 LES DIGICODES UNIFIÉS (Arno, 16/11/2026, chantier « Digicodes unifiés », migration 478). MODULE PUR. ═══════════════════════════════
@@ -178,7 +178,7 @@ export function mentionPrevu(l: Pick<LigneDigicode, 'digicode' | 'appliqueLe' | 
 /** Un changement à venir, en une ligne : « nouveau code 57B83 à partir du 20/11/2026 à 09:00 » / « plus de digicode à partir du … ». PUR. */
 export function motChangementAVenir(c: { valeur: ValeurDigicode; appliqueLe: string; batiment?: string | null }): string {
   const ou = c.batiment ? ` (bâtiment ${c.batiment})` : '';
-  const quoi = c.valeur.digicode === false ? 'plus de digicode' : `nouveau code ${c.valeur.code ?? ''}`.trim();
+  const quoi = c.valeur.digicode === false ? 'plus de digicode' : `nouveau code ${majusculesDigicode(c.valeur.code ?? '')}`.trim();
   return `${quoi}${ou} à partir du ${dateHeure(c.appliqueLe)}`;
 }
 
@@ -205,7 +205,8 @@ export const motifCodeTropLong = (max: number): string => `Le code du digicode f
 export function valeurSaisie(brut: { digicode?: unknown; code?: unknown }, max: number = MAX_CODE_DIGICODE_UNIFIE): { ok: true; valeur: { digicode: boolean; code: string | null } } | { ok: false; motif: string } {
   const digicode = brut.digicode === true || brut.digicode === 'oui' ? true : brut.digicode === false || brut.digicode === 'non' ? false : null;
   if (digicode === null) return { ok: false, motif: 'Indiquez le code, ou « pas de digicode ».' };
-  const code = digicode && typeof brut.code === 'string' && brut.code.trim() !== '' ? brut.code.trim() : null;
+  // 🔴 (Arno, 26/11/2026, 14h35) le code s'enregistre en MAJUSCULES (tout écrit de gestion_digicode passe ici)
+  const code = digicode && typeof brut.code === 'string' && brut.code.trim() !== '' ? majusculesDigicode(brut.code.trim()) : null;
   if (code !== null && code.length > max) return { ok: false, motif: motifCodeTropLong(max) };
   if (digicode && code === null) return { ok: false, motif: 'Indiquez le code du digicode (ou « pas de digicode »).' };
   return { ok: true, valeur: { digicode, code } };

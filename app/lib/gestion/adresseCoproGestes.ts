@@ -7,6 +7,7 @@
  * n'est effacé. L'adresse principale ne se retire pas : « Choisissez d'abord une autre adresse principale » (« Définir comme adresse principale »).
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` (l'écran l'importe).
  */
+import { majusculesDigicode } from '../location/digicodeImmeuble';
 import { adresseImmeuble } from './syndics';
 
 export const LIBELLE_RETIRER_ADRESSE = 'Retirer cette adresse';
@@ -18,7 +19,7 @@ export const CONSEQUENCE_BIENS = 'Ils ne seront plus rattachés à cette copropr
 
 /** Une valeur de digicode en mots. PUR. */
 export const motCode = (v: { digicode: boolean | null; code: string | null }): string =>
-  (v.digicode === false ? 'pas de digicode' : (v.code ?? '') !== '' ? `code ${v.code}` : v.digicode === true ? 'oui (code inconnu)' : 'aucun code connu');
+  (v.digicode === false ? 'pas de digicode' : (v.code ?? '') !== '' ? `code ${majusculesDigicode(v.code ?? '')}` : v.digicode === true ? 'oui (code inconnu)' : 'aucun code connu');
 
 export interface DigicodesDeLAdresse { commun: { digicode: boolean | null; code: string | null }; batiments: { libelle: string; digicode: boolean | null; code: string | null }[] }
 export interface BienDeLAdresse { numero: string; adresse: string | null }
