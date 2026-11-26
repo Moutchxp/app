@@ -41,11 +41,19 @@ export function cleBatiment(brut: string | null | undefined): string {
   return sansMotBatiment(t).replace(/\s+/g, ' ').trim();
 }
 
-/** Le bâtiment tel qu'on l'affiche après « bâtiment » : « Bât. B » → « B », « bâtiment b » → « B », « Les Tilleuls » tel quel. PUR. */
+/**
+ * 🔴🔴 (Arno, 26/11/2026, 12h23, point 2) « quand on ajoute un nom de bâtiment / lettres, cela doit être obligatoirement en lettres capitales, pour
+ * harmoniser » : tout intitulé de bâtiment ou de cage d'escalier (lettre, chiffre ou intitulé libre) en MAJUSCULES, accents gardés (é → É). La clé
+ * (`cleBatiment`) est inchangée : « a » et « A » restent la même lettre. PUR.
+ */
+export const majusculesBatiment = (s: string): string => s.toLocaleUpperCase('fr-FR');
+export const majusculesBatimentOuNul = (s: string | null | undefined): string | null => (s === null || s === undefined ? null : majusculesBatiment(s));
+
+/** Le bâtiment tel qu'on l'affiche après « bâtiment » : « Bât. B » → « B », « bâtiment b » → « B », « Les Tilleuls » → « LES TILLEULS » (🔴 26/11/2026). PUR. */
 export function libelleBatiment(brut: string | null | undefined): string | null {
   const t = sansMotBatiment((brut ?? '').replace(/\s+/g, ' ').trim());
   if (t === '') return null;
-  return t.length <= 3 ? t.toUpperCase() : t;
+  return majusculesBatiment(t);
 }
 
 const biens = (n: number): string => (n === 0 ? 'aucun bien' : n === 1 ? '1 bien' : `${n} biens`);

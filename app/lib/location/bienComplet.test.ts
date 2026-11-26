@@ -174,3 +174,14 @@ describe('🔴 Arno (06/11/2026, 461) — « Copropriété » : Oui / Non / non 
     expect([c(true), c(false), c(null), c(undefined), c('')]).toEqual([true, false, null, null, null]);
   });
 });
+
+/** 🔴🔴 Arno (26/11/2026, 12h23, point 2) — le bâtiment / la cage d'un bien en MAJUSCULES à l'enregistrement (serveur), accents gardés. */
+describe('🔴 26/11 : bâtiment et escalier du bien en MAJUSCULES', () => {
+  it('« bât. b » → « BÂT. B », « cage côté cour » → « CAGE CÔTÉ COUR » ; vide reste vide', async () => {
+    const { verifierComplements } = await import('./bienComplet');
+    const r = verifierComplements({ batiment: 'bât. b', escalier: 'cage côté cour' });
+    expect(r.ok && [r.valeurs.batiment, r.valeurs.escalier]).toEqual(['BÂT. B', 'CAGE CÔTÉ COUR']);
+    const v = verifierComplements({ batiment: '', escalier: null });
+    expect(v.ok && [v.valeurs.batiment, v.valeurs.escalier]).toEqual([null, null]);
+  });
+});

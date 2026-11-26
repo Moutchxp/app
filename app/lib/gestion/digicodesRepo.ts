@@ -2,7 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { registreParAdresse, reprendreSiRetire } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
-import { cleBatiment, cleImmeubleAdresse, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
+import { cleBatiment, cleImmeubleAdresse, libelleValeur, majusculesBatimentOuNul, type ValeurDigicode } from '../location/digicodeImmeuble';
 import { batimentDe } from './batimentsCopropriete';
 import { immeubleDuBien, type MailGestionHisto } from './copropriete';
 import { cleImmeuble } from './syndics';
@@ -33,8 +33,9 @@ interface LigneSql { id: string; adresse_cle: string; adresse_libelle: string; b
 /** « Prénom NOM » d'un compte (le nom en capitales) ; `null` : aucun des deux. PUR. */
 const prenomNomCompte = (prenom: string | null | undefined, nom: string | null | undefined): string | null =>
   [(prenom ?? '').replace(/\s+/g, ' ').trim(), (nom ?? '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('fr-FR')].filter((x) => x !== '').join(' ') || null;
-const versLigne = (r: LigneSql): LigneDigicode => ({ id: Number(r.id), adresseCle: r.adresse_cle, adresseLibelle: r.adresse_libelle, batimentCle: r.batiment_cle, batimentLibelle: r.batiment_libelle,
-  digicode: r.digicode, code: r.code, appliqueLe: r.applique_le, nature: r.nature, origine: r.origine, lotId: r.lot_id === null ? null : Number(r.lot_id),
+const versLigne = (r: LigneSql): LigneDigicode => ({ id: Number(r.id), adresseCle: r.adresse_cle, adresseLibelle: r.adresse_libelle, batimentCle: r.batiment_cle,
+  // 🔴 (26/11/2026) l'intitulé existant se lit en MAJUSCULES
+  batimentLibelle: majusculesBatimentOuNul(r.batiment_libelle), digicode: r.digicode, code: r.code, appliqueLe: r.applique_le, nature: r.nature, origine: r.origine, lotId: r.lot_id === null ? null : Number(r.lot_id),
   corrigeId: r.corrige_id === null ? null : Number(r.corrige_id), annuleLe: r.annule_le, creeLe: r.cree_le, creeParLibelle: r.cree_par_libelle,
   creeParNom: prenomNomCompte(r.par_prenom, r.par_nom) });
 

@@ -260,7 +260,7 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
   it('le commun et un bâtiment : écrits « depuis la fiche copropriété » ; le nouveau bâtiment entre au registre ; la règle connue est enregistrée', async () => {
     const r = await enregistrerCopropriete(D([{ libelle: 'Bât. B', code: 'B42' }], { code: '1234', aucun: false }), AUTEUR);
     expect(r.ok).toBe(true);
-    expect(dg.ecrits.map((a) => [a[1], a[3], a[5]])).toEqual([[{ digicode: true, code: '1234' }, 'fiche_copropriete', null], [{ digicode: true, code: 'B42' }, 'fiche_copropriete', 'Bât. B']]);
+    expect(dg.ecrits.map((a) => [a[1], a[3], a[5]])).toEqual([[{ digicode: true, code: '1234' }, 'fiche_copropriete', null], [{ digicode: true, code: 'B42' }, 'fiche_copropriete', 'BÂT. B']]); // 🔴 (26/11/2026) en MAJUSCULES
     expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_batiment'))?.p.slice(0, 4)).toEqual(['7', 'b', 'B', 'lettre']);
     expect(ecritures().some((x) => x.s.includes('SET nomenclature_batiments = $2') && x.p[1] === 'lettres')).toBe(true);
   });
@@ -295,7 +295,7 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
     expect(r.ok).toBe(true);
     expect(dg.ecrits.map((a) => [a[0], a[1], a[5]])).toEqual([
       [{ voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { digicode: true, code: '1212' }, null],
-      [{ voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { digicode: true, code: 'C1' }, 'Cage 1']]);
+      [{ voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { digicode: true, code: 'C1' }, 'CAGE 1']]);
     // l'adresse est ajoutée AVANT ses digicodes (même transaction)
     const i = h.sql.findIndex((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'));
     expect(i).toBeGreaterThanOrEqual(0);
@@ -304,6 +304,22 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
     expect(await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: '99 rue ailleurs', commun: { code: '1', aucun: false }, batiments: [] }] }, AUTEUR))
       .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
     expect([dg.ecrits, ecritures()]).toEqual([[], []]);
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 12h23, point 2) — « quand on ajoute un nom de bâtiment / lettres, cela doit être obligatoirement en lettres capitales ». */
+describe('🔴 26/11 : les intitulés de bâtiment / cage en MAJUSCULES à l’enregistrement (serveur)', () => {
+  it('« bat a », « cage b », « côté cour » : écrits « BAT A », « CAGE B », « CÔTÉ COUR » ; la règle lettre / chiffre tient (« a » = « A »)', async () => {
+    const v = validerSaisieCopropriete({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', batiments: [{ libelle: 'bat a', code: '1', aucun: false }, { libelle: 'cage b', code: '2', aucun: false },
+      { libelle: 'côté cour', code: '3', aucun: false }] }] });
+    expect(v.ok && v.saisie.digicodes[0].batiments.map((b) => b.libelle)).toEqual(['BAT A', 'CAGE B', 'CÔTÉ COUR']);
+    const r = await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', batiments: [{ libelle: 'bat a', code: '1', aucun: false }] }] }, AUTEUR);
+    expect(r.ok).toBe(true); // « bat a » = la lettre A : elle suit la règle « lettres » de la copropriété, sans fenêtre
+    expect(dg.ecrits.map((a) => a[5])).toEqual(['BAT A']);
+    // un NOUVEL intitulé entre au registre en majuscules (sa clé, elle, reste sans casse ni accents)
+    h.sql = []; dg.ecrits = [];
+    await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', batiments: [{ libelle: 'cage b', code: '2', aucun: false }] }] }, AUTEUR);
+    expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_batiment'))?.p.slice(1, 4)).toEqual(['cage b', 'CAGE B', 'libre']);
   });
 });
 

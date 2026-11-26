@@ -6,6 +6,7 @@ import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { adresseImmeuble, cleImmeuble } from './syndics';
 import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type EtatPlaceDigicode, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
+import { majusculesBatiment } from '../location/digicodeImmeuble';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
 import { digicodesDesAdresses, digicodesUnifiesDisponibles, mailsGestionDesAdresses, type PlaceFiche } from './digicodesRepo';
 import { mentionEnregistre, mentionPrevu } from './digicodes';
@@ -129,8 +130,8 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
          ${(await etatBatimentDisponible()) ? `AND ${sqlBatimentActif('b')}` : ''} ORDER BY b.cree_le, b.id`, [copro.id]);
     for (const r of reg) {
       // 🔴 (Arno, 17/11/2026 : « Bâtiment dont l'adresse n'est pas déductible → « adresse à préciser » sur la fiche Copropriété, choix par Arno ; jamais deviné »)
-      if (parAdr && r.adresseCle === null) aPreciser.push({ id: Number(r.id), libelle: r.libelle });
-      connus.push({ cle: r.cle, libelle: r.libelle, sorte: r.sorte, adresseCle: r.adresseCle });
+      if (parAdr && r.adresseCle === null) aPreciser.push({ id: Number(r.id), libelle: majusculesBatiment(r.libelle) });
+      connus.push({ cle: r.cle, libelle: majusculesBatiment(r.libelle), sorte: r.sorte, adresseCle: r.adresseCle }); // 🔴 (26/11/2026) en MAJUSCULES
     }
   }
   /* 🔴🔴 (Arno, 17/11/2026, 488 : « le bâtiment est marqué retiré (date, auteur), jamais effacé ; il ne revient plus à la réouverture ni dans le menu des

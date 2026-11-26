@@ -77,7 +77,7 @@ describe('③ « Ajouter nouveau bâtiment » : l’ENCADRÉ, qui ne se referme 
     expect(($('[data-cb-encadre-nom]') as HTMLInputElement).placeholder).toBe('ex. A');
     expect($('[data-cb-regle]').textContent).toContain('bâtiments en lettres (A, B, C…)');
     expect([$('[data-cb-valider]').textContent, $('[data-cb-annuler]').textContent]).toEqual(['Valider ce bâtiment', 'Annuler']);
-    expect([exempleNom('chiffres'), exempleNom(null)]).toEqual(['ex. 1', 'ex. A, 1 ou Côté cour']);
+    expect([exempleNom('chiffres'), exempleNom(null)]).toEqual(['ex. 1', 'ex. A, 1 ou CÔTÉ COUR']);
     await saisir($('[data-cb-encadre-nom]'), 'D');
     await touche($('[data-cb-encadre-nom]'), 'Enter');
     expect(choix.at(-1)).toEqual(['D', false]);
@@ -180,19 +180,19 @@ describe('① la bulle de confirmation', () => {
 });
 
 describe('② le menu au clic sur le champ vide', () => {
-  const MELANGE: BatimentConnu[] = [{ cle: '10', libelle: '10', sorte: 'chiffre' }, { cle: 'b', libelle: 'B', sorte: 'lettre' }, { cle: 'cote rue', libelle: 'Côté rue', sorte: 'libre' },
-    { cle: '2', libelle: '2', sorte: 'chiffre' }, { cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: '1', libelle: '1', sorte: 'chiffre' }, { cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }];
-  it('ouvert AUSSITÔT : « Aucun », 1, 2, 10, A, B, puis Côté cour, Côté rue, et « Ajouter nouveau bâtiment » en bas', async () => {
+  const MELANGE: BatimentConnu[] = [{ cle: '10', libelle: '10', sorte: 'chiffre' }, { cle: 'b', libelle: 'B', sorte: 'lettre' }, { cle: 'cote rue', libelle: 'CÔTÉ RUE', sorte: 'libre' },
+    { cle: '2', libelle: '2', sorte: 'chiffre' }, { cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: '1', libelle: '1', sorte: 'chiffre' }, { cle: 'cote cour', libelle: 'CÔTÉ COUR', sorte: 'libre' }];
+  it('ouvert AUSSITÔT : « Aucun », 1, 2, 10, A, B, puis CÔTÉ COUR, CÔTÉ RUE, et « Ajouter nouveau bâtiment » en bas', async () => {
     await monter({ connus: MELANGE, nomenclature: null });
     expect($('[data-cbc-menu]')).toBeNull();
     await clic($('[data-cbc-champ]'));
-    expect(menu()).toEqual(['Aucun bâtiment (digicode copropriété)', '1', '2', '10', 'A', 'B', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['Aucun bâtiment (digicode copropriété)', '1', '2', '10', 'A', 'B', 'CÔTÉ COUR', 'CÔTÉ RUE', 'Ajouter nouveau bâtiment']);
   });
   it('en tapant, la liste se filtre ; un nom nouveau garde « + Ajouter le bâtiment « … » » en premier', async () => {
     await monter({ connus: MELANGE, nomenclature: null });
     await clic($('[data-cbc-champ]'));
     await saisir($('[data-cbc-champ]'), 'Côté');
-    expect(menu()).toEqual(['+ Ajouter le bâtiment « Côté »', 'Aucun bâtiment (digicode copropriété)', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['+ Ajouter le bâtiment « CÔTÉ »', 'Aucun bâtiment (digicode copropriété)', 'CÔTÉ COUR', 'CÔTÉ RUE', 'Ajouter nouveau bâtiment']);
   });
 });
 
@@ -307,5 +307,28 @@ describe('🔴🔴 une ligne par bâtiment', () => {
     expect(nouvelle().querySelector('[data-dcp-nom-batiment]')).toBeNull();
     expect(nouvelle().querySelector('[data-dcp-intitule-batiment="D"]')?.textContent).toBe('Digicode bâtiment D');
     expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec la copropriété');
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 12h23, point 2) — « quand on ajoute un nom de bâtiment / lettres, cela doit être obligatoirement en lettres capitales ». */
+describe('🔴 26/11 : l’intitulé du bâtiment / de la cage en MAJUSCULES pendant la saisie', () => {
+  it('le champ : « bat a » s’écrit « BAT A » ; l’encadré « Ajouter nouveau bâtiment » : « cage b » → « CAGE B », « côté jardin » → « CÔTÉ JARDIN »', async () => {
+    await monter({ connus: [], nomenclature: null });
+    await saisir($('[data-cbc-champ]'), 'bat a');
+    expect(($('[data-cbc-champ]') as HTMLInputElement).value).toBe('BAT A');
+    expect(menu()[0]).toBe('+ Ajouter le bâtiment « BAT A »');
+    await saisir($('[data-cbc-champ]'), '');
+    await clic($('[data-cbc-champ]'));
+    await clic($('[data-cbc-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), 'cage b');
+    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).value).toBe('CAGE B');
+    await saisir($('[data-cb-encadre-nom]'), 'côté jardin');
+    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).value).toBe('CÔTÉ JARDIN');
+  });
+  it('un intitulé EXISTANT s’affiche en majuscules (menu et champ), sans rien réécrire', async () => {
+    await monter({ connus: [{ cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }], nomenclature: null });
+    await clic($('[data-cbc-champ]'));
+    expect(menu()).toContain('CÔTÉ COUR');
+    expect(choix).toEqual([]);
   });
 });

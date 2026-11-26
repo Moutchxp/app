@@ -85,7 +85,7 @@ describe('la fiche Copropriété', () => {
     b.registre = [{ cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }];
     const f = (await ficheCopropriete('Résidence Les Tilleuls'))!;
     expect(f.digicodes.map((d) => [d.voie, d.commun.code, d.batiments.map((x) => x.libelle)])).toEqual([['Résidence Les Tilleuls', null, []], ['12 rue des Lilas', '1234', ['A']]]);
-    expect(f.batimentsConnus.map((x) => [x.libelle, x.sorte])).toEqual([['A', 'lettre'], ['C', 'lettre'], ['Côté cour', 'libre']]);
+    expect(f.batimentsConnus.map((x) => [x.libelle, x.sorte])).toEqual([['A', 'lettre'], ['C', 'lettre'], ['CÔTÉ COUR', 'libre']]); // 🔴 (26/11/2026) l'intitulé existant lu en MAJUSCULES
     expect([f.nomenclatureEffective, f.saisieDigicodes]).toEqual(['lettres', true]);
   });
   it('🔴🔴 (« Digicodes unifiés », lot 2) avec la 478 : le code EN VIGUEUR de chaque place, lu à la clé de la copropriété (celle de ses biens)', async () => {

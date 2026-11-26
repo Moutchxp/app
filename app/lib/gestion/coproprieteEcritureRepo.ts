@@ -1,3 +1,4 @@
+import { majusculesBatiment } from '../location/digicodeImmeuble';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { registreParAdresse, reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
@@ -95,7 +96,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   const digicodes = (Array.isArray(b.digicodes) ? b.digicodes.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>).map((d) => ({
     cle: cleImmeuble(texte(d.cle)), ...(typeof d.commun === 'object' && d.commun !== null ? { commun: code(d.commun as Record<string, unknown>) } : {}),
     batiments: (Array.isArray(d.batiments) ? d.batiments.slice(0, 40) : []).map((y) => (y ?? {}) as Record<string, unknown>)
-      .map((y) => ({ libelle: texte(y.libelle, 60), ...code(y), confirme: y.confirme === true })) })).filter((d) => d.cle !== '');
+      // 🔴 (Arno, 26/11/2026, 12h23) l'intitulé du bâtiment / de la cage en MAJUSCULES à l'enregistrement, accents gardés (la clé ne change pas)
+      .map((y) => ({ libelle: majusculesBatiment(texte(y.libelle, 60)), ...code(y), confirme: y.confirme === true })) })).filter((d) => d.cle !== '');
   for (const d of digicodes) {
     for (const v of [...(d.commun !== undefined ? [d.commun] : []), ...d.batiments]) {
       const r = verifierDigicode(valeurDuCode(v));

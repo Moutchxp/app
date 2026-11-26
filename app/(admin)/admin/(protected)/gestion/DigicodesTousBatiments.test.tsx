@@ -96,7 +96,7 @@ describe('🔴 la fiche du bien : chaque bâtiment de la copropriété a sa lign
  * liseré suit le choix en direct ; sans bâtiment choisi, seule la ligne copropriété est entourée. »
  */
 describe('🔴 le liseré des lignes qui concernent le logement', () => {
-  const DONNEES = { adresseCle: '7 rue x', connus: [A, B, { cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }], nomenclature: 'lettres' as const, batiment: null, batimentLie: false, escalier: null,
+  const DONNEES = { adresseCle: '7 rue x', connus: [A, B, { cle: 'cote cour', libelle: 'CÔTÉ COUR', sorte: 'libre' }], nomenclature: 'lettres' as const, batiment: null, batimentLie: false, escalier: null,
     copropriete: { cle: '7 rue x', libelle: '7 rue X', codePostal: '92600', commune: 'Asnières' },
     adresse: { cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières', commun: { digicode: null, code: null, etat: ETAT() }, batiments: [] } };
   function Hote() {
@@ -107,10 +107,10 @@ describe('🔴 le liseré des lignes qui concernent le logement', () => {
       createElement(DigicodesBien, { donnees: DONNEES as never, s, onChange: setS, batiment: bat, desactive: false }));
   }
   const entourees = () => [...container.querySelectorAll('[data-digicodes-bien] [data-dcp-concerne]')].map((x) => x.getAttribute('data-dcp-batiment') ?? 'copropriété');
-  it('sans bâtiment : la copropriété seule ; puis B, A, « Côté cour » : la copropriété et ce bâtiment, en direct', async () => {
+  it('sans bâtiment : la copropriété seule ; puis B, A, « CÔTÉ COUR » : la copropriété et ce bâtiment, en direct', async () => {
     await act(async () => { root.render(createElement(Hote)); });
     expect(entourees()).toEqual(['copropriété']);
-    for (const [option, attendu] of [['B', 'B'], ['A', 'A'], ['Côté cour', 'Côté cour']]) {
+    for (const [option, attendu] of [['B', 'B'], ['A', 'A'], ['CÔTÉ COUR', 'CÔTÉ COUR']]) {
       await clic($('[data-cbc-champ]')!);
       await clic($(`[data-cbc-option="${option}"]`)!);
       expect(entourees()).toEqual(['copropriété', attendu]);

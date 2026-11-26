@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { avertissementApresSaisie, avertissementsDesBatiments, batimentDe, connusPourAdresse, LIBELLE_BATIMENT_CAGE, menuBatiments, nomenclatureDeLAdresse, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
+import { majusculesBatiment } from '../../../../lib/location/digicodeImmeuble';
 import type { EtatPlaceDigicode, FicheCopropriete, MailGestionHisto } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, codesEnLigne, enteteLogement, locataireCochable, proprietairesRegroupes, resumeChangements, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
@@ -813,7 +814,7 @@ export const DUREE_BULLE_MS = 4000;
 export const phraseRegle = (n: Nomenclature | null): string => (n === null
   ? 'Aucune règle encore : le premier bâtiment en lettre ou en chiffre la fixera pour toute la copropriété (un intitulé libre reste possible).'
   : `Règle de la copropriété : ${MOT_REGLE[n]} ; un autre intitulé reste possible, après confirmation.`);
-export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ? 'ex. A' : n === 'chiffres' ? 'ex. 1' : 'ex. A, 1 ou Côté cour');
+export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ? 'ex. A' : n === 'chiffres' ? 'ex. 1' : 'ex. A, 1 ou CÔTÉ COUR');
 
 /**
  * ══ 🔴🔴 LE CHAMP DU BÂTIMENT / CAGE — CHOISIR OU AJOUTER (Arno, 17/11/2026 : « impossible d'ajouter un bâtiment. Cliquer sur « Ajouter nouveau
@@ -932,10 +933,11 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   return (
     <div className="cb" ref={racine} data-champ-batiment>
       <div className="cb-zone">
-      <input ref={champ} value={valeur} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
+      {/* 🔴 (Arno, 26/11/2026, 12h23) l'intitulé en MAJUSCULES pendant la saisie ; un intitulé existant s'affiche en majuscules */}
+      <input ref={champ} value={majusculesBatiment(valeur)} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
         aria-autocomplete="list" aria-label={ariaLabel} aria-activedescendant={ouvert && actif >= 0 ? `${idMenu}-${actif}` : undefined} {...{ [A.champ]: marque === 'dcp' ? cle : '' }}
         onFocus={() => { setOuvert(true); setTape(false); }} onClick={() => { if (!ouvert) setTape(false); setOuvert(true); }}
-        onChange={(e) => { setMessage(null); setCorrige(null); onSaisie(e.target.value); setOuvert(true); setTape(true); setActif(-1); }}
+        onChange={(e) => { setMessage(null); setCorrige(null); onSaisie(majusculesBatiment(e.target.value)); setOuvert(true); setTape(true); setActif(-1); }}
         onBlur={(e) => { const v = e.target.value; setTimeout(fermer, 180); if (v.trim() !== '' && existe(v)?.libelle !== v.trim() && batimentDe(v)?.cle !== corrige) valider(v, false); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setOuvert(true); setActif((i) => Math.min(i + 1, options.length - 1)); }
@@ -957,7 +959,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
         <div className="cb-encadre" role="group" aria-label="Ajouter un bâtiment ou une cage" data-cb-encadre>
           <label className="dcp-champ cb-encadre-champ"><span>Nom du bâtiment / cage</span>
             <input ref={champEncadre} value={ajout.nom} placeholder={exempleNom(nomenclature)} maxLength={60} data-cb-encadre-nom autoFocus
-              onChange={(e) => setAjout({ nom: e.target.value, erreur: null })}
+              onChange={(e) => setAjout({ nom: majusculesBatiment(e.target.value), erreur: null })}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); valider(ajout.nom, true); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAjout(null); champ.current?.focus(); } }} /></label>
           <p className="loc-muet cb-regle" data-cb-regle>{phraseRegle(nomenclature)}</p>
           {ajout.erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-cb-erreur>{ajout.erreur}</p>}

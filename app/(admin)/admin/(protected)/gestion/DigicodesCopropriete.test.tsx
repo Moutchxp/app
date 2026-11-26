@@ -11,7 +11,7 @@ let container: HTMLDivElement; let root: Root; let dernier: DigicodesAdresseSais
 const FICHE = { digicodes: [
   { cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234' }, batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1' }] },
   { cle: '12 rue des lilas', voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris', commun: { digicode: false, code: null }, batiments: [] }] };
-const CONNUS: BatimentConnu[] = [{ cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: 'c', libelle: 'C', sorte: 'lettre' }, { cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }];
+const CONNUS: BatimentConnu[] = [{ cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: 'c', libelle: 'C', sorte: 'lettre' }, { cle: 'cote cour', libelle: 'CÔTÉ COUR', sorte: 'libre' }];
 function Hote() {
   const [s, setS] = useState(saisieDigicodesInitiale(FICHE));
   dernier = s;
@@ -38,7 +38,7 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
     await act(async () => { root.render(createElement(Hote)); });
     await clic($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-plus]'));
     await clic($('[data-dcp-nom-batiment]'));
-    expect([...container.querySelectorAll('[data-dcp-menu] button')].map((b) => b.textContent)).toEqual(['A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']);
+    expect([...container.querySelectorAll('[data-dcp-menu] button')].map((b) => b.textContent)).toEqual(['A', 'C', 'CÔTÉ COUR', 'Ajouter nouveau bâtiment']);
     await clic($('[data-dcp-option="C"]'));
     // 🔴 (Arno, 17/11/2026) le nom validé : le menu devient l'intitulé « Digicode bâtiment C »
     expect(container.querySelector('[data-dcp-adresse="12 rue des lilas"] [data-dcp-nom-batiment]')).toBeNull();
@@ -52,7 +52,7 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
     await clic($('[data-dcp-plus]'));
     await clic($('[data-dcp-nom-batiment]'));
     await clic($('[data-dcp-ajouter-nouveau]'));
-    await saisir($('[data-dcp-nom-batiment]'), 'Côté rue');
+    await saisir($('[data-dcp-nom-batiment]'), 'CÔTÉ RUE');
     await act(async () => { $('[data-dcp-nom-batiment]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
     expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
     expect(container.querySelector('[data-dcp-refus]')).toBeNull();
@@ -67,11 +67,11 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
 });
 
 describe('le menu filtre ce qui est tapé', () => {
-  it('« c » : C et « Côté cour » ; « Ajouter nouveau bâtiment » toujours là', async () => {
+  it('« c » : C et « CÔTÉ COUR » ; « Ajouter nouveau bâtiment » toujours là', async () => {
     await act(async () => { root.render(createElement(Hote)); });
     await clic($('[data-dcp-plus]'));
     await saisir($('[data-dcp-nom-batiment]'), 'c');
-    expect([...container.querySelectorAll('[data-dcp-menu] button')].map((b) => b.textContent)).toEqual(['C', 'Côté cour', 'Ajouter nouveau bâtiment']);
+    expect([...container.querySelectorAll('[data-dcp-menu] button')].map((b) => b.textContent)).toEqual(['C', 'CÔTÉ COUR', 'Ajouter nouveau bâtiment']);
   });
 });
 
@@ -98,7 +98,7 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     const f = container.querySelector('[data-dcp-avertissement] [role="alertdialog"]')!;
     expect(f.textContent).toContain('Intitulé différent des autres bâtiments');
     expect(f.textContent).toContain('« 2 » est un chiffre, alors que les bâtiments de cette copropriété sont nommés par des lettres. Ce nouvel intitulé ne respecte pas la même numérotation que les autres cages d’escalier de la copropriété.');
-    expect(f.textContent).toContain('Intitulés déjà utilisés : A, C, Côté cour.');
+    expect(f.textContent).toContain('Intitulés déjà utilisés : A, C, CÔTÉ COUR.');
     expect([...f.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Corriger', 'Confirmer cet intitulé']);
   });
   it('« Confirmer cet intitulé » : gardé, la confirmation part avec « Valider »', async () => {
@@ -227,7 +227,7 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
   it('le menu : les bâtiments de TOUTE la copropriété, « Aucun bâtiment (digicode copropriété) », « Ajouter nouveau bâtiment » ; choisir A montre SA ligne', async () => {
     await act(async () => { root.render(createElement(HoteBien)); });
     await clic($('[data-cbc-champ]'));
-    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['Aucun bâtiment (digicode copropriété)', 'A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']); // (Arno, 17/11/2026) « Aucun » en tête
+    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['Aucun bâtiment (digicode copropriété)', 'A', 'C', 'CÔTÉ COUR', 'Ajouter nouveau bâtiment']); // (Arno, 17/11/2026) « Aucun » en tête
     await clic($('[data-cbc-option="A"]'));
     expect(choix.at(-1)).toEqual(['A', false]);
     expect($('[data-digicodes-bien] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');

@@ -16,6 +16,7 @@
  * Un parking nu n'a ni pièces, ni meublé, ni Carrez, ni annexes, ni caractéristiques complémentaires (époque, chauffage,
  * DPE). La famille n'a pas de colonne : elle EST la catégorie (logement / local / parking) — migration 376.
  */
+import { majusculesBatimentOuNul } from './digicodeImmeuble';
 import { verifierChampsBien, type ChampsBien } from './locationBien';
 import { lireNombre } from '../gestion/honorairesGestion';
 import { aujourdhuiParis, dateDpeFuture } from './reglagesDpe';
@@ -349,7 +350,8 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
   return {
     ok: true,
     valeurs: {
-      batiment: texte(l.batiment, 40), escalier: texte(l.escalier, 40), typeLogement: type as TypeLogement | null,
+      // 🔴 (Arno, 26/11/2026, 12h23) le bâtiment et la cage d'escalier en MAJUSCULES (accents gardés), à l'enregistrement
+      batiment: majusculesBatimentOuNul(texte(l.batiment, 40)), escalier: majusculesBatimentOuNul(texte(l.escalier, 40)), typeLogement: type as TypeLogement | null,
       nombrePieces: pieces, meuble, surfaceHabitableM2: habitable, syndicId,
       epoqueConstruction: texte(l.epoqueConstruction, 40), chauffage: texte(l.chauffage, 60),
       dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, dpeNonSoumis: dpeNonSoumis ? true : null, commentaire: texte(l.commentaire, 4000),

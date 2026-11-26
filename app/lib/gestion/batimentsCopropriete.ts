@@ -6,7 +6,7 @@
  * « Côté rue »…) sont permis en plus, ne fixent pas la règle, et sont proposés dans le menu. « Bât. B » = « B » = « bâtiment b ».
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-import { cleBatiment, libelleBatiment } from '../location/digicodeImmeuble';
+import { cleBatiment, libelleBatiment, majusculesBatiment } from '../location/digicodeImmeuble';
 
 export type SorteBatiment = 'lettre' | 'chiffre' | 'libre';
 export type Nomenclature = 'lettres' | 'chiffres';
@@ -149,7 +149,8 @@ export function refusDesBatiments(nouveaux: readonly { libelle: string; confirme
 
 /** Le menu sous le champ du bâtiment : lettres et chiffres dans l'ordre, puis les intitulés libres ; sans doublon. PUR. */
 export function menuBatiments(connus: readonly BatimentConnu[]): BatimentConnu[] {
-  const uniques = [...new Map(connus.map((b) => [b.cle, b])).values()];
+  // 🔴 (Arno, 26/11/2026, 12h23) un intitulé existant s'affiche en MAJUSCULES dans le menu (la base n'est corrigée qu'au prochain enregistrement)
+  const uniques = [...new Map(connus.map((b) => [b.cle, { ...b, libelle: majusculesBatiment(b.libelle) }])).values()];
   const rang = (b: BatimentConnu): number => (b.sorte === 'libre' ? 1 : 0);
   return uniques.sort((a, b) => rang(a) - rang(b) || a.libelle.localeCompare(b.libelle, 'fr', { numeric: true, sensitivity: 'base' }));
 }

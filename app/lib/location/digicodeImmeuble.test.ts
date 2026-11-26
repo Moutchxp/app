@@ -68,7 +68,10 @@ describe('🔴 UN DIGICODE PAR BÂTIMENT (Arno, 21/10/2026, migration 399)', () 
   it('le libellé affiché : « Bât. B » → « B », « bâtiment b » → « B », un nom long tel quel', () => {
     expect(libelleBatiment('Bât. B')).toBe('B');
     expect(libelleBatiment('bâtiment b')).toBe('B');
-    expect(libelleBatiment('Les Tilleuls')).toBe('Les Tilleuls');
+    // 🔴 (Arno, 26/11/2026, 12h23) tout intitulé en MAJUSCULES, accents gardés
+    expect(libelleBatiment('Les Tilleuls')).toBe('LES TILLEULS');
+    expect(libelleBatiment('côté cour')).toBe('CÔTÉ COUR');
+    expect(libelleBatiment('cage b')).toBe('CAGE B');
     expect(libelleBatiment('  ')).toBeNull();
   });
   it('la mention : « Commun aux N biens du bâtiment B, <adresse> » ; « … de l’adresse … » pour le code général', () => {
