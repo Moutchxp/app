@@ -1338,9 +1338,32 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   un vrai bien), 9 blocs ; « A » (A19) et « CAGE B » (B19) sur le 19 rue Voltaire. Captures `.captures/copro-rattachement/` ; `npm test` vert
   (1 879 / 28 200). ⚠️ Preuve curl à faire par Arno (agent via node : 200, 0 erreur).
 
+- ✅ **Décision d'Arno (26/11/2026)** : on GARDE « bat a » = « Bât. A » = « A » (enregistré « A »), pour éviter les doublons de bâtiments.
+
+### 26/11/2026, 12h50 — fenêtre « Copropriété » : deux points d'Arno (NON POUSSÉS, aucune migration)
+- **`aeb97ec7` — « Retirer cette adresse »** sur chaque bloc DIGICODES (prop `onRetirerAdresse` du composant partagé, fiche Copropriété seulement) :
+  fenêtre (adresse, digicodes / bâtiments qui partent avec elle, biens et conséquence), « Oui, retirer cette adresse » / « Annuler » ; immédiat
+  (`retirerAdresseCopro`, une transaction : retire_le, regroupement prévenu, syndic retiré des biens, journal « adresse_retiree » complet). Le « × »
+  d'une adresse enregistrée ouvre la même fenêtre. Principale non retirable (« Choisissez d'abord une autre adresse principale »). **Nouveau :
+  « Définir comme adresse principale »** (`definirAdressePrincipale` : la secondaire devient la principale — clé, libellé, CP, commune, ban_id de
+  `gestion_copropriete` —, l'ancienne principale devient une adresse ; AG et contacts lus par l'id de la copropriété ; refus écriture d'origine /
+  regroupement ; journal « adresse_principale_changee »). Bâtiments du registre d'une adresse retirée : plus proposés (rien d'effacé).
+- **`32761a3a` — exclusivité d'une adresse** : `cleComparable` (bis/ter/quater, casse, accents) + CP compatible + ban_id ; contrôle au rattachement
+  (action `adresse-conflit`, y compris « Rattacher » sur une adresse « déjà rattachée à une autre copropriété ») et à l'enregistrement (avant + DANS
+  la transaction, `deplacementsConfirmes`) ; fenêtre Oui / Non ; Oui = `deplacerAdresse` (retire_le chez l'autre, regroupement, syndic retiré des biens,
+  bâtiments copiés au registre, journaux « adresse_cedee » / « adresse_reprise ») ; principale de l'autre : refus.
+- ⚠️ **Doublons** : AUCUN en recette. Requête LECTURE SEULE pour la production : `.captures/copro-exclusivite/doublons-lecture-seule.sql`
+  (`PGOPTIONS='-c default_transaction_read_only=on' psql "$DATABASE_URL" -X -f …`). **Contrainte en base NON posée** (état de la prod inconnu) : contrôle
+  serveur seulement ; l'index unique `gestion_copropriete_adresse_en_cours` (adresses secondaires) existe déjà ; manque le croisement principale ↔
+  secondaire (déclencheur, migration 520) — à décider après la vérification de la prod. Limite connue : la clé d'unicité en base (`cle_immeuble`)
+  ignore le code postal.
+- Recette : « _TEST Copro Digicodes » (137 rue Gérhard, bien 504) et « _TEST Copro Rattachement » (5 rue Gérhard, bien 505, créée) — le 129 rue Gérhard
+  est passé à Rattachement (code 1291 suivi) ; « 1 rue Léon et Robert Morane » retirée. Captures `.captures/copro-retrait/`, `.captures/copro-exclusivite/` ;
+  `npm test` vert (1 882 / 28 222). ⚠️ Preuve curl à faire par Arno (agent via node : 200, 0 erreur).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4` + leurs passations. Réponse d'Arno attendue : « bat a » → « A » (règle actuelle) ou « BAT A » ? Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
