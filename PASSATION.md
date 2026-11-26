@@ -1403,7 +1403,16 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d` + leurs passations. Arno : lancer en prod les deux requêtes en lecture seule (doublons d’adresses, digicodes > 15). Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d` + leurs passations. Arno : lancer `bash .captures/maj/0-controles-lecture-seule.sh` (les deux contrôles en lecture seule sur la production), puis décider de la
+migration 520 (exclusivité des adresses) selon le résultat.
+
+### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
+- Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
+  sur l'entrée de psql. Trois verrous : `PGOPTIONS default_transaction_read_only=on`, chaque fichier en `BEGIN READ ONLY … ROLLBACK`, garde local qui
+  refuse tout fichier contenant un mot d'écriture. Digicodes MASQUÉS (« ••• », longueur et adresse seulement). Journal `.captures/maj/controles-AAAA-MM-JJ.txt`.
+- Essai sans production : `CONTROLES_BASE_LOCALE=svav_recette bash …` (refusé sur toute base qui n'est pas svav_recette… / svav_test…) — 0 / 0 / 0 ligne,
+  « CONTRÔLES TERMINÉS — rien n'a été modifié » ; compteurs d'écriture (pg_stat_user_tables) et empreinte md5 des 6 tables lues IDENTIQUES avant / après ;
+  un UPDATE envoyé sous le même réglage est refusé par la base (« cannot execute UPDATE in a read-only transaction »). Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
