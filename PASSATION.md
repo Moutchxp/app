@@ -1373,9 +1373,19 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Vérifié en LECTURE SEULE sur la copropriété du 34 rue Baudin (aucune écriture) ; captures `.captures/copro-selection/` ; `npm test` vert
   (1 883 / 28 230 ; flake connu `PreavisAccueil.test.tsx` vu une fois, vert au 2e passage complet).
 
+### 26/11/2026, 14h06 — ADRESSES : une seule présentation de ligne (NON POUSSÉ, aucune migration)
+- **`29b26f1b`** : chaque adresse (principale, validées, en attente, adresses de biens) = `li.fcp-adr` > `.fcp-adr-ligne` [texte] [état] [actions]
+  [`.fcp-adr-retrait`], colonnes alignées par `subgrid` ; 390 px (requête de conteneur ≤ 620 px) : adresse + « × » en haut, état et actions dessous.
+  États `ETAT_ADRESSE` (principale / ✓ Vérifiée vert / À vérifier orange / Nouvelle bleu `--color-svv-blue`). « Vérifier » partout (`data-fcp-verifier`) ;
+  la principale se confirme aussi (journal « Adresse principale confirmée ») ; une re-confirmation est journalisée (« confirmée de nouveau »).
+  ⚠️ Changement de geste à connaître : le « × » d'une adresse EN ATTENTE retire tout de suite (avant : petite question « Oui / Non » au milieu de la
+  ligne) ; celui d'une adresse validée ouvre toujours la fenêtre de aeb97ec7.
+- Vérifié en lecture seule sur le 30 rue Baudin (n° 373 ; Arno en a fait l'adresse principale à 13h59 et y a ajouté 32, 36, 38). Ses six adresses
+  sont vérifiées : « À vérifier » montré en modifiant la seule réponse de lecture dans le navigateur. Captures `.captures/copro-lignes/`.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
