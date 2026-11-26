@@ -1321,8 +1321,26 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   seulement celle de la BAN. Captures `.captures/copro-digicodes/` ; `npm test` vert (1 879 / 28 192). ⚠️ Preuve curl à faire par Arno (agent via
   node : 200, 0 erreur).
 
+### 26/11/2026, 12h23 — fenêtre « Copropriété » : deux points d'Arno (NON POUSSÉS, aucune migration)
+- **`1fe5c7c7` — rattachement en deux temps** : une adresse ajoutée est « en attente de validation » (retirable par « × », PAS de bloc digicode —
+  dd2aa115 adapté : le bloc vient à la validation) ; « Valider le rattachement des adresses à cette copropriété (N) » (pleine largeur) enregistre
+  IMMÉDIATEMENT les seules adresses (fiche créée si besoin avec ce que sa création emporte ; nom enregistré, ni contacts ni digicodes ni syndic) ;
+  ensuite un bloc DIGICODES par adresse validée, propositions repliées. Filet : le « Valider » du bas enregistre aussi les adresses en attente ;
+  fermer (bouton, « × », Échap) avec des adresses en attente pose la question « N adresses rattachées non validées seront perdues. ».
+  « à vérifier » reste distinct.
+- **`9907f0b4` — MAJUSCULES** : `majusculesBatiment` (fr-FR, accents gardés) dans `libelleBatiment` (Gestion/Location ; le Permis a sa propre
+  fonction, non touchée), le champ commun (saisie + encadré), le menu, les lectures (digicodes, registre), la saisie serveur (fiche Copropriété,
+  `verifierComplements` du bien). Clé inchangée (« a » = « A »). Aucune réécriture en masse.
+- ⚠️ **QUESTION OUVERTE pour Arno** : la règle existante « Bât. B » = « bâtiment b » = « B » est GARDÉE — « bat a » s'écrit « BAT A » pendant la
+  saisie mais s'enregistre « A » (la lettre A) ; « cage b » → « CAGE B ». Arno attendait « BAT A » : changer l'équivalence (garder le mot « BAT »)
+  serait une décision métier (A et « BAT A » deviendraient deux bâtiments différents).
+- Recette : « _TEST Copro Digicodes » — 4 adresses de plus (19 rue Voltaire, 39 et 43 bis rue Gérhard, 1 rue Léon et Robert Morane, aucune portée par
+  un vrai bien), 9 blocs ; « A » (A19) et « CAGE B » (B19) sur le 19 rue Voltaire. Captures `.captures/copro-rattachement/` ; `npm test` vert
+  (1 879 / 28 200). ⚠️ Preuve curl à faire par Arno (agent via node : 200, 0 erreur).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1` + leurs passations. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
+`9907f0b4` + leurs passations. Réponse d'Arno attendue : « bat a » → « A » (règle actuelle) ou « BAT A » ? Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
