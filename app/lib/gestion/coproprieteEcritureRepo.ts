@@ -298,9 +298,15 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
                 EXISTS (SELECT 1 FROM gestion_journal j WHERE j.entite = 'copropriete' AND j.entite_id = a.copropriete_id AND j.action = 'adresse_confirmee'
                          AND j.valeur_apres = a.cle_immeuble AND j.survenu_le >= a.cree_le) AS deja
            FROM gestion_copropriete_adresse a WHERE a.copropriete_id = $1 AND a.retire_le IS NULL`, [coproId]);
-      for (const a of actuelles.filter((x) => (s.adressesConfirmees ?? []).includes(x.cle) && !x.deja)) {
+      // 🔴🔴 (Arno, 26/11/2026, 14h06) « Vérifier » sur TOUTES les adresses : une adresse déjà vérifiée se revoit et se confirme DE NOUVEAU (journalisé
+      // aussi, « confirmée de nouveau ») ; l'adresse principale se vérifie et se confirme de la même façon
+      for (const a of actuelles.filter((x) => (s.adressesConfirmees ?? []).includes(x.cle))) {
         await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_confirmee', $2, $3, $4, $5)`,
-          [coproId, a.cle, `Adresse confirmée (vérifiée à l’écran) : ${adresseImmeuble(a.libelle, a.code_postal, a.commune)}`, auteur.id, auteur.libelle]);
+          [coproId, a.cle, `Adresse ${a.deja ? 'confirmée de nouveau (revue à l’écran)' : 'confirmée (vérifiée à l’écran)'} : ${adresseImmeuble(a.libelle, a.code_postal, a.commune)}`, auteur.id, auteur.libelle]);
+      }
+      if ((s.adressesConfirmees ?? []).includes(cleImmeuble(lue.libelle))) {
+        await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_confirmee', $2, $3, $4, $5)`,
+          [coproId, cleImmeuble(lue.libelle), `Adresse principale confirmée (vérifiée à l’écran) : ${adresseImmeuble(lue.libelle, lue.codePostal ?? null, lue.commune ?? null)}`, auteur.id, auteur.libelle]);
       }
     }
     // ── ④ les habitants et gardiens ──────────────────────────────────────────────────────────────────────────────────────────────────────

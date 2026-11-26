@@ -17,7 +17,7 @@ import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesE
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import { lienCarte, type ExamenAdresse } from '../../../../lib/gestion/adresseCoproExamenModele';
 import { LIBELLE_NON_DEPLACER, libelleOuiDeplacer, motifPrincipaleAilleurs, nomCopropriete, texteConflit, type ConflitAdresse } from '../../../../lib/gestion/adresseCoproExclusivite';
-import { CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse } from '../../../../lib/gestion/adresseCoproGestes';
+import { CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, MOTIF_PRINCIPALE_NON_RETIRABLE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse } from '../../../../lib/gestion/adresseCoproGestes';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -57,6 +57,11 @@ export const MOT_FICHE_ENREGISTREE = 'Fiche copropriété enregistrée.';
 /** 🔴 (Arno, 26/11/2026, 12h23) le bouton du rattachement en deux temps, et ses messages. */
 export const libelleValiderRattachement = (n: number): string => `Valider le rattachement des adresses à cette copropriété (${n})`;
 export const MOT_ADRESSES_EN_ATTENTE = 'en attente de validation';
+/** 🔴🔴 (Arno, 26/11/2026, 14h06) l'état d'une ligne d'ADRESSES : une seule présentation pour toutes les adresses */
+export const ETAT_ADRESSE = { principale: 'Adresse principale', verifiee: '✓ Vérifiée', aVerifier: 'À vérifier', nouvelle: `Nouvelle — ${MOT_ADRESSES_EN_ATTENTE}`,
+  biens: 'Adresse de biens de la copropriété' } as const;
+export type EtatAdresse = keyof typeof ETAT_ADRESSE;
+export const LIBELLE_VERIFIER = 'Vérifier';
 export const motAdressesValidees = (n: number): string => `${n} adresse${n > 1 ? 's' : ''} rattachée${n > 1 ? 's' : ''} à la copropriété : chacune a son bloc dans DIGICODES.`;
 export const motFermerAvecAttente = (n: number): string => `${n} adresse${n > 1 ? 's' : ''} rattachée${n > 1 ? 's' : ''} non validée${n > 1 ? 's' : ''} ${n > 1 ? 'seront perdues' : 'sera perdue'}.`;
 export const MOT_AUCUNE_MODIFICATION = 'Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout.';
@@ -166,7 +171,6 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
      avec « Valider » (le serveur refuse sans elles) */
   const [sansNumero, setSansNumero] = useState<Adresse | null>(null);
   const [confirmeesSansNumero, setConfirmeesSansNumero] = useState<string[]>([]);
-  const [aRetirer, setARetirer] = useState<string | null>(null);
   /* 🔴🔴 (Arno, 26/11/2026, 11h58, point 1) « Il y a écrit à vérifier, mais je ne peux rien vérifier (lien mort). » : « à vérifier » ouvre l'examen de
      l'adresse (adresse officielle, parcelle, position) avec « Confirmer cette adresse » et « Retirer de la copropriété » ; les confirmations partent
      avec « Valider » (comme le « × ») et entrent dans l'historique de la copropriété */
@@ -279,7 +283,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       setExamen((x) => (x?.cle !== cle ? x : { cle, lu: d.etat === 'ok' && d.data ? d.data : { refus: d.motif ?? 'Examen impossible.' } }));
     } catch { setExamen((x) => (x?.cle !== cle ? x : { cle, lu: { refus: 'Examen impossible : le serveur n’a pas répondu.' } })); }
   };
-  const panneauExamen = (a: Adresse) => {
+  const panneauExamen = (a: Adresse, sorte: 'adresse' | 'principale' | 'biens' = 'adresse') => {
     const cle = cleImmeuble(a.libelle);
     if (examen?.cle !== cle) return null;
     const x = examen.lu;
@@ -295,23 +299,27 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               : <span className="loc-muet">inconnue</span>}</p>
         </>}
         <div className="fcp-examen-gestes">
-          <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" disabled={x === 'lecture'}
-            onClick={() => { setConfirmees((l) => (l.includes(cle) ? l : [...l, cle])); setExamen(null); setInfo(null); }} data-fcp-confirmer-adresse>Confirmer cette adresse</button>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini"
-            onClick={() => { if (enregistrees.has(cle)) { setExamen(null); setRetraitAdresse(cle); return; }
-              setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle)); setExamen(null); }} data-fcp-retirer-adresse>Retirer de la copropriété</button>
+          {sorte !== 'biens' && (
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" disabled={x === 'lecture'}
+              onClick={() => { setConfirmees((l) => (l.includes(cle) ? l : [...l, cle])); setExamen(null); setInfo(null); }} data-fcp-confirmer-adresse>Confirmer cette adresse</button>)}
+          {sorte === 'adresse' && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini"
+              onClick={() => { if (enregistrees.has(cle)) { setExamen(null); setRetraitAdresse(cle); return; }
+                setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle)); setExamen(null); }} data-fcp-retirer-adresse>Retirer de la copropriété</button>)}
           <button type="button" className="fcp-lien" onClick={() => setExamen(null)} data-fcp-examen-fermer>Fermer</button>
         </div>
-        <p className="loc-muet fcp-petit fcp-sans-marge">Le choix s’applique à « Valider » et entre dans l’historique de la copropriété.</p>
+        {sorte === 'principale' && <p className="loc-muet fcp-petit fcp-sans-marge" data-fcp-examen-principale>{MOTIF_PRINCIPALE_NON_RETIRABLE}</p>}
+        {sorte !== 'biens'
+          ? <p className="loc-muet fcp-petit fcp-sans-marge">Le choix s’applique à « Valider » et entre dans l’historique de la copropriété.</p>
+          : <p className="loc-muet fcp-petit fcp-sans-marge">Adresse connue par les biens de la copropriété : en lecture seule.</p>}
       </div>);
   };
-  const retirer = (a: Adresse) => (enregistrees.has(cleImmeuble(a.libelle))
-    // 🔴 (Arno, 26/11/2026, 12h50) une adresse ENREGISTRÉE (elle a son bloc de digicodes) : la même fenêtre que « Retirer cette adresse »
-    ? <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setRetraitAdresse(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>
-    : aRetirer === cleImmeuble(a.libelle)
-    ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { decocher(cleImmeuble(a.libelle)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
-      <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
-    : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>);
+  /* 🔴🔴 (Arno, 26/11/2026, 14h06) le « × » : TOUJOURS le dernier élément de la ligne. Une adresse ENREGISTRÉE (elle a son bloc de digicodes) : la fenêtre
+     « Retirer cette adresse » (12h50) ; une adresse EN ATTENTE : retrait immédiat (elle quitte la sélection, sa case se décoche) — avant : une petite
+     question « Retirer cette adresse ? Oui / Non » au milieu de la ligne */
+  const retirer = (a: Adresse) => (
+    <button type="button" className="fcp-retrait" aria-label={`Retirer ${a.libelle}`} disabled={envoi}
+      onClick={() => { const k = cleImmeuble(a.libelle); if (enregistrees.has(k)) setRetraitAdresse(k); else { if (examen?.cle === k) setExamen(null); decocher(k); } }} data-fcp-retirer>×</button>);
   // les adresses de la même parcelle (proposées au « + »)
   useEffect(() => {
     if (f === null) return;
@@ -418,7 +426,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: f.declaree ? f.nom : (nom.trim() === '' ? null : nom),
         ...(f.avec476 ? { horsCopropriete: f.declaree ? f.horsCopropriete : hors } : {}),
         adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
-        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(),
+        adressesConfirmees: confirmees.filter((k) => k === cleImmeuble(f.libelle) || adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(),
         syndicId: f.syndic?.id ?? null, retirerSyndic: false, alerteParcelleVue: false, conflitsParcelle: [],
         ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}) };
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
@@ -451,7 +459,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
         adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
-        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adressesConfirmees: confirmees.filter((k) => k === cleImmeuble(f.libelle) || adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}),
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
@@ -542,36 +550,75 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <h3 className="fcp-titre">Adresses
         <button type="button" className="fcp-plus" aria-expanded={ajoutAdresse} aria-label="Ajouter une adresse à cette copropriété" title="Ajouter une adresse"
           onClick={() => setAjoutAdresse((o) => !o)} data-fcp-plus-adresse>+</button></h3>
-      <ul className="fcp-liste">
-        <li data-fcp-adresse="principale" {...(off !== null ? { 'data-fcp-officielle': off.principale.banId } : {})}>
-          <strong>{off !== null ? off.principale.libelle : adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
-        {/* 🔴 (Arno, 20/11/2026, lot 5) une écriture d'origine n'est JAMAIS une adresse : elle ne vit que dans « Écritures d'origine » (elle reste dans la
-            saisie, et part avec « Valider ») ; une adresse que rien n'a encore rapprochée garde sa ligne, marquée « à vérifier » */}
-        {/* 🔴🔴 (Arno, 26/11/2026, 13h30) la principale en tête ; puis les adresses validées, puis celles en attente (juste au-dessus du bouton), chacune
-            par rue puis numéro croissant (trierAdresses, la même fonction que les blocs DIGICODES et les propositions). L'ordre de la SAISIE ne change pas. */}
-        {(() => { const l = rangees.filter((x) => x.mode !== 'ecriture'); const enreg = (x: (typeof l)[number]) => enregistrees.has(cleImmeuble(x.a.libelle));
-          return [...trierAdresses(l.filter(enreg), (x) => x.libelle), ...trierAdresses(l.filter((x) => !enreg(x)), (x) => x.libelle)]; })().map(({ a, mode, libelle }) => (
-          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
-            {/* 🔴 (Arno, 26/11/2026, 12h23) pas encore enregistrée : « en attente de validation » (retirable par son « × ») — distinct de « à vérifier » */}
-            {!enregistrees.has(cleImmeuble(a.libelle)) && <><span className="fcp-en-attente" data-fcp-en-attente>{MOT_ADRESSES_EN_ATTENTE}</span>{' '}</>}
-            {deplacements[cleImmeuble(a.libelle)] !== undefined && <><span className="fcp-en-attente" data-fcp-deplacee>— sera retirée de {deplacements[cleImmeuble(a.libelle)]}</span>{' '}</>}
-            {off !== null && mode === 'normale' && !dejaConfirmees.has(cleImmeuble(a.libelle)) && (
-              <button type="button" className="fcp-a-verifier fcp-a-verifier-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
-                title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(a); }} data-fcp-adresse-a-verifier>à vérifier</button>)}{' '}
-            {retirer(a)}
-            {/* 🔴 (Arno, 26/11/2026, 12h50) « Définir comme adresse principale » : une adresse ENREGISTRÉE (pas une écriture d'origine) */}
-            {f.declaree && enregistrees.has(cleImmeuble(a.libelle)) && (
-              <button type="button" className="fcp-lien fcp-definir-principale" onClick={() => setPrincipaleVisee(cleImmeuble(a.libelle))} disabled={envoi}
-                data-fcp-definir-principale={cleImmeuble(a.libelle)}>{LIBELLE_DEFINIR_PRINCIPALE}</button>)}
-            {panneauExamen(a)}</li>))}
+      {/* 🔴🔴 (Arno, 26/11/2026, 14h06) « pourquoi chaque ligne est faite différemment ? » : UNE présentation pour TOUTES les adresses, en colonnes alignées —
+          [adresse] [état] [actions] [×]. État : « Adresse principale », « ✓ Vérifiée » (vert), « À vérifier » (orange), « Nouvelle — en attente de
+          validation » (le texte de l'adresse en bleu). « Vérifier » sur toutes les lignes ; « Définir comme adresse principale » sur les validées ; le « × »
+          toujours en dernier, aligné à droite (la principale garde l'emplacement vide). 390 px : l'adresse, puis état et actions dessous, « × » en haut à droite. */}
+      <ul className="fcp-liste fcp-adresses-liste">
+        {(() => {
+          const ligne = (o: { cle: string; a: Adresse; libelle: string; etat: EtatAdresse; sorte: 'principale' | 'secondaire' | 'officielle-des-biens'; attrs?: Record<string, string>;
+            avecRetrait: boolean; avecDefinir: boolean; extra?: React.ReactNode }) => (
+            <li key={o.cle} className={`fcp-adr${o.etat === 'nouvelle' ? ' fcp-adr-nouvelle' : ''}`} data-fcp-adresse={o.sorte} data-fcp-etat-ligne={o.etat} {...(o.attrs ?? {})}>
+              <div className="fcp-adr-ligne">
+                <span className="fcp-adr-texte" data-fcp-adresse-texte>{o.libelle}</span>
+                <span className="fcp-adr-etat">
+                  <span className={`fcp-etat fcp-etat-${o.etat}`} data-fcp-etat={o.etat} {...(o.etat === 'nouvelle' ? { 'data-fcp-en-attente': '' } : {})}>{ETAT_ADRESSE[o.etat]}</span>
+                  {o.extra}
+                  {confirmees.includes(o.cle) && <span className="fcp-en-attente" data-fcp-confirmation-a-enregistrer> — confirmée, enregistrée avec « Valider »</span>}
+                </span>
+                <span className="fcp-adr-actions">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton" aria-expanded={examen?.cle === o.cle}
+                    title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(o.a); }}
+                    data-fcp-verifier={o.cle} {...(o.etat === 'aVerifier' ? { 'data-fcp-adresse-a-verifier': '' } : {})}>{LIBELLE_VERIFIER}</button>
+                  {/* 🔴 (Arno, 26/11/2026, 12h50) « Définir comme adresse principale » : une adresse ENREGISTRÉE (pas une écriture d'origine) */}
+                  {o.avecDefinir && (
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton fcp-definir-principale" onClick={() => setPrincipaleVisee(o.cle)} disabled={envoi}
+                      data-fcp-definir-principale={o.cle}>{LIBELLE_DEFINIR_PRINCIPALE}</button>)}
+                </span>
+                <span className="fcp-adr-retrait">{o.avecRetrait ? retirer(o.a) : null}</span>
+              </div>
+              {panneauExamen(o.a, o.sorte === 'principale' ? 'principale' : o.sorte === 'officielle-des-biens' ? 'biens' : 'adresse')}
+            </li>);
+          const principale: Adresse = { libelle: f.libelle, codePostal: f.codePostal ?? '', commune: f.commune ?? '', ...(off !== null ? { banId: off.principale.banId } : {}) };
+          /* 🔴🔴 (Arno, 26/11/2026, 13h30) la principale en tête ; puis les adresses validées, puis celles en attente (juste au-dessus du bouton), chacune
+             par rue puis numéro croissant (trierAdresses, la même fonction que les blocs DIGICODES et les propositions). L'ordre de la SAISIE ne change pas.
+             🔴 (Arno, 20/11/2026, lot 5) une écriture d'origine n'est JAMAIS une adresse : elle ne vit que dans « Écritures d'origine ». */
+          const l = rangees.filter((x) => x.mode !== 'ecriture'); const enreg = (x: (typeof l)[number]) => enregistrees.has(cleImmeuble(x.a.libelle));
+          const secondaires = [...trierAdresses(l.filter(enreg), (x) => x.libelle), ...trierAdresses(l.filter((x) => !enreg(x)), (x) => x.libelle)];
+          return [
+            ligne({ cle: cleImmeuble(f.libelle), a: principale, libelle: off !== null ? off.principale.libelle : adresseImmeuble(f.libelle, f.codePostal, f.commune), etat: 'principale',
+              sorte: 'principale', attrs: off !== null ? { 'data-fcp-officielle': off.principale.banId } : {}, avecRetrait: false, avecDefinir: false }),
+            ...secondaires.map(({ a, mode, libelle }) => {
+              const k = cleImmeuble(a.libelle);
+              // « À vérifier » : la règle d'avant (une adresse que rien n'a rapprochée de l'adresse officielle, pas encore confirmée)
+              const etat: EtatAdresse = !enregistrees.has(k) ? 'nouvelle' : off !== null && mode === 'normale' && !dejaConfirmees.has(k) ? 'aVerifier' : 'verifiee';
+              return ligne({ cle: k, a, libelle, etat, sorte: 'secondaire', attrs: mode === 'officielle' ? { 'data-fcp-officielle': '' } : {}, avecRetrait: true,
+                avecDefinir: f.declaree && enregistrees.has(k),
+                extra: deplacements[k] !== undefined ? <span className="fcp-en-attente" data-fcp-deplacee> — sera retirée de {deplacements[k]}</span> : undefined });
+            }),
+          ];
+        })()}
         {/* 🔴🔴 (Arno, 26/11/2026, 13h27) le bouton qui valide toute la sélection, DANS la liste ADRESSES, juste sous les adresses en attente */}
         {enAttente.length > 0 && (
           <li className="fcp-ligne-valider-rattachement" data-fcp-valider-rattachement-ligne>
             <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-valider-rattachement" disabled={envoi} onClick={() => { void validerRattachement(); }}
               data-fcp-valider-rattachement>{envoi ? 'Enregistrement…' : libelleValiderRattachement(enAttente.length)}</button></li>)}
-        {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
-        {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
-          <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
+        {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule — la même ligne */}
+        {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => {
+          const a: Adresse = { libelle: g.court, codePostal: g.codePostal ?? '', commune: g.commune ?? '', banId: g.banId };
+          return (
+            <li key={g.banId} className="fcp-adr" data-fcp-adresse="officielle-des-biens" data-fcp-etat-ligne="biens">
+              <div className="fcp-adr-ligne">
+                <span className="fcp-adr-texte" data-fcp-adresse-texte>{g.libelle}</span>
+                <span className="fcp-adr-etat"><span className="fcp-etat fcp-etat-biens" data-fcp-etat="biens">{ETAT_ADRESSE.biens}</span></span>
+                <span className="fcp-adr-actions">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
+                    onClick={() => { void examiner(a); }} data-fcp-verifier={cleImmeuble(a.libelle)}>{LIBELLE_VERIFIER}</button></span>
+                <span className="fcp-adr-retrait" />
+              </div>
+              {panneauExamen(a, 'biens')}
+            </li>);
+        })}
       </ul>
       {off !== null && (
         <details className="fcp-histo" data-fcp-ecritures>
@@ -1055,6 +1102,39 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-en-attente{color:var(--color-svv-muted);font-style:italic;font-size:.85rem}
 .fcp-valider-rattachement{width:100%;min-height:44px;margin:8px 0 4px;white-space:normal}
 .fcp-ligne-valider-rattachement{list-style:none}
+[data-fcp-adresses]{container-type:inline-size}
+.fcp-adresses-liste{display:grid;grid-template-columns:minmax(12rem,1fr) minmax(7rem,9.5rem) max-content 44px;column-gap:10px;row-gap:2px}
+.fcp-adresses-liste > li{grid-column:1/-1}
+.fcp-adr{display:grid;grid-template-columns:subgrid;border-bottom:1px solid var(--color-svv-line);padding:4px 0}
+.fcp-adr:last-of-type{border-bottom:0}
+.fcp-adr-ligne{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:44px}
+.fcp-adr-ligne > *{min-width:0}
+.fcp-adr-texte{color:var(--color-svv-ink);overflow-wrap:anywhere}
+.fcp-adr-nouvelle .fcp-adr-texte{color:var(--color-svv-blue);font-weight:700}
+.fcp-adr-etat{font-size:.85rem}
+.fcp-etat{font-weight:700;white-space:nowrap}
+.fcp-etat-principale,.fcp-etat-biens{color:var(--color-svv-muted)}
+.fcp-etat-verifiee{color:var(--color-svv-green-ink)}
+.fcp-etat-aVerifier{color:var(--color-svv-orange)}
+.fcp-etat-nouvelle{color:var(--color-svv-blue);white-space:normal}
+.fcp-adr-actions{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:4px 0}
+.fcp-adr-actions .fcp-adr-bouton{min-height:36px;white-space:nowrap;margin:0;width:100%;font-size:.85rem}
+.fcp-adr-retrait{display:flex;justify-content:flex-end}
+.fcp-retrait{background:none;border:0;font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-ink);cursor:pointer;width:44px;height:44px;border-radius:8px}
+.fcp-retrait:hover{background:var(--color-svv-field)}
+.fcp-retrait:disabled{opacity:.5;cursor:default}
+.fcp-adr > .fcp-examen{grid-column:1/-1}
+@container (max-width: 620px){
+  .fcp-adresses-liste{display:flex;flex-direction:column}
+  .fcp-adr{display:block}
+  .fcp-adr-ligne{display:grid;grid-template-columns:minmax(0,1fr) 44px;grid-template-areas:"adr x" "etat etat" "act act";row-gap:4px;align-items:start}
+  .fcp-adr-texte{grid-area:adr;padding-top:10px}
+  .fcp-adr-etat{grid-area:etat}
+  .fcp-adr-actions{grid-area:act;flex-direction:row;flex-wrap:wrap}
+  .fcp-adr-actions .fcp-adr-bouton{width:auto}
+  .fcp-adr-retrait{grid-area:x}
+  .fcp-etat{white-space:normal}
+}
 .fcp-propositions-liste > li{list-style:none}
 .fcp-proposition{display:flex;align-items:center;gap:10px;min-height:44px;width:100%;cursor:pointer}
 .fcp-proposition input{width:20px;height:20px;flex:0 0 auto}

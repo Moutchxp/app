@@ -129,8 +129,7 @@ describe('la fiche', () => {
     expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(3);
     // le « × » d'une adresse EN ATTENTE : la petite confirmation d'avant
     await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].find((x) => x.textContent!.startsWith('3 Impasse'))!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
-    await clic('[data-fcp-retirer-oui]');
-    await clic('[data-fcp-valider]');
+    await clic('[data-fcp-valider]'); // 🔴 (14h06) le « × » d'une adresse en attente : retrait immédiat
     expect((posts[0].adresses as { libelle: string; codePostal: string }[]).map((a) => [a.libelle, a.codePostal])).toEqual([['12 rue des Lilas', '75011'], ['14 rue des Lilas', '75011']]);
   });
   it('🔴 le serveur refuse une adresse non vérifiée : son message s’affiche, rien n’est enregistré', async () => {
@@ -535,7 +534,8 @@ describe('l’adresse officielle (BAN) sur la fiche', () => {
         { ecriture: '54 avenue Puvis de Chavannes', cle: 'x', biens: 38, statut: 'certain', banId: p54.banId },
         { ecriture: '54 Avneue Puvis de Chavannes', cle: adresses[1].cle, biens: 1, statut: 'certain', banId: p54.banId }] } };
     await ouvrir();
-    expect($('[data-fcp-adresse="principale"]').textContent).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie — adresse principale');
+    expect([$('[data-fcp-adresse="principale"] [data-fcp-adresse-texte]').textContent, $('[data-fcp-adresse="principale"] [data-fcp-etat]').textContent])
+      .toEqual(['54 Avenue Puvis De Chavannes, 92400 Courbevoie', 'Adresse principale']);
     expect($('[data-fcp-titre]').textContent).toBe('Copropriété · 54 Avenue Puvis De Chavannes');
     expect(($('[data-fcp-nom]') as HTMLInputElement).placeholder).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie');
     // aucune écriture n'est une adresse : ni ligne, ni « × »
@@ -557,13 +557,13 @@ describe('l’adresse officielle (BAN) sur la fiche', () => {
     lu = { fiche: FICHE({ libelle: '80 rue de Normandie', cle: adresses[0].cle, codePostal: '92400', commune: 'Courbevoie', adresses }), coproprieteDuBien: true,
       officielle: { principale: g[0], adresses: g, aVerifier: true, ecritures: [{ ecriture: '28-32 avenue Marceau', cle: 'y', biens: 1, statut: 'a_verifier', banId: null }] } };
     await ouvrir();
-    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.firstChild!.textContent)).toEqual(['43 Avenue Marceau, 92400 Courbevoie', '74 Rue De Normandie, 92400 Courbevoie']);
+    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.querySelector('[data-fcp-adresse-texte]')!.textContent)).toEqual(['43 Avenue Marceau, 92400 Courbevoie', '74 Rue De Normandie, 92400 Courbevoie']);
     expect(document.querySelectorAll('[data-fcp-adresse="secondaire"] [data-fcp-retirer]')).toHaveLength(2);
     expect($('[data-fcp-ecriture-a-verifier]').textContent).toBe(' · à vérifier');
     act(() => { root.unmount(); }); root = createRoot(container);
     lu = { fiche: FICHE(), coproprieteDuBien: true };
     await ouvrir();
-    expect([$('[data-fcp-adresse="principale"]').textContent, document.querySelector('[data-fcp-ecritures]')]).toEqual(['Résidence Les Tilleuls, 75011 Paris — adresse principale', null]);
+    expect([$('[data-fcp-adresse="principale"] [data-fcp-adresse-texte]').textContent, document.querySelector('[data-fcp-ecritures]')]).toEqual(['Résidence Les Tilleuls, 75011 Paris', null]);
   });
 });
 
@@ -756,7 +756,8 @@ describe('« à vérifier » sur une adresse rattachée : un bouton, l’examen,
     await ouvrir();
     const b = $('[data-fcp-adresse-a-verifier]');
     expect(b.tagName).toBe('BUTTON');
-    expect(b.textContent).toBe('à vérifier');
+    expect(b.textContent).toBe('Vérifier'); // 🔴 (14h06) le bouton « Vérifier » ; l'état « À vérifier » est à côté
+    expect(b.closest('li')!.querySelector('[data-fcp-etat]')!.textContent).toBe('À vérifier');
     expect(document.querySelector('[data-fcp-adresse="secondaire"] [data-fcp-retirer]')).not.toBeNull();
     await clic('[data-fcp-adresse-a-verifier]');
     expect(posts.find((p) => p.action === 'adresse-examiner')?.adresse).toEqual({ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris', banId: null });
@@ -835,7 +836,7 @@ describe('DIGICODES : un bloc par adresse VALIDÉE ; le rattachement en deux tem
     expect(document.querySelector('[data-fcp-valider-rattachement]')).toBeNull();
     await rattacher();
     const ligne = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!;
-    expect(ligne.querySelector('[data-fcp-en-attente]')?.textContent).toBe('en attente de validation');
+    expect(ligne.querySelector('[data-fcp-en-attente]')?.textContent).toBe('Nouvelle — en attente de validation');
     expect(ligne.querySelector('[data-fcp-retirer]')).not.toBeNull();
     expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']); // pas encore de bloc
     expect($('[data-fcp-valider-rattachement]').textContent).toBe('Valider le rattachement des adresses à cette copropriété (1)');
@@ -854,8 +855,7 @@ describe('DIGICODES : un bloc par adresse VALIDÉE ; le rattachement en deux tem
     await saisir('[data-fcp-nom]', 'Les Tilleuls');
     await rattacher();
     await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
-    await clic('[data-fcp-retirer-oui]');
-    expect([document.querySelector('[data-fcp-en-attente]'), document.querySelector('[data-fcp-valider-rattachement]')]).toEqual([null, null]);
+    expect([document.querySelector('[data-fcp-en-attente]'), document.querySelector('[data-fcp-valider-rattachement]')]).toEqual([null, null]); // retrait immédiat (14h06)
     await clic('[data-fcp-rattacher-parcelle]'); // le panneau d'ajout est resté ouvert
     await clic('[data-fcp-valider-rattachement]');
     expect(($('[data-fcp-nom]') as HTMLInputElement).value).toBe('Les Tilleuls'); // gardé à l'écran (fiche nouvelle : envoyé avec sa création)
@@ -955,8 +955,7 @@ describe('la sélection multiple des adresses proposées', () => {
     expect(ligneBouton.closest('[data-fcp-adresses] > ul')).not.toBeNull();
     expect(ligneBouton.previousElementSibling?.querySelector('[data-fcp-en-attente]')).not.toBeNull(); // juste sous les adresses en attente
     const l14 = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].find((x) => x.textContent!.startsWith('14 rue'))!;
-    await act(async () => { (l14.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
-    await clic('[data-fcp-retirer-oui]');
+    await act(async () => { (l14.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer(); // retrait immédiat (14h06)
     expect([caseDe('14 rue des lilas').checked, enAttente()]).toEqual([false, ['18 rue des Lilas']]);
     await clic('[data-fcp-valider-rattachement]');
     expect((posts.find((p) => p.action === 'enregistrer')!.adresses as { libelle: string }[]).map((a) => a.libelle)).toEqual(['12 rue des Lilas', '18 rue des Lilas']);
@@ -1043,7 +1042,7 @@ describe('une adresse déjà à une autre copropriété : la fenêtre du conflit
     await clic('[data-fcp-rattacher-parcelle]');
     await clic('[data-fcp-conflit-oui]');
     const ligne = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!;
-    expect(ligne.querySelector('[data-fcp-deplacee]')?.textContent).toBe('— sera retirée de _TEST Copro Voisine');
+    expect(ligne.querySelector('[data-fcp-deplacee]')?.textContent).toBe(' — sera retirée de _TEST Copro Voisine');
     await clic('[data-fcp-valider-rattachement]');
     expect(posts.find((p) => p.action === 'enregistrer')!.deplacementsConfirmes).toEqual(['14 rue des lilas']);
   });
@@ -1099,5 +1098,71 @@ describe('le tri des adresses : ADRESSES, DIGICODES, propositions', () => {
       if (k === 'rue baudin') await clic('[data-fcp-sans-numero-confirmer]'); // sans numéro : la confirmation d'avant, inchangée
     }
     expect(liste()).toEqual(['34 rue Baudin', '2 rue Arago', '10 rue Arago', '18 rue Baudin', '18 bis rue Baudin', '40 rue Baudin', '5 rue Arago', '12-28 rue Baudin', 'rue Baudin', 'BOUTON']);
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 14h06) — « pourquoi chaque ligne est faite différemment ? […] différencier les nouvelles adresses […] d'une autre couleur […] vérifier
+ *  toutes les adresses, et mettre le bouton de retrait à la fin ou au début de chaque ligne, mais pas au milieu des autres fonctions. » */
+describe('ADRESSES : une seule présentation de ligne pour les 4 états', () => {
+  const ADR = (libelle: string, principale = false) => ({ cle: libelle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(), libelle, codePostal: '92400', commune: 'Courbevoie', principale });
+  const G = (banId: string, court: string, cles: string[]) => ({ banId, court, libelle: `${court}, 92400 Courbevoie`, cles, codePostal: '92400', commune: 'Courbevoie' });
+  const ouvrir4 = async () => {
+    // principale ; 30 rue Baudin rapprochée (vérifiée) ; 40 rue Baudin non rapprochée (à vérifier) ; puis 14 rue des Lilas cochée (nouvelle)
+    const adresses = [ADR('34 rue Baudin', true), ADR('30 rue Baudin'), ADR('40 rue Baudin')];
+    const p34 = G('B34', '34 Rue Baudin', ['34 rue baudin']);
+    lu = { fiche: FICHE({ libelle: '34 rue Baudin', cle: '34 rue baudin', codePostal: '92400', commune: 'Courbevoie', adresses }), coproprieteDuBien: true,
+      officielle: { principale: p34, adresses: [p34, G('B30', '30 Rue Baudin', ['30 rue baudin'])], aVerifier: true, ecritures: [] } };
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await act(async () => { ($('[data-fcp-proposition="14 rue des lilas"] input') as HTMLInputElement).click(); }); await calmer();
+  };
+  const lignes = () => [...document.querySelectorAll('[data-fcp-adresses] > ul > li.fcp-adr')];
+  it('même structure partout : [adresse] [état] [actions] [×] ; les quatre états et leurs mots', async () => {
+    await ouvrir4();
+    expect(lignes().map((li) => [...li.querySelector('.fcp-adr-ligne')!.children].map((c) => c.className))).toEqual(Array(4).fill(['fcp-adr-texte', 'fcp-adr-etat', 'fcp-adr-actions', 'fcp-adr-retrait']));
+    expect(lignes().map((li) => [li.querySelector('[data-fcp-adresse-texte]')!.textContent!.split(',')[0], li.querySelector('[data-fcp-etat]')!.textContent]))
+      .toEqual([['34 Rue Baudin', 'Adresse principale'], ['30 Rue Baudin', '✓ Vérifiée'], ['40 rue Baudin', 'À vérifier'], ['14 rue des Lilas', 'Nouvelle — en attente de validation']]);
+    expect(lignes().map((li) => li.querySelector('[data-fcp-etat]')!.className)).toEqual(['fcp-etat fcp-etat-principale', 'fcp-etat fcp-etat-verifiee', 'fcp-etat fcp-etat-aVerifier', 'fcp-etat fcp-etat-nouvelle']);
+  });
+  it('« Vérifier » sur TOUTES les lignes (même style) ; « Définir comme adresse principale » sur les validées non principales seulement', async () => {
+    await ouvrir4();
+    expect(lignes().map((li) => [...li.querySelectorAll('.fcp-adr-actions button')].map((b) => [b.textContent, b.className])))
+      .toEqual([[['Vérifier', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton']],
+        [['Vérifier', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton'], ['Définir comme adresse principale', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton fcp-definir-principale']],
+        [['Vérifier', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton'], ['Définir comme adresse principale', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton fcp-definir-principale']],
+        [['Vérifier', 'svv-btn svv-btn-outline gst-btn fcp-mini fcp-adr-bouton']]]);
+  });
+  it('le « × » est TOUJOURS le dernier élément de la ligne ; la principale garde l’emplacement, vide', async () => {
+    await ouvrir4();
+    expect(lignes().map((li) => { const d = li.querySelector('.fcp-adr-ligne')!.lastElementChild!; return [d.className, d.querySelector('[data-fcp-retirer]')?.textContent ?? null]; }))
+      .toEqual([['fcp-adr-retrait', null], ['fcp-adr-retrait', '×'], ['fcp-adr-retrait', '×'], ['fcp-adr-retrait', '×']]);
+    // nouvelle : retrait immédiat ; validée : la fenêtre « Retirer cette adresse » (12h50)
+    await act(async () => { (lignes()[3].querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(lignes()).toHaveLength(3);
+    await act(async () => { (lignes()[1].querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    expect($('[data-fcp-retrait-adresse]').getAttribute('data-fcp-retrait-adresse')).toBe('30 rue baudin');
+  });
+  it('la couleur : seul le texte d’une adresse « Nouvelle » est en bleu (classe fcp-adr-nouvelle, couleur du thème)', async () => {
+    await ouvrir4();
+    expect(lignes().map((li) => li.classList.contains('fcp-adr-nouvelle'))).toEqual([false, false, false, true]);
+    expect(document.querySelector('style')?.textContent ?? [...document.querySelectorAll('style')].map((x) => x.textContent).join('')).toContain('.fcp-adr-nouvelle .fcp-adr-texte{color:var(--color-svv-blue)');
+  });
+  it('« Vérifier » sur une adresse déjà vérifiée et sur la principale : l’examen, « Confirmer » ; la confirmation part avec « Valider » (la principale : non retirable)', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const c = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      if (c?.action === 'adresse-examiner') return json({ etat: 'ok', data: { ecrite: 'x', statut: 'certain', motif: 'm', officielle: 'x', banId: 'B', parcelle: 'P', position: null } });
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+    await ouvrir4();
+    await act(async () => { (lignes()[1].querySelector('[data-fcp-verifier]') as HTMLButtonElement).click(); }); await calmer();
+    expect(lignes()[1].querySelector('[data-fcp-examen]')).not.toBeNull();
+    await clic('[data-fcp-confirmer-adresse]');
+    await act(async () => { (lignes()[0].querySelector('[data-fcp-verifier]') as HTMLButtonElement).click(); }); await calmer();
+    expect([lignes()[0].querySelector('[data-fcp-retirer-adresse]'), lignes()[0].querySelector('[data-fcp-examen-principale]')?.textContent]).toEqual([null, 'Choisissez d’abord une autre adresse principale : l’adresse principale ne peut pas être retirée.']);
+    await clic('[data-fcp-confirmer-adresse]');
+    expect(lignes().slice(0, 2).map((li) => li.querySelector('[data-fcp-confirmation-a-enregistrer]') !== null)).toEqual([true, true]);
+    await clic('[data-fcp-valider]');
+    expect(posts.find((p) => p.action === 'enregistrer')!.adressesConfirmees).toEqual(['30 rue baudin', '34 rue baudin']);
   });
 });

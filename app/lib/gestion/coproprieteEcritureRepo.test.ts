@@ -147,7 +147,7 @@ describe('l’enregistrement', () => {
     expect(j.p).toEqual(['7', '12 rue des lilas', 'Adresse retirée de la copropriété : 12 rue des Lilas', 2, AUTEUR.libelle]);
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
   });
-  it('🔴 26/11 : « Confirmer cette adresse » : une ligne « adresse_confirmee » par adresse confirmée, en cours et pas déjà confirmée ; rien d’autre', async () => {
+  it('🔴 26/11 : « Confirmer cette adresse » : une ligne « adresse_confirmee » par adresse confirmée et en cours (14h06 : déjà confirmée = « de nouveau ») ; rien d’autre', async () => {
     h.enCours = [{ id: '40', cle: '12 rue des lilas', libelle: '12 rue des Lilas' }];
     h.actuelles = [{ cle: '12 rue des lilas', libelle: '12 rue des Lilas', code_postal: '75011', commune: 'Paris', deja: false },
       { cle: '14 rue des lilas', libelle: '14 rue des Lilas', code_postal: '75011', commune: 'Paris', deja: true }];
@@ -155,7 +155,13 @@ describe('l’enregistrement', () => {
     expect(v.ok && v.saisie.adressesConfirmees).toEqual(['12 rue des lilas', '14 rue des lilas', '99 rue inconnue']);
     await enregistrerCopropriete({ ...SAISIE, adressesConfirmees: ['12 rue des Lilas', '14 rue des Lilas', '99 rue Inconnue'] }, AUTEUR);
     const j = ecritures().filter((x) => x.s.includes("'adresse_confirmee'"));
-    expect(j.map((x) => x.p)).toEqual([['7', '12 rue des lilas', 'Adresse confirmée (vérifiée à l’écran) : 12 rue des Lilas, 75011 Paris', 2, AUTEUR.libelle]]);
+    expect(j.map((x) => x.p)).toEqual([['7', '12 rue des lilas', 'Adresse confirmée (vérifiée à l’écran) : 12 rue des Lilas, 75011 Paris', 2, AUTEUR.libelle],
+      ['7', '14 rue des lilas', 'Adresse confirmée de nouveau (revue à l’écran) : 14 rue des Lilas, 75011 Paris', 2, AUTEUR.libelle]]);
+    // 🔴 (14h06) l'adresse PRINCIPALE vérifiée et confirmée : journalisée aussi
+    h.sql = [];
+    await enregistrerCopropriete({ ...SAISIE, adressesConfirmees: ['Résidence Les Tilleuls'] }, AUTEUR);
+    expect(ecritures().filter((x) => x.s.includes("'adresse_confirmee'")).map((x) => x.p.slice(1, 3)))
+      .toEqual([['residence les tilleuls', 'Adresse principale confirmée (vérifiée à l’écran) : Résidence Les Tilleuls, 75011 Paris']]);
     // sans confirmation : la lecture n'est même pas faite
     h.sql = [];
     await enregistrerCopropriete(SAISIE, AUTEUR);
