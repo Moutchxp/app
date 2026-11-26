@@ -752,9 +752,13 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0}
 .vgp-ligne--depassee{border-left:4px solid var(--color-svv-red)}
 .vgp-ligne--proche{border-left:4px solid var(--color-svv-urgence-orange)}
-.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;height:92px;box-sizing:border-box}
+/* 🔴 (Arno, 26/11/2026, 11h36) « rien ne se chevauche : le texte passe à la ligne dans sa colonne, le bouton garde sa place » : 92 px devient une hauteur
+   MINIMALE — la même pour toutes les lignes ordinaires ; seule une ligne dont l'étiquette ou les mentions passent à la ligne grandit */
+.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;min-height:92px;box-sizing:border-box}
 .vgp-chevron{flex:0 0 auto;width:32px;min-height:44px;border:0;background:none;color:var(--color-svv-muted);font:inherit;font-size:1rem;cursor:pointer}
-.vgp-ligne-gauche{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+/* 🔴 (26/11/2026) la gauche cède la place EN PREMIER (adresse et nom ont déjà leurs points de suspension), jusqu'à 8,5 rem ; ensuite seulement la droite
+   se resserre et l'étiquette passe à la ligne (voir .vgp-ligne-droite) */
+.vgp-ligne-gauche{flex:1 1 auto;min-width:8.5rem;display:flex;flex-direction:column;gap:2px}
 .vgp-une-ligne{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .vgp-ligne-adresse{margin:0;color:var(--color-svv-ink);font-size:.9rem}
 .vgp-ligne-limite{margin:0;color:var(--color-svv-ink);font-size:.85rem;display:flex;align-items:baseline;gap:4px;min-width:0;white-space:nowrap}
@@ -764,15 +768,22 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-rebours--rouge{color:var(--color-svv-red)}
 /* 🔴 (Arno, 25/11/2026) le compte à rebours « J-15 » (de l'AG à la date limite) passe en ROUGE ; « AG dans N jours » reste gris */
 .vgp-rebours--normal{color:var(--color-svv-red)}
-.vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:60%}
-.vgp-ligne-ago{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+/* 🔴 (26/11/2026) la partie droite garde toute sa largeur (étiquette sur une ligne) tant que la gauche a ses 8,5 rem ; au-delà, elle est plafonnée à
+   « la ligne moins la gauche minimale et le chevron » et c'est l'étiquette qui passe à la ligne — avant, plafonnée à 60 %, elle écrasait l'étiquette
+   sur les boutons */
+.vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:calc(100% - 8.5rem - 52px)}
+.vgp-ligne-ago{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:9.5rem;flex:1 1 auto;text-align:right}
+/* 🔴 (26/11/2026) l'étiquette et les mentions orange passent à la ligne dans LEUR colonne (avant : l'étiquette, insécable, débordait sur « Fiche
+   copropriété », et les mentions étaient coupées par des points de suspension) — rien n'est retiré ni raccourci */
+.vgp-ligne-ago .vgp-etiquette{white-space:normal;max-width:100%;box-sizing:border-box}
+.vgp-ligne-ago .vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
 .vgp-etiquette{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap;border:1px solid}
 .vgp-etiquette--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red)}
 .vgp-etiquette--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green)}
 .vgp-ligne-ago .vgp-incertaine{font-size:.78rem;max-width:100%}
 .vgp-ligne-manque{font-weight:700;color:var(--color-svv-urgence-orange-texte)}
 .vgp-ligne-boutons{display:flex;gap:6px}
-.vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;flex:0 0 auto}
 .vgp-mails-echanges{font-size:.75rem;font-weight:700;color:var(--color-svv-muted);max-width:100%}
 .vgp-montant-origine{font-size:.8rem}
 .vgp-montant-rappel{margin:0;font-weight:700;color:var(--color-svv-ink)}
@@ -823,7 +834,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
   .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
-  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0} .vgp-dl-sortie,.vgp-encadre > .vgp-dl{grid-template-columns:1fr;gap:8px}
+  .vgp-ligne-ago{align-items:flex-start;text-align:left} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0} .vgp-dl-sortie,.vgp-encadre > .vgp-dl{grid-template-columns:1fr;gap:8px}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }

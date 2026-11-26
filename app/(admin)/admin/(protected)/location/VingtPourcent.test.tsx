@@ -422,7 +422,26 @@ describe('🔴🔴 Arno (24/11/2026, 23h40) — trois lignes, étiquette coloré
     expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-ago]')?.className).toBe('vgp-etiquette vgp-etiquette--vert');
     // même hauteur : la place de la mention est gardée même vide
     expect(a.querySelector('.vgp-ligne-ago .vgp-incertaine')?.getAttribute('aria-hidden')).toBe('true');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8')).toContain('.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;height:92px;');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8')).toContain('.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;min-height:92px;'); // 🔴 26/11 : hauteur minimale (le texte peut passer à la ligne)
+  });
+});
+
+/** 🔴 Arno (26/11/2026, 11h36) — « rien ne doit se chevaucher : le texte passe à la ligne dans sa colonne, le bouton garde sa place. Rien n'est retiré ni raccourci. » */
+describe('🔴 Arno (26/11/2026, 11h36) — l’étiquette d’AGO et les mentions orange ne débordent plus sur les boutons (ordinateur)', () => {
+  it('l’étiquette et les mentions passent à la ligne dans leur colonne ; les boutons ne rétrécissent pas ; hauteur minimale 92 px', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    const css = src.slice(src.indexOf('export const CSS_VINGT_POURCENT'));
+    const ordinateur = css.slice(0, css.indexOf('@media (max-width:640px){ .vgp-ligne-tete'));
+    expect(ordinateur).toContain('.vgp-ligne-ago{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:9.5rem;flex:1 1 auto;text-align:right}');
+    // la droite garde sa largeur, plafonnée à « la ligne moins la gauche minimale » ; plus de plafond à 60 % qui écrasait l'étiquette sur les boutons
+    expect(ordinateur).toContain('.vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:calc(100% - 8.5rem - 52px)}');
+    expect(ordinateur).toContain('.vgp-ligne-ago .vgp-etiquette{white-space:normal;max-width:100%;box-sizing:border-box}');
+    // les mentions ne sont plus coupées (« rien n'est raccourci ») : ni insécables, ni points de suspension
+    expect(ordinateur).toContain('.vgp-ligne-ago .vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}');
+    expect(ordinateur).toContain('.vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;flex:0 0 auto}');
+    expect(ordinateur).toContain('min-height:92px;box-sizing:border-box}');
+    expect(ordinateur).toContain('.vgp-ligne-gauche{flex:1 1 auto;min-width:8.5rem;display:flex;flex-direction:column;gap:2px}'); // la gauche cède d'abord
+    expect(ordinateur).not.toMatch(/\.vgp-ligne-tete\{[^}]*[^-]height:92px/);
   });
 });
 
