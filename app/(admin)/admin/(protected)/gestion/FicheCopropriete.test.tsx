@@ -832,3 +832,29 @@ describe('DIGICODES : un bloc par adresse de la copropriété', () => {
       batiments: [{ libelle: 'A', code: 'A14', aucun: false, confirme: false }, { libelle: 'B', code: 'B14', aucun: false, confirme: false }] }]);
   });
 });
+
+/** 🔴🔴 Arno (26/11/2026, 11h58, point 3) — « pouvoir refermer les adresses proposées […] avec la possibilité de rouvrir les propositions ». */
+describe('« Adresses proposées sur la même parcelle (N) » repliable', () => {
+  const tete = () => $('[data-fcp-propositions-basculer]');
+  const liste = () => tete().nextElementSibling as HTMLElement;
+  it('aucune adresse rattachée : ouvert ; la première rattachée : replié ; un clic rouvre, un autre referme ; « Une autre adresse » toujours là', async () => {
+    lu = { fiche: FICHE({ adresses: [FICHE().adresses[0]] }), coproprieteDuBien: true };
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    expect([tete().textContent, tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['Adresses proposées sur la même parcelle (2) ▾', 'true', false]);
+    await clic('[data-fcp-rattacher-parcelle]');
+    // rattachée : elle quitte les propositions (1 restante, déjà prise) et le bloc se replie
+    expect([tete().textContent, tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['Adresses proposées sur la même parcelle (1) ▸', 'false', true]);
+    expect(document.querySelector('[data-fcp-autre-adresse]')).not.toBeNull();
+    await clic('[data-fcp-propositions-basculer]');
+    expect([tete().getAttribute('aria-expanded'), liste().hidden, $('[data-fcp-propositions]').getAttribute('data-fcp-propositions')]).toEqual(['true', false, 'ouvert']);
+    await clic('[data-fcp-propositions-basculer]');
+    expect([tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['false', true]);
+    expect(document.querySelector('[data-fcp-autre-adresse]')).not.toBeNull();
+  });
+  it('une adresse déjà rattachée à l’ouverture : replié par défaut, rien de retiré (les propositions restent dans la page)', async () => {
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    expect([tete().getAttribute('aria-expanded'), liste().hidden, liste().querySelectorAll('li').length]).toEqual(['false', true, 2]);
+  });
+});

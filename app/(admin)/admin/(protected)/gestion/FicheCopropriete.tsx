@@ -142,6 +142,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [initiale, setInitiale] = useState<string | null>(null);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
+  /* 🔴🔴 (Arno, 26/11/2026, 11h58, point 3) « Je dois aussi pouvoir refermer les adresses proposées une fois que j'ai choisi celles que je voulais, car ça
+     prend beaucoup de place, avec la possibilité de rouvrir les propositions si j'en ai besoin. » : `null` = la règle par défaut (ouvert tant qu'aucune
+     adresse n'est rattachée, replié dès qu'il y en a une) ; un clic la remplace */
+  const [propositionsOuvertes, setPropositionsOuvertes] = useState<boolean | null>(null);
   /* 🔴 (16/11/2026) « Une autre adresse » : UNIQUEMENT par les suggestions de la Base Adresse Nationale (ChampAdresseBan, le champ commun) —
      la frappe, et l'adresse retenue dans la liste (seule elle peut être ajoutée) */
   const [autre, setAutre] = useState('');
@@ -149,6 +153,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [autreBan, setAutreBan] = useState<string | null>(null);
   const [introuvable, setIntrouvable] = useState(false);
   const idAutre = useId();
+  const idPropositions = useId();
   /* 🔴 (16/11/2026) une adresse SANS NUMÉRO : la fenêtre d'avertissement (même style que celle des noms de bâtiment) ; les clés confirmées partent
      avec « Valider » (le serveur refuse sans elles) */
   const [sansNumero, setSansNumero] = useState<Adresse | null>(null);
@@ -449,13 +454,23 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         </details>)}
       {ajoutAdresse && (
         <div className="fcp-ajout" data-fcp-ajout-adresse>
-          {libres.length + prises.length > 0 && <p className="fcp-sous-titre">Sur la même parcelle</p>}
-          <ul className="fcp-liste">
-            {libres.map((p) => <li key={p.libelle}>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}{' '}
-              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => ajouter(p)} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
-            {prises.map((p) => <li key={p.libelle} className="loc-muet" data-fcp-prise>{adresseImmeuble(p.libelle, p.codePostal, p.commune)} — déjà rattachée à une autre copropriété
-              {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</li>)}
-          </ul>
+          {/* 🔴 (Arno, 26/11/2026, point 3) « Sur la même parcelle » devient repliable : « Adresses proposées sur la même parcelle (N) ▸ / ▾ » —
+              ouvert tant qu'aucune adresse n'est rattachée, replié dès qu'il y en a une, et ouvrable ou refermable d'un clic ; rien n'est retiré */}
+          {libres.length + prises.length > 0 && (() => {
+            const ouvert = propositionsOuvertes ?? adresses.length === 0;
+            return (
+              <div data-fcp-propositions={ouvert ? 'ouvert' : 'replie'}>
+                <button type="button" className="fcp-sous-titre fcp-propositions-tete" aria-expanded={ouvert} aria-controls={idPropositions}
+                  onClick={() => setPropositionsOuvertes(!ouvert)} data-fcp-propositions-basculer>
+                  Adresses proposées sur la même parcelle ({libres.length + prises.length}) <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>
+                <ul className="fcp-liste" id={idPropositions} hidden={!ouvert}>
+                  {libres.map((p) => <li key={p.libelle}>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}{' '}
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => ajouter(p)} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
+                  {prises.map((p) => <li key={p.libelle} className="loc-muet" data-fcp-prise>{adresseImmeuble(p.libelle, p.codePostal, p.commune)} — déjà rattachée à une autre copropriété
+                    {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</li>)}
+                </ul>
+              </div>);
+          })()}
           <p className="fcp-sous-titre">Une autre adresse</p>
           {/* 🔴 (16/11/2026, demande expresse d'Arno) CE QU'IL Y AVAIT : trois champs libres Rue / Code postal / Ville. Ils ont disparu de cet encart
               (doublons d'adresses : accents, abréviations) : une autre adresse se choisit UNIQUEMENT dans les suggestions, et le serveur la vérifie. */}
@@ -804,6 +819,8 @@ export const CSS_FICHE_COPROPRIETE = `
 /* 🔴 (26/11/2026) « à vérifier » est un BOUTON (il ouvre l'examen de l'adresse) : souligné, cible de 44 px au doigt */
 .fcp-a-verifier-bouton{background:none;border:0;padding:0 2px;font:inherit;font-weight:800;color:var(--color-svv-orange);text-decoration:underline;cursor:pointer;min-height:44px}
 .fcp-examen{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+/* 🔴 (26/11/2026, point 3) l'en-tête repliable des adresses proposées : un bouton qui a l'allure du sous-titre, cible de 44 px */
+.fcp-propositions-tete{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer;color:inherit}
 .fcp-examen-gestes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fcp-petit{font-size:.82rem}
 .fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:700;color:var(--color-svv-ink);list-style:none}
