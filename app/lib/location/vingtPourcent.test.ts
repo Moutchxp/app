@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, nombreRetards, niveauBoutonVingt, nombreAPreparer, detailAPreparer, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, nombreSansDate, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, nombreRetards, niveauBoutonVingt, nombreAPreparer, detailAPreparer, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -266,19 +266,34 @@ describe('🔴 Arno (25/11/2026, 10h14) — datesManquantesVisibles', () => {
   const m = (cle: string, locataires: string[]) => ({ cle, coproprieteId: 1, libelle: 'Copro', immeuble: null, lotId: 1, manque: ['arrete' as const], locataires });
   const sansDate: LigneVingtPourcent = { sortieId: 1, lotId: 1, locataires: ['X'], logement: null, dateSortie: '2026-01-01', valideLe: '2026-01-02',
     copropriete: { id: 1, libelle: 'Copro', aRattacher: false }, arrete: null, cleCopro: 'copro-1', suivi: { etat: 'sans_ago', exercice: null, mention: MENTION_SANS_AGO } };
-  it('rien à compléter, ou des copropriétés sans locataire : non ; un nom, ou une ligne sans date : oui', () => {
+  // 🔴🔴 DÉCISION D'ARNO (26/11/2026) : le bloc suit le CLASSEMENT — seule une ligne SANS date l'ouvre ; une copropriété « à compléter » (ex. arrêté seul
+  //    manquant) dont les locataires ont une date provisoire ne l'ouvre plus (avant : « un nom » suffisait)
+  it('rien à compléter, ou des copropriétés sans locataire sans date : non ; une ligne sans date : oui', () => {
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [] })).toBe(false);
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', [])] })).toBe(false);
-    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', ['A'])] })).toBe(true);
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [], manquantes: [m('copro-1', ['A'])] })).toBe(false);
     expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [sansDate], manquantes: [] })).toBe(true);
+    const provisoire: LigneVingtPourcent = { ...sansDate, suivi: { etat: 'ok', exercice: null, ago: { date: '2027-03-01', statut: 'projetee' }, incertaine: true, limite: '2027-04-01', alerte: 'a_venir', joursRestants: 120 } };
+    expect(datesManquantesVisibles({ aujourdhui: AUJ, lignes: [provisoire], manquantes: [m('copro-1', ['X'])] })).toBe(false);
+  });
+  it('🔴 26/11 — nombreSansDate : les LOCATAIRES sans date (colocataires un par un), comme les autres catégories ; = le compteur du bloc', () => {
+    const provisoire: LigneVingtPourcent = { ...sansDate, sortieId: 3, suivi: { etat: 'ok', exercice: null, ago: { date: '2027-03-01', statut: 'projetee' }, incertaine: true, limite: '2027-04-01', alerte: 'a_venir', joursRestants: 120 } };
+    const coloc: LigneVingtPourcent = { ...sansDate, sortieId: 2, locataires: ['A', 'B'] };
+    const lu = { aujourdhui: AUJ, lignes: [sansDate, coloc, provisoire], manquantes: [m('copro-1', ['X', 'A', 'B'])] };
+    expect(nombreSansDate(lu)).toBe(3);
+    expect(nombreSansDate(null)).toBe(0);
+    const c = classerVingtPourcent(lu);
+    expect(c.manquantes.flatMap((g) => g.lignes.map((l) => l.sortieId))).toEqual([1, 2]); // la provisoire est ailleurs : aucun doublon
+    expect(c.en_attente.map((l) => l.sortieId)).toEqual([3]);
   });
 });
 
 /** 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes ». */
 describe('🔴🔴 Arno (25/11/2026) — pastilleVingt', () => {
-  it('total = urgences + copropriétés ; détail au singulier / pluriel', () => {
-    expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '0 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter', niveau: 'orange' });
-    expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '0 locataire en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter', niveau: 'orange' });
+  // 🔴 (26/11) le 3e terme compte les LOCATAIRES sans date (`nombreSansDate`), plus les copropriétés
+  it('total = urgences + locataires sans date ; détail au singulier / pluriel', () => {
+    expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '0 locataire en retard de restitution · 2 locataires en urgence · 4 locataires sans date d’AGO (copropriété à compléter)', niveau: 'orange' });
+    expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '0 locataire en retard de restitution · 1 locataire en urgence · 1 locataire sans date d’AGO (copropriété à compléter)', niveau: 'orange' });
     expect(pastilleVingt({ urgences: 0, copros: 0 }).total).toBe(0);
   });
 });
@@ -352,9 +367,9 @@ describe('🔴🔴 Arno (25/11/2026) — niveauBoutonVingt et la pastille', () =
     expect(niveauBoutonVingt({ retards: 0, urgences: 0 })).toBeNull();
     expect(pastilleVingt({ retards: 0, urgences: 0, copros: 3 }).niveau).toBeNull();
   });
-  it('total = retard + urgence + copropriétés ; le détail dit les trois nombres', () => {
+  it('total = retard + urgence + locataires sans date (🔴 26/11) ; le détail dit les trois nombres', () => {
     expect(pastilleVingt({ retards: 1, urgences: 2, copros: 4 })).toEqual({ total: 7, niveau: 'rouge',
-      detail: '1 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter' });
+      detail: '1 locataire en retard de restitution · 2 locataires en urgence · 4 locataires sans date d’AGO (copropriété à compléter)' });
     expect(pastilleVingt({ retards: 0, urgences: 0, copros: 0 }).total).toBe(0);
   });
 });

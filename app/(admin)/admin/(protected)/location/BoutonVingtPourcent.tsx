@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { detailAPreparer, nombreAPreparer, nombreCoproprietesACompleter, nombreRetards, nombreUrgences, pastilleVingt, TITRE_VINGT_POURCENT, type SuiviVingtLu } from '../../../../lib/location/vingtPourcent';
+import { detailAPreparer, nombreAPreparer, nombreRetards, nombreSansDate, nombreUrgences, pastilleVingt, TITRE_VINGT_POURCENT, type SuiviVingtLu } from '../../../../lib/location/vingtPourcent';
 
 /**
  * 🔴 Arno (23/11/2026) — sur la ligne du titre « Location » de l'accueil, aligné à droite : le petit bouton qui ouvre « 20 % à restituer » en
@@ -12,13 +12,15 @@ import { detailAPreparer, nombreAPreparer, nombreCoproprietesACompleter, nombreR
  * locataires en urgence + copropriétés à compléter (masquée à 0) ; le détail au survol et dans le nom accessible du bouton (`pastilleVingt`).
  * 🔴🔴 Arno (25/11/2026) — le bouton ROUGE si au moins un locataire en « Alerte restitution en retard », sinon ORANGE si au moins un en « Urgence »,
  * sinon sa couleur d'origine ; la pastille ajoute les locataires en retard.
+ * 🔴🔴 DÉCISION D'ARNO (26/11/2026) — le 3e terme (`copros`) = les LOCATAIRES du bloc « Dates / copropriétés manquantes » (`nombreSansDate`), et non
+ * plus les copropriétés : la pastille = Alerte + Urgence + Dates / copropriétés manquantes, en locataires, sans doublon.
  */
 export function usePastillesVingt(api: string = '/api/admin/location'): { copros: number; urgences: number; retards: number; aPreparer: number } {
   const [n, setN] = useState({ copros: 0, urgences: 0, retards: 0, aPreparer: 0 });
   useEffect(() => {
     let vivant = true;
     fetch(`${api}?vingtPourcent=1`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: SuiviVingtLu }>)
-      .then((d) => { if (vivant && d.etat === 'ok' && d.data) setN({ copros: nombreCoproprietesACompleter(d.data), urgences: nombreUrgences(d.data), retards: nombreRetards(d.data), aPreparer: nombreAPreparer(d.data) }); })
+      .then((d) => { if (vivant && d.etat === 'ok' && d.data) setN({ copros: nombreSansDate(d.data), urgences: nombreUrgences(d.data), retards: nombreRetards(d.data), aPreparer: nombreAPreparer(d.data) }); })
       .catch(() => { /* sans pastille */ });
     return () => { vivant = false; };
   }, [api]);

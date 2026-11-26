@@ -53,6 +53,9 @@ const LU: SuiviVingtLu = {
 /** 🔴 (25/11/2026) une ligne « Alerte restitution en retard » : AGO OFFICIELLE (arrêté connu), date limite dépassée. */
 const RETARD = { ...LU.lignes[1], sortieId: 8, lotId: 8, locataires: ['RETARD Rémi'], logement: '8 rue R', arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-30',
   suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2026-09-15', statut: 'officielle' as const }, incertaine: false, limite: '2026-10-15', alerte: 'depassee' as const, joursRestants: -39 } };
+/** Un bien SANS copropriété, sans aucune date (« Dates / copropriétés manquantes »). */
+const SANS_COPRO_MANQ = { cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['derniere_ago' as const, 'arrete' as const], locataires: ['SANS Copro'] };
+const SANS_COPRO = { ...LU.lignes[2], sortieId: 9, lotId: 9, locataires: ['SANS Copro'], logement: '9 rue C', copropriete: null, cleCopro: 'immeuble-c', immeuble: 'c' };
 let container: HTMLDivElement; let root: Root; let lectures: string[]; let donnees: SuiviVingtLu;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); lectures = []; donnees = LU; fiche.mockClear();
@@ -114,15 +117,15 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
 });
 
 describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Location avec pastille', () => {
-  it('la pastille ROUGE dit le total des alertes (🔴 25/11 : 1 copropriété à compléter + DURAND Léo en urgence) ; le bouton ouvre la pleine page', async () => {
+  it('la pastille ROUGE dit le total des alertes (🔴 26/11 : 2 locataires sans date + DURAND Léo en urgence) ; le bouton ouvre la pleine page', async () => {
     await rendre(createElement(BoutonVingtPourcent));
     const b = container.querySelector('a[data-bouton-vingt-pourcent]')!;
     expect(b.getAttribute('href')).toBe('/admin/location/vingt-pourcent');
-    expect(b.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('2');
+    expect(b.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('3');
     expect(lectures[0]).toMatch(/^\/api\/admin\/location\?vingtPourcent=1/);
   });
   it('AUCUNE pastille à 0', async () => {
-    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId !== 7) };
+    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId === 5) }; // ni urgence, ni retard, ni locataire sans date
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('a[data-bouton-vingt-pourcent]')).not.toBeNull();
     expect(container.querySelector('[data-pastille-vingt-total]')).toBeNull();
@@ -147,14 +150,14 @@ describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Lo
 
 describe('🔴 Arno (23/11/2026) — « Bien sans copropriété » dans « Dates / copropriétés manquantes » (compté dans la pastille)', () => {
   it('l’étiquette « Bien sans copropriété », le lien pour créer la fiche ; la pastille le compte', async () => {
-    donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }] };
+    donnees = { ...LU, manquantes: [...LU.manquantes, SANS_COPRO_MANQ], lignes: [...LU.lignes, SANS_COPRO] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const m = container.querySelector('[data-vgp-manque="immeuble-c"]')!;
     expect(m.querySelector('[data-vgp-bien-sans-copro]')?.textContent).toBe('Bien sans copropriété');
     expect(m.querySelector('[data-vgp-completer]')).not.toBeNull();
     act(() => root.unmount()); root = createRoot(container);
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('3'); // 2 copropriétés + DURAND Léo en urgence
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('4'); // 🔴 26/11 : 3 locataires sans date (MARTIN ×2, SANS Copro) + DURAND Léo en urgence
   });
 });
 
@@ -184,9 +187,9 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
       .toEqual([['6', 'manquantes']]); // Copro B (6, sans date) ; Copro C n'est pas dans les copropriétés lues ici (épreuve dédiée plus bas)
     // un locataire n'apparaît qu'une fois sur tout l'écran
     expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
-    // « Dates / copropriétés manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
+    // 🔴🔴 (Arno, 26/11/2026) « Dates / copropriétés manquantes » compte des LOCATAIRES, comme les autres : MARTIN Paul et MARTIN Léa (sortie 6)
     // 🔴 (25/11, nouvelle règle) « Alerte » apparaît (11) : manquantes, retard, urgence, AGO passée, à préparer, en attente
-    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '1', '1', '1', '2', '1']);
+    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['2', '1', '1', '1', '2', '1']);
     // 🔴 (Arno, 25/11/2026) « par défaut toutes les lignes de chaque catégorie sont fermées » : les catégories aussi (épreuve dédiée plus bas)
     expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(0);
     const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-rebours]')!;
@@ -284,14 +287,14 @@ describe('🔴🔴 Arno (24/11/2026) — la pastille « Urgence » (accueil Loca
   it('accueil Location : les locataires en urgence comptent dans la pastille unique (🔴 25/11 : plus de seconde pastille)', async () => {
     donnees = { ...LU, lignes: [...LU.lignes, urgence, { ...urgence, sortieId: 22 }] };
     await rendre(createElement(BoutonVingtPourcent));
-    // 🔴 (25/11) les deux ajoutées (AGO officielle, limite dépassée) sont « en retard » ; DURAND Léo (provisoire) en urgence ; + 1 copropriété
+    // 🔴 (25/11) les deux ajoutées (AGO officielle, limite dépassée) sont « en retard » ; DURAND Léo (provisoire) en urgence ; 🔴 26/11 : + 2 locataires sans date
     const t = container.querySelector('[data-pastille-vingt-total]')!;
-    expect([t.textContent, t.className]).toEqual(['4', 'bvp-pastille']);
-    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 2 locataires en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter');
+    expect([t.textContent, t.className]).toEqual(['5', 'bvp-pastille']);
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 2 locataires en retard de restitution · 1 locataire en urgence · 2 locataires sans date d’AGO (copropriété à compléter)');
     act(() => root.unmount()); root = createRoot(container);
     donnees = { ...LU, lignes: LU.lignes.filter((l) => l.sortieId !== 7) }; // personne en urgence
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('1');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('2'); // MARTIN Paul et MARTIN Léa, sans date
   });
   it('colonne de gauche de la Gestion : la pastille unique sur « 20 % à restituer », lue sur la route de la Gestion ; le reste inchangé', () => {
     const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
@@ -358,33 +361,46 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
  */
 describe('🔴🔴 Arno (24/11/2026, 23h40) — « Dates / copropriétés manquantes » : un bloc de trois lignes par copropriété', () => {
   const bloc = (cle: string) => container.querySelector(`[data-vgp-manque="${cle}"]`)!;
-  it('TOUTES les copropriétés de la pastille, même celles dont les locataires ont une date provisoire ; trois lignes, un seul bouton, même hauteur', async () => {
+  // 🔴🔴 DÉCISION D'ARNO (26/11/2026) — le bloc suit le CLASSEMENT : seuls les locataires sans AUCUNE date ; une copropriété à qui ne manque que l'arrêté
+  //    des comptes (Copro C de DURAND Léo, en « Urgence ») n'a plus de bloc ici — avant : « TOUTES les copropriétés de la pastille ».
+  it('🔴 26/11 : seulement les copropriétés de locataires SANS date ; trois lignes, un seul bouton, même hauteur ; la pastille compte des locataires', async () => {
     donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'copro-30', coproprieteId: 30, libelle: '3 rue C', immeuble: 'c', lotId: 3, manque: ['arrete'], locataires: ['DURAND Léo'] }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect([...container.querySelectorAll('[data-vgp-manque]')].map((x) => x.getAttribute('data-vgp-manque'))).toEqual(['copro-30', 'copro-20']); // sortie la plus ancienne d'abord
-    const c = bloc('copro-30');
-    expect([...c.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => x.textContent)).toEqual(['3 rue C', 'DURAND Léo', 'Manque : arrêté des comptes']);
+    expect([...container.querySelectorAll('[data-vgp-manque]')].map((x) => x.getAttribute('data-vgp-manque'))).toEqual(['copro-20']); // plus de bloc « copro-30 »
+    const c = bloc('copro-20');
+    expect([...c.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => x.textContent)).toEqual(['Copro B', 'MARTIN Paul, MARTIN Léa', 'Manque : dernière AGO et arrêté des comptes']);
     expect([...c.querySelectorAll('.vgp-ligne-tete button')].map((x) => x.textContent)).toEqual(['▸', 'Fiche copropriété']); // un seul bouton (plus de doublon)
     expect(c.querySelector('.vgp-ligne-tete')?.className).toBe('vgp-ligne-tete'); // la même tête (même hauteur) que les autres lignes
-    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2'); // MARTIN Paul + MARTIN Léa (LOCATAIRES)
   });
-  it('déplié : une ligne par locataire concerné (nom, logement, date de sortie, catégorie s’il a une date provisoire), chacune avec « Restitution faite »', async () => {
+  it('🔴 26/11 : aucun doublon — DURAND Léo (arrêté manquant) seulement dans sa catégorie, avec « date provisoire — arrêté manquant » et « Fiche copropriété »', async () => {
     donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'copro-30', coproprieteId: 30, libelle: '3 rue C', immeuble: 'c', lotId: 3, manque: ['arrete'], locataires: ['DURAND Léo'] }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    const c = bloc('copro-30');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-concerne="7"]')).toBeNull();
+    expect(container.querySelectorAll('[data-vgp-sortie="7"], [data-vgp-concerne="7"]')).toHaveLength(1);
+    const d = container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="7"]')!;
+    expect(d.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
+    await act(async () => { (d.querySelector('[data-vgp-fiche="7"]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: null })); // la fiche de la copropriété du bien (logement inconnu ici)
+    expect(d.querySelector('[data-vgp-fiche="7"]')?.textContent).toBe('Fiche copropriété');
+  });
+  it('déplié : une ligne par locataire sans date (nom, date de sortie, « Sans date »), chacune avec « Faire restitution » ; « Fiche copropriété »', async () => {
+    const seul = { ...LU.lignes[2], locataires: ['MARTIN Paul'] };
+    donnees = { ...LU, lignes: [LU.lignes[0], LU.lignes[1], seul, { ...seul, sortieId: 16, locataires: ['MARTIN Léa'], logement: '2 bis rue B' }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const c = bloc('copro-20');
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     await act(async () => { (c.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(false);
-    // 🔴 (23h53) ni le nom (seul locataire du bloc : déjà sur la 2e ligne) ; le logement « Bien 3 » n'est pas l'adresse « 3 rue C » du bloc : il reste
-    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('Bien 3 — Sortie le 10/01/2026 — Date provisoire → UrgenceFaire restitution');
-    await act(async () => { (c.querySelector('[data-vgp-restituer-concerne="7"]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('[data-fenetre-restitution="7"]')).not.toBeNull();
-    // « Fiche copropriété » ouvre la fiche, comme « Compléter la fiche Copropriété » avant
-    await act(async () => { (c.querySelector('[data-vgp-completer="copro-30"]') as HTMLButtonElement).click(); });
-    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: 'c' }));
+    expect([...c.querySelectorAll('[data-vgp-concerne]')].map((x) => [x.getAttribute('data-vgp-concerne'), x.getAttribute('data-vgp-concerne-categorie')])).toEqual([['6', 'manquantes'], ['16', 'manquantes']]);
+    expect(c.querySelector('[data-vgp-concerne="6"]')?.textContent).toBe('MARTIN Paul — 2 rue B — Sortie le 01/10/2026 — Sans dateFaire restitution');
+    await act(async () => { (c.querySelector('[data-vgp-restituer-concerne="6"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-fenetre-restitution="6"]')).not.toBeNull();
+    await act(async () => { (c.querySelector('[data-vgp-completer="copro-20"]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: 'b' }));
   });
   it('un bien sans copropriété : « Bien sans copropriété » + « Aucune copropriété » en orange, et « Créer la copropriété »', async () => {
-    donnees = { ...LU, manquantes: [{ cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }], lignes: [] };
+    donnees = { ...LU, manquantes: [SANS_COPRO_MANQ], lignes: [SANS_COPRO] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const c = bloc('immeuble-c');
     expect(c.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Bien sans copropriété Aucune copropriété');
@@ -459,7 +475,8 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — aucun doublon', () => {
   it('« N copropriétés à compléter » retiré (la pastille de la rubrique le dit) ; l’aide reste', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(container.querySelector('[data-vgp-coproprietes-a-completer]')).toBeNull();
-    expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.textContent).toContain('complétez leur fiche pour un suivi complet et fiable');
+    // 🔴 (26/11) l'aide dit désormais ce que sont ces locataires (aucune AGO officielle connue)
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.textContent).toContain('Ces locataires n’ont aucune date d’AGO officielle connue');
   });
   it('lignes datées : le détail ne répète ni l’adresse, ni les noms, ni l’AG, ni la date limite ; la copropriété seulement si ce n’est pas l’adresse de la ligne', async () => {
     donnees = { ...LU, lignes: [{ ...LU.lignes[0], copropriete: { id: 10, libelle: '1 rue A', aRattacher: false } }, LU.lignes[1]] };
@@ -522,7 +539,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
     await taper('martin');
     expect(visibles()).toEqual(['Dates / copropriétés manquantes']); // 🔴 (25/11) personne en urgence dans les résultats : pas d'alerte du lundi
-    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2'); // 🔴 26/11 : en locataires
   });
   it('« Aucun résultat » ; la croix efface la recherche et tout revient ; les pastilles de l’accueil ne lisent pas la recherche', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -751,8 +768,8 @@ describe('🔴 Arno (25/11/2026) — la pastille « Urgence » compte des locata
     const coloc = { ...LU.lignes[1], sortieId: 31, lotId: 31, locataires: ['COLOC Un', 'COLOC Deux'] };
     donnees = { ...LU, lignes: [...LU.lignes, coloc] };
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('4'); // 3 locataires en urgence + 1 copropriété (🔴 25/11 pastille unique)
-    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 3 locataires en urgence · 1 copropriété à compléter');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.textContent).toBe('5'); // 3 locataires en urgence + 🔴 26/11 : 2 locataires sans date
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 3 locataires en urgence · 2 locataires sans date d’AGO (copropriété à compléter)');
     act(() => root.unmount()); root = createRoot(container);
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('3');
@@ -802,7 +819,7 @@ describe('🔴 Arno (25/11/2026, 10h14) — le bloc des dates manquantes seuleme
     expect(blocs()[0]).toBe('manquantes');
   });
   it('la pastille de l’accueil reste masquée à 0', async () => {
-    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId !== 7) };
+    donnees = { ...LU, manquantes: [], lignes: LU.lignes.filter((l) => l.sortieId === 5) };
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('[data-pastille-vingt-total]')).toBeNull();
   });
@@ -825,25 +842,27 @@ describe('🔴 Arno (25/11/2026, 10h14) — « Dates / copropriétés manquantes
 /** 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes » (bouton de l'accueil Location ET entrée de la colonne de gauche de la Gestion). */
 describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les alertes', () => {
   const urgents = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LU.lignes[1], sortieId: 100 + i, lotId: 100 + i, locataires: [`URG ${i}`] }));
-  const copros = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LU.manquantes[0], cle: `copro-${200 + i}`, coproprieteId: 200 + i }));
-  it('accueil Location : UNE pastille rouge vif en haut à droite, total = urgences + copropriétés (2 + 4 = 6) ; le détail au survol et pour les lecteurs d’écran', async () => {
-    donnees = { ...LU, manquantes: copros(4), lignes: urgents(2) };
+  // 🔴 (26/11) 4 locataires SANS date, chacun dans sa copropriété sans AGO
+  const sansDate = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LU.lignes[2], sortieId: 200 + i, lotId: 200 + i, locataires: [`SANS ${i}`],
+    copropriete: { id: 200 + i, libelle: `Copro ${i}`, aRattacher: false }, cleCopro: `copro-${200 + i}` }));
+  it('accueil Location : UNE pastille rouge vif en haut à droite, total = urgences + locataires sans date (2 + 4 = 6) ; le détail au survol et pour les lecteurs d’écran', async () => {
+    donnees = { ...LU, manquantes: [], lignes: [...urgents(2), ...sansDate(4)] };
     await rendre(createElement(BoutonVingtPourcent));
     const b = container.querySelector('a[data-bouton-vingt-pourcent]')!;
     const p = b.querySelectorAll('.bvp-pastille');
     expect(p).toHaveLength(1);
     expect(p[0].textContent).toBe('6');
-    expect(p[0].getAttribute('title')).toBe('0 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter');
-    expect(b.getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter');
+    expect(p[0].getAttribute('title')).toBe('0 locataire en retard de restitution · 2 locataires en urgence · 4 locataires sans date d’AGO (copropriété à compléter)');
+    expect(b.getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 2 locataires en urgence · 4 locataires sans date d’AGO (copropriété à compléter)');
     const css = readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8');
     expect(css).toContain('.bvp-pastille{position:absolute;top:-8px;right:-8px;');
     expect(css).toContain('background:var(--color-svv-rouge-vif)');
     expect(css).not.toContain('bvp-pastille--urgence');
   });
-  it('un seul côté : « 1 locataire en urgence · 0 copropriété à compléter » ; masquée à 0 (nom accessible : le titre seul)', async () => {
+  it('un seul côté : « 1 locataire en urgence · 0 locataire sans date » ; masquée à 0 (nom accessible : le titre seul)', async () => {
     donnees = { ...LU, manquantes: [], lignes: urgents(1) };
     await rendre(createElement(BoutonVingtPourcent));
-    expect(container.querySelector('[data-pastille-vingt-total]')?.getAttribute('title')).toBe('0 locataire en retard de restitution · 1 locataire en urgence · 0 copropriété à compléter');
+    expect(container.querySelector('[data-pastille-vingt-total]')?.getAttribute('title')).toBe('0 locataire en retard de restitution · 1 locataire en urgence · 0 locataire sans date d’AGO (copropriété à compléter)');
     act(() => root.unmount()); root = createRoot(container);
     donnees = { ...LU, manquantes: [], lignes: [] };
     await rendre(createElement(BoutonVingtPourcent));
@@ -860,9 +879,9 @@ describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les
     expect(entree).toContain('title={p.detail} aria-label={p.detail}>{p.total}</span>)}');
     expect(entree).not.toMatch(/data-pastille-vingt-(copros|urgence)/);
   });
-  it('les compteurs de l’écran « 20 % à restituer » ne changent pas', async () => {
+  it('les compteurs de l’écran « 20 % à restituer » : 🔴 26/11 « Dates / copropriétés manquantes » en locataires (= le 3e terme de la pastille)', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2');
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
   });
 });
@@ -938,6 +957,32 @@ describe('🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » : un
     expect(l.querySelector('[data-vgp-ago-a-confirmer]')?.className).toBe('vgp-incertaine vgp-une-ligne'); // orange
     // une date provisoire (arrêté manquant) garde sa mention
     expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
+    // arrêté connu : pas de mention « arrêté manquant » sous « AGO à confirmer »
+    expect(l.querySelector('[data-vgp-incertaine]')).toBeNull();
+  });
+  // 🔴🔴 DÉCISION D'ARNO (26/11/2026) — le cas « _TEST ARRETE COMPTES 20 POURCENT Locataire 3 » : copropriété avec une AGO connue mais SANS arrêté des
+  //    comptes, AGO projetée dont la limite est passée → « Alerte restitution en retard » SEULEMENT, avec « AGO à confirmer » ET « date provisoire —
+  //    arrêté manquant » (avant, « AGO à confirmer » la remplaçait : l'arrêté manquant n'était dit que par le bloc de la copropriété) + « Fiche copropriété »
+  it('🔴 26/11 : AGO projetée dépassée ET arrêté manquant → « Alerte » seulement, les deux mentions, « Fiche copropriété » ; absent de « Dates / copropriétés manquantes »', async () => {
+    const l3 = { ...RETARD, sortieId: 19, lotId: 19, locataires: ['_TEST Locataire 3'], arrete: null, immeuble: 'trois', cleCopro: 'copro-312',
+      copropriete: { id: 312, libelle: '3 rue T', aRattacher: false },
+      suivi: { etat: 'ok' as const, exercice: null, ago: { date: '2026-09-22', statut: 'projetee' as const }, incertaine: true, limite: '2026-10-22', alerte: 'depassee' as const, joursRestants: -32 } };
+    donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'copro-312', coproprieteId: 312, libelle: '3 rue T', immeuble: 'trois', lotId: 19, manque: ['arrete'], locataires: ['_TEST Locataire 3'] }],
+      lignes: [...LU.lignes, l3] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect([...container.querySelectorAll('[data-vgp-sortie="19"], [data-vgp-concerne="19"]')].map((x) => x.closest('[data-vgp-categorie]')?.getAttribute('data-vgp-categorie'))).toEqual(['retard']);
+    expect(container.querySelector('[data-vgp-manque="copro-312"]')).toBeNull();
+    const l = container.querySelector('[data-vgp-categorie="retard"] [data-vgp-sortie="19"]')!;
+    expect(l.querySelector('[data-vgp-ago-a-confirmer]')?.textContent).toBe('AGO à confirmer — saisir la date officielle');
+    expect(l.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
+    expect(l.querySelector('[data-vgp-fiche="19"]')?.textContent).toBe('Fiche copropriété');
+    await act(async () => { (l.querySelector('[data-vgp-fiche="19"]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: 'trois' }));
+    // la pastille du bloc et celle du bouton : en locataires, sans doublon (MARTIN Paul + MARTIN Léa ; Locataire 3 compté une seule fois, en retard)
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2');
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-total]')?.getAttribute('title')).toBe('1 locataire en retard de restitution · 1 locataire en urgence · 2 locataires sans date d’AGO (copropriété à compléter)');
   });
 });
 
@@ -952,9 +997,9 @@ describe('🔴🔴 Arno (25/11/2026) — la couleur des boutons « 20 % à resti
     donnees = { ...LU, lignes: [...LU.lignes, RETARD] };
     await rendre(createElement(BoutonVingtPourcent));
     expect([bouton().getAttribute('data-vgp-niveau'), bouton().className]).toEqual(['rouge', 'svv-btn svv-btn-outline gst-btn bvp bvp--rouge']);
-    // total = 1 retard + 1 urgence (DURAND Léo) + 1 copropriété ; le détail dit les trois
+    // total = 1 retard + 1 urgence (DURAND Léo) + 🔴 26/11 : 2 locataires sans date ; le détail dit les trois
     const p = bouton().querySelector('[data-pastille-vingt-total]')!;
-    expect([p.textContent, p.getAttribute('title')]).toEqual(['3', '1 locataire en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter']);
+    expect([p.textContent, p.getAttribute('title')]).toEqual(['4', '1 locataire en retard de restitution · 1 locataire en urgence · 2 locataires sans date d’AGO (copropriété à compléter)']);
     act(() => root.unmount()); root = createRoot(container);
     donnees = LU;
     await rendre(createElement(BoutonVingtPourcent));
@@ -963,7 +1008,7 @@ describe('🔴🔴 Arno (25/11/2026) — la couleur des boutons « 20 % à resti
     donnees = { ...LU, lignes: sansUrgence };
     await rendre(createElement(BoutonVingtPourcent));
     expect([bouton().getAttribute('data-vgp-niveau'), bouton().className]).toEqual(['origine', 'svv-btn svv-btn-outline gst-btn bvp']);
-    expect(bouton().querySelector('[data-pastille-vingt-total]')?.textContent).toBe('1'); // la copropriété à compléter
+    expect(bouton().querySelector('[data-pastille-vingt-total]')?.textContent).toBe('2'); // 🔴 26/11 : MARTIN Paul et MARTIN Léa, sans date
   });
   it('couleurs lisibles en clair et en sombre : paires de jetons fond / texte (rouge-soft / red-dark, orange-soft / orange), liseré coloré', () => {
     const b = readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8');
@@ -1218,8 +1263,8 @@ describe('🔴 Arno (25/11/2026) — la pastille verte des boutons « 20 % à re
     const v = bouton().querySelector('[data-pastille-vingt-preparer]')!;
     expect([v.textContent, v.className, v.getAttribute('title')]).toEqual(['3', 'bvp-pastille bvp-pastille--vert', '3 restitutions à préparer ou à faire']);
     const r = bouton().querySelector('[data-pastille-vingt-total]')!;
-    expect([r.textContent, r.className]).toEqual(['2', 'bvp-pastille']); // DURAND Léo (urgence) + 1 copropriété : inchangée
-    expect(bouton().getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter · 3 restitutions à préparer ou à faire');
+    expect([r.textContent, r.className]).toEqual(['3', 'bvp-pastille']); // DURAND Léo (urgence) + 🔴 26/11 : 2 locataires sans date
+    expect(bouton().getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 1 locataire en urgence · 2 locataires sans date d’AGO (copropriété à compléter) · 3 restitutions à préparer ou à faire');
     expect(bouton().getAttribute('data-vgp-niveau')).toBe('orange'); // couleur du bouton inchangée (urgence → orange)
     const css = readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8');
     expect(css).toContain('.bvp-pastille.bvp-pastille--vert{right:auto;left:-8px;background:var(--color-svv-green-ink)}');

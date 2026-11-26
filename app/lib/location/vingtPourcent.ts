@@ -199,8 +199,14 @@ export function datesManquantes(lignes: readonly { copro: CoproConcernee; arrete
   return [...par.values()].sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
 }
 
-/** Le nombre de copropriétés à compléter : la pastille de l'accueil Location (0 : aucune pastille). PUR. */
+/** Le nombre de copropriétés à compléter (dernière AGO et/ou arrêté des comptes manquants), parmi celles d'au moins un locataire en attente. PUR. */
 export const nombreCoproprietesACompleter = (lu: Pick<SuiviVingtLu, 'manquantes'> | null): number => (lu === null ? 0 : lu.manquantes.length);
+/**
+ * 🔴🔴 DÉCISION D'ARNO (26/11/2026) — la pastille du bloc « Dates / copropriétés manquantes » compte des LOCATAIRES, comme les autres catégories
+ * (colocataires un par un) : ceux qui n'ont AUCUNE date calculable. C'est aussi le 3e terme de la pastille des boutons de raccourci. PUR.
+ */
+export const nombreSansDate = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes'> | null): number =>
+  (lu === null ? 0 : lu.lignes.filter((l) => categorieVingt(l, lu.aujourdhui) === 'manquantes').reduce((n, l) => n + locatairesDeLaLigne(l), 0));
 
 // ══ 🔴 Arno (23/11/2026) — L'AGO QUI COMPTE d'une sortie (fenêtre « Valider la sortie » ET serveur : la même pour le locataire et le propriétaire) ══
 /** L'AGO QUI COMPTE pour le locataire, telle que la fenêtre la montre et l'envoie. */
@@ -516,13 +522,16 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
 /**
  * La pastille unique du bouton « 20 % à restituer » (accueil Location, colonne de gauche de la Gestion) : total = locataires en « Urgence » +
  * copropriétés à compléter (0 : pas de pastille) ; le détail, au survol et pour les lecteurs d'écran : « 2 locataires en urgence · 4 copropriétés à
- * compléter ». 🔴 (Arno, 25/11/2026) + les locataires en « Alerte restitution en retard », et le détail dit les trois nombres. PUR.
+ * compléter ». 🔴 (Arno, 25/11/2026) + les locataires en « Alerte restitution en retard », et le détail dit les trois nombres.
+ * 🔴🔴 DÉCISION D'ARNO (26/11/2026) — le 3e terme (`copros`, nom gardé pour les appelants) compte désormais les LOCATAIRES du bloc « Dates /
+ * copropriétés manquantes » (`nombreSansDate`) : la pastille est la somme exacte des pastilles « Alerte » + « Urgence » + « Dates / copropriétés
+ * manquantes » de l'écran, catégories exclusives, aucun locataire compté deux fois. PUR.
  */
 export function pastilleVingt(n: { retards?: number; urgences: number; copros: number }): { total: number; detail: string; niveau: NiveauBoutonVingt } {
   const r = n.retards ?? 0; const u = n.urgences; const c = n.copros;
   return {
     total: r + u + c,
-    detail: `${r} locataire${r > 1 ? 's' : ''} en retard de restitution · ${u} locataire${u > 1 ? 's' : ''} en urgence · ${c} copropriété${c > 1 ? 's' : ''} à compléter`,
+    detail: `${r} locataire${r > 1 ? 's' : ''} en retard de restitution · ${u} locataire${u > 1 ? 's' : ''} en urgence · ${c} locataire${c > 1 ? 's' : ''} sans date d’AGO (copropriété à compléter)`,
     niveau: niveauBoutonVingt({ retards: r, urgences: u }),
   };
 }
@@ -535,13 +544,13 @@ export const niveauBoutonVingt = (n: { retards: number; urgences: number }): Niv
 
 // ══ 🔴 Arno (25/11/2026, 10h14) — « LE BLOC DATES MANQUANTES NE DOIT APPARAÎTRE QUE S'IL CONTIENT DES LOCATAIRES » ═══════════════════════════════
 /**
- * Le bloc est montré seulement si au moins un locataire en attente des 20 % s'y trouve : un nom sur une copropriété à compléter, ou une ligne sans
- * date, ou une ligne rattachée à l'une de ces copropriétés. Sur les données filtrées par la recherche, il disparaît quand elle n'y trouve rien. PUR.
+ * Le bloc est montré seulement si au moins un locataire en attente des 20 % s'y trouve. Sur les données filtrées par la recherche, il disparaît quand
+ * elle n'y trouve rien. 🔴🔴 DÉCISION D'ARNO (26/11/2026) : le bloc suit la MÊME règle que le classement (`categorieVingt`) — seuls les locataires
+ * classés « manquantes » (aucune AGO officielle connue) y figurent ; une copropriété à qui il ne manque que l'arrêté des comptes ne l'ouvre plus
+ * (ses locataires restent dans leur catégorie, avec « date provisoire — arrêté manquant » et « Fiche copropriété »). PUR.
  */
 export function datesManquantesVisibles(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'>): boolean {
-  if (lu.manquantes.some((m) => m.locataires.length > 0)) return true;
-  const cles = new Set(lu.manquantes.map((m) => m.cle));
-  return lu.lignes.some((l) => categorieVingt(l, lu.aujourdhui) === 'manquantes' || cles.has(cleDeLaLigne(l, lu.manquantes)));
+  return lu.lignes.some((l) => categorieVingt(l, lu.aujourdhui) === 'manquantes');
 }
 
 // ══ 🔴🔴 Arno (25/11/2026) — LES CAPSULES « AGO OFFICIELLE » / « AGO PROJETÉE » ET LE COMPTEUR DES CATÉGORIES ════════════════════════════════════

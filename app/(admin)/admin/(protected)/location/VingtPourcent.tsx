@@ -9,7 +9,7 @@ import { EchangesLigne } from './EchangesVingt';
 import { CSS_FENETRE_RESTITUTION, FenetreRestitutionVingt } from './FenetreRestitutionVingt';
 import type { BrouillonEcran } from '../gestion/Redaction';
 import {
-  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, compteAReboursVingt, locatairesDeLaLigne, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -142,7 +142,7 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
             return <>
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
               {/* 🔴 (Arno, 25/11/2026, 10h14) le bloc n'apparaît que s'il contient des locataires (et, en recherche, s'il y trouve quelque chose) */}
-              {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
+              {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} groupes={cl.manquantes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
               {/* 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » REMPLACE le bloc « Alerte du lundi », même place (2e), fond rouge : une catégorie
                   comme les autres (AGO officielle, date limite dépassée), ABSENTE SI VIDE (recherche comprise) ; le mode essai du mail est dans son bloc */}
               {cl.retard.length > 0 && <Categorie key={`retard:${replis}`} {...ouvert('retard')} cle="retard" lignes={cl.retard} aujourdhui={vu.aujourdhui} onRestituer={setRestituer}>
@@ -259,32 +259,31 @@ const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'd
 
 /**
  * La rubrique « Dates / copropriétés manquantes » : en tête de l'écran.
+ * 🔴🔴 DÉCISION D'ARNO (26/11/2026) — « Le bloc n'affiche plus que les locataires réellement classés « manquantes » (aucune AGO officielle connue :
+ * bien sans copropriété, ou copropriété sans AGO officielle). Il suit désormais la même règle que le classement (categorieVingt), et non plus
+ * datesManquantes. La pastille du bloc compte des LOCATAIRES, comme les autres catégories. Un locataire classé ailleurs n'y apparaît plus (aucun
+ * doublon). » Les blocs viennent des groupes de `classerVingtPourcent` (un par copropriété / bien sans copropriété), avec leurs seuls locataires sans
+ * date ; une copropriété à qui ne manque que l'arrêté des comptes n'a plus de bloc ici : ses locataires portent « date provisoire — arrêté manquant »
+ * et « Fiche copropriété » sur leur ligne, dans leur catégorie.
  * 🔴🔴 Arno (24/11/2026, 23h40) — « pourquoi ces blocs sont aussi grands avec des boutons en doublon : réduire sur 3 lignes le bloc principal,
  * déployable comme les autres ; tous les blocs principaux doivent avoir la même taille ». UN bloc de trois lignes par copropriété à compléter
  * (TOUTES celles de la pastille, même si leurs locataires ont une date provisoire) : l'immeuble, les locataires concernés, ce qui manque (orange) ;
  * à droite « Fiche copropriété » ; déplié : une ligne par locataire concerné (logement, sortie, catégorie où il apparaît), avec « Restitution faite ».
  */
-function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onRestituer, ouvert, onBasculer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
-  toutes: readonly LigneVingtPourcent[]; aujourdhui: string; onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
-  // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde son bloc (jamais une ligne perdue)
-  const cartes = [...lignes, ...groupes.filter((g) => !lignes.some((m) => m.cle === g.copro.cle)).map((g) => g.copro)];
-  const manquantes = [...lignes];
-  // les locataires concernés de chaque copropriété (datés ou non), par date de sortie
-  const concernesDe = new Map(cartes.map((m) => [m.cle, toutes.filter((l) => cleDeLaLigne(l, manquantes) === m.cle)
-    .sort((a, b) => a.dateSortie.localeCompare(b.dateSortie) || a.sortieId - b.sortieId)]));
-  // 🔴 Arno (24/11/2026) — les copropriétés dans l'ordre de leur locataire sorti le plus anciennement (tous ses locataires concernés) ; sans locataire : ensuite
-  const premiere = (m: LigneDatesManquantes): string => concernesDe.get(m.cle)?.[0]?.dateSortie ?? '9999-12-31';
-  const triees = cartes.sort((a, b) => premiere(a).localeCompare(premiere(b)) || a.libelle.localeCompare(b.libelle, 'fr'));
-  // 🔴 (Arno, 24/11/2026, 23h20) le compteur : les COPROPRIÉTÉS à compléter (la pastille) ; leurs locataires datés sont classés ailleurs
+function DatesManquantes({ groupes, aujourdhui, onCompleter, onRestituer, ouvert, onBasculer }: { groupes: readonly GroupeManquant[];
+  aujourdhui: string; onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
+  // 🔴 Arno (24/11/2026) — les copropriétés dans l'ordre de leur locataire sorti le plus anciennement (déjà fait par `classerVingtPourcent`)
+  // 🔴🔴 (Arno, 26/11/2026) le compteur : les LOCATAIRES sans date (colocataires un par un), comme les autres catégories
+  const nombre = groupes.reduce((n, g) => n + g.lignes.reduce((k, l) => k + locatairesDeLaLigne(l), 0), 0);
   return (
-    <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label={TITRES_CATEGORIES.manquantes} data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
+    <section className={`vgp-bloc vgp-manquantes${nombre > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label={TITRES_CATEGORIES.manquantes} data-vgp-manquantes={nombre} data-vgp-categorie="manquantes" data-vgp-nombre={nombre}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
-      <summary className="vgp-titre">{TITRES_CATEGORIES.manquantes} <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
-      {cartes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Toutes les copropriétés concernées ont leur dernière AGO et leur date d’arrêté des comptes.</p> : <>
-        <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
+      <summary className="vgp-titre">{TITRES_CATEGORIES.manquantes} <span className={nombre > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{nombre}</span></summary>
+      {groupes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Aucun locataire sans date d’AGO.</p> : <>
+        <p className="loc-muet vgp-aide">Ces locataires n’ont aucune date d’AGO officielle connue (bien sans copropriété, ou copropriété sans AGO officielle) : complétez la fiche de la copropriété pour calculer leur date de restitution.</p>
         {/* 🔴 (Arno, 24/11/2026, 23h53) « N copropriétés à compléter » retiré : la pastille de la rubrique le dit déjà */}
         <ul className="vgp-liste">
-          {triees.map((m) => <BlocCoproACompleter key={m.cle} m={m} aujourdhui={aujourdhui} onCompleter={onCompleter} onRestituer={onRestituer} concernes={concernesDe.get(m.cle) ?? []} />)}
+          {groupes.map((g) => <BlocCoproACompleter key={g.copro.cle} m={g.copro} aujourdhui={aujourdhui} onCompleter={onCompleter} onRestituer={onRestituer} concernes={g.lignes} />)}
         </ul>
       </>}
       </details>
@@ -314,7 +313,9 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
   const [ouvert, setOuvert] = useState(false);
   const detailId = useId();
   const basculer = (): void => setOuvert((o) => !o);
-  const noms = m.locataires.length > 0 ? m.locataires.join(', ') : concernes.flatMap((l) => l.locataires).join(', ');
+  // 🔴 (Arno, 26/11/2026) les noms : ceux des seuls locataires du bloc (sans date) — jamais un locataire classé ailleurs
+  const nomsConcernes = concernes.flatMap((l) => l.locataires);
+  const noms = nomsConcernes.length > 0 ? nomsConcernes.join(', ') : m.locataires.join(', ');
   const sansCopro = m.coproprieteId === null;
   // 🔴🔴 (Arno, 25/11/2026) « tout bloc locataire qui inclut des échanges mails doit apparaître dans le bloc original, en dessous du cartouche de statut
   //    […] qui indique le nombre de mails échangés » : ici aussi, le total des locataires du bloc (envoyés + reçus) et le plus récent
@@ -328,7 +329,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
           aria-label={ouvert ? 'Replier les locataires concernés' : 'Déplier les locataires concernés'} data-vgp-deplier>{ouvert ? '▾' : '▸'}</button>
         <div className="vgp-ligne-gauche">
           <p className="vgp-ligne-adresse vgp-une-ligne" title={m.libelle} data-vgp-adresse>{m.libelle}</p>
-          <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms data-vgp-locataires={m.locataires.length}>{noms}</p>
+          <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms data-vgp-locataires={nomsConcernes.length}>{noms}</p>
           <p className="vgp-ligne-limite vgp-ligne-manque vgp-une-ligne" data-vgp-ce-qui-manque={sansCopro ? 'copropriete' : m.manque.join(',')}>
             {/* 🔴 Arno (23/11/2026) — un bien sans copropriété : « Bien sans copropriété » (compté dans la pastille) */}
             {sansCopro ? <><span className="vgp-sans-copro" data-vgp-bien-sans-copro>Bien sans copropriété</span> Aucune copropriété</>
@@ -469,6 +470,9 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
             {s.etat === 'ok' && (() => { const e = etiquetteAgo(s.ago); return <span className={`vgp-etiquette vgp-etiquette--${e.ton}`} data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>{e.texte}</span>; })()}
             <span className="vgp-incertaine vgp-une-ligne" {...(aConfirmer ? { 'data-vgp-ago-a-confirmer': '' } : s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
               {aConfirmer ? MENTION_AGO_A_CONFIRMER : s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
+            {/* 🔴🔴 (Arno, 26/11/2026) « une copropriété qui n'a que l'arrêté des comptes manquant reste signalée dans la ligne du locataire, à sa catégorie,
+                avec la mention « date provisoire — arrêté manquant » » : quand « AGO à confirmer » occupe la ligne réservée, la mention vient dessous */}
+            {aConfirmer && s.etat === 'ok' && s.incertaine && <span className="vgp-incertaine vgp-une-ligne" data-vgp-incertaine="">{MENTION_DATE_PROVISOIRE}</span>}
             {/* 🔴🔴 (Arno, 25/11/2026) « avant même d'ouvrir le bloc locataire, sous le cartouche de statut de l'AGO, on doit voir si ce bloc a fait usage
                 de la boîte mail et combien de mails ont été échangés » (envoyés + reçus) ; rien s'il n'y en a aucun */}
             {mentionMailsEchanges(l.echanges) !== null && <span className="vgp-mails-echanges vgp-une-ligne" data-vgp-mails-echanges={l.echanges!.nombre}>{mentionMailsEchanges(l.echanges)}</span>}
