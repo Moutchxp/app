@@ -1299,8 +1299,30 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   390 px inchangé. Captures `.captures/syndics-sans-en-tete/` et `.captures/vingt-chevauchement/` ; `npm test` vert (1 878 / 28 176).
   ⚠️ Preuve curl à faire par Arno (vérifiée par l'agent via node : 200, 0 erreur).
 
+### 26/11/2026, 11h58 — fenêtre « Copropriété » : trois points d'Arno (NON POUSSÉS, aucune migration)
+- **« À vérifier »** = l'adresse rattachée n'est pas (encore) reconnue AVEC CERTITUDE comme adresse de la Base Adresse Nationale (rattachée à
+  l'instant : le rapprochement `officielleDeLaCopropriete` ne se calcule qu'à l'ouverture, sur les adresses ENREGISTRÉES ; ou rapprochement hésitant).
+  Affichage seulement : ne bloque ni digicodes ni enregistrement.
+- **`20022366` (point 1)** : « à vérifier » = bouton → examen en lecture seule (action `adresse-examiner` : adresse écrite, officielle + motif, parcelle,
+  position, « Voir sur la carte » OpenStreetMap) ; « Confirmer cette adresse » (part avec « Valider », journal `adresse_confirmee`, relue par
+  `adressesConfirmees` tant que l'adresse reste rattachée) ; « Retirer de la copropriété » = le « × » (qui reste) ; tout retrait d'adresse journalisé
+  (`adresse_retiree`) ; « Historique des adresses (N) » fermé dans le bloc Adresses. Modules `adresseCoproExamen.ts` (base) et
+  `adresseCoproExamenModele.ts` (pur, importé par l'écran).
+- **`dd2aa115` (point 2)** : cause — les blocs DIGICODES venaient de la seule fiche ENREGISTRÉE, et le serveur refusait le digicode d'une adresse ajoutée
+  dans le même « Valider ». Correctif : `digicodesDesAdresses` (un bloc par adresse de la saisie, ordre ADRESSES, dès le rattachement) ; serveur :
+  digicode d'une adresse rattachée dans ce « Valider » accepté et écrit à son adresse, règle « chaque adresse se numérote pour elle » sur les adresses
+  de la saisie.
+- **`9bac0ec1` (point 3)** : « Adresses proposées sur la même parcelle (N) ▸ / ▾ » repliable (ouvert sans adresse rattachée, replié dès une ; « Une autre
+  adresse » toujours visible).
+- **Reproduction en recette (données d'essai LAISSÉES)** : bien `app-test-copro-digicodes` (id 504, 137 rue Gérhard, Puteaux, inséré en recette) →
+  copropriété « _TEST Copro Digicodes » avec 17 rue Voltaire, 19 passage Voltaire, 35 rue Gérhard (proposées, aucune portée par un vrai bien) et
+  129 rue Gérhard (manuelle) ; digicodes 1371 / 1701 (+ cages A17, B17) / 1901 / 3501 / 1291. Après « Valider », fermeture, réouverture : tout
+  conservé, plus aucun « à vérifier », historique des adresses (5). Note : la parcelle des propositions est celle de l'application (12 adresses), pas
+  seulement celle de la BAN. Captures `.captures/copro-digicodes/` ; `npm test` vert (1 879 / 28 192). ⚠️ Preuve curl à faire par Arno (agent via
+  node : 200, 0 erreur).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06` + leurs passations. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1` + leurs passations. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
