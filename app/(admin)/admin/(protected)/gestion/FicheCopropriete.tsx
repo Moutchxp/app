@@ -15,6 +15,7 @@ import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle
 import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import { lienCarte, type ExamenAdresse } from '../../../../lib/gestion/adresseCoproExamenModele';
+import { CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse } from '../../../../lib/gestion/adresseCoproGestes';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -218,6 +219,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   // 🔴 (12h23) Échap passe par la même porte que « Fermer » (la question des adresses en attente)
   const fermerRef = useRef<() => void>(onFerme);
   fermerRef.current = fermer;
+  // 🔴 (12h50) une fenêtre « Retirer cette adresse » / « adresse principale » ouverte : Échap la ferme, elle seule (jamais la fiche)
+  const fenetreAdresseOuverte = useRef(false);
   /* 🔴 (lot 4) l'adresse officielle : chaque adresse enregistrée garde sa place dans la saisie (elle part toujours avec « Valider ») ; à l'écran, une adresse
      dont l'adresse officielle est déjà montrée devient une « écriture d'origine » (repliée, avec son « × »), une adresse officielle DIFFÉRENTE garde sa
      ligne sous son libellé officiel, et une adresse non rapprochée s'affiche comme avant */
@@ -290,13 +293,17 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" disabled={x === 'lecture'}
             onClick={() => { setConfirmees((l) => (l.includes(cle) ? l : [...l, cle])); setExamen(null); setInfo(null); }} data-fcp-confirmer-adresse>Confirmer cette adresse</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini"
-            onClick={() => { setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle)); setExamen(null); }} data-fcp-retirer-adresse>Retirer de la copropriété</button>
+            onClick={() => { if (enregistrees.has(cle)) { setExamen(null); setRetraitAdresse(cle); return; }
+              setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle)); setExamen(null); }} data-fcp-retirer-adresse>Retirer de la copropriété</button>
           <button type="button" className="fcp-lien" onClick={() => setExamen(null)} data-fcp-examen-fermer>Fermer</button>
         </div>
         <p className="loc-muet fcp-petit fcp-sans-marge">Le choix s’applique à « Valider » et entre dans l’historique de la copropriété.</p>
       </div>);
   };
-  const retirer = (a: Adresse) => (aRetirer === cleImmeuble(a.libelle)
+  const retirer = (a: Adresse) => (enregistrees.has(cleImmeuble(a.libelle))
+    // 🔴 (Arno, 26/11/2026, 12h50) une adresse ENREGISTRÉE (elle a son bloc de digicodes) : la même fenêtre que « Retirer cette adresse »
+    ? <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setRetraitAdresse(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>
+    : aRetirer === cleImmeuble(a.libelle)
     ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
       <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
     : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>);
@@ -309,7 +316,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     return () => { vivant = false; };
   }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && !choixSyndic && sansNumero === null) fermerRef.current(); };
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && !choixSyndic && sansNumero === null && !fenetreAdresseOuverte.current) fermerRef.current(); };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
   }, [envoi, ficheSyndic, onFerme, sansNumero]);
@@ -340,6 +347,34 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
    * emporte (nom, « hors copropriété », arrêté des comptes et AG saisis : tout ou rien, comme le premier « Valider »). Ensuite, chaque adresse validée a
    * son bloc DIGICODES, et les propositions de la parcelle se replient.
    */
+  /** 🔴 (Arno, 26/11/2026) après un geste IMMÉDIAT (rattachement validé, adresse retirée, adresse principale) : la fiche enregistrée remplace l'ancienne ;
+   *  la saisie en cours (nom, contacts, digicodes saisis, syndic choisi) est gardée, et les adresses sont celles de la base. */
+  const fusionnerFiche = (nouvelle: Fiche, officielle?: ModeleOfficiel | null): void => {
+    const adr = nouvelle.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
+    setLu((l) => (l === null ? l : { ...l, fiche: nouvelle, ...(officielle !== undefined ? { officielle } : {}) }));
+    setAdresses(adr);
+    // les digicodes : la saisie en cours est gardée ; une adresse validée reçoit le bloc relu (ses codes déjà connus, s'il y en a)
+    setDigi((dd) => saisieDigicodesInitiale(nouvelle).map((x) => dd.find((y) => y.cle === x.cle) ?? x));
+    setInitiale(signatureSaisie({ nom: nouvelle.nom ?? '', hors: nouvelle.horsCopropriete, adresses: adr, contacts: versEdition(nouvelle), syndic: null, retrait: false }));
+    setConfirmees([]); setExamen(null);
+  };
+  /* 🔴🔴 (Arno, 26/11/2026, 12h50, point 1) « Retirer cette adresse » (fenêtre de confirmation) et « Définir comme adresse principale » : IMMÉDIATS,
+     journalisés par le serveur ; la fiche est ensuite relue en entier (adresse officielle comprise) */
+  const [retraitAdresse, setRetraitAdresse] = useState<string | null>(null);
+  const [principaleVisee, setPrincipaleVisee] = useState<string | null>(null);
+  fenetreAdresseOuverte.current = retraitAdresse !== null || principaleVisee !== null;
+  const gesteAdresse = async (action: 'adresse-retirer' | 'adresse-principale', cle: string, message: string): Promise<void> => {
+    if (f === null) return;
+    setEnvoi(true); setErreur(null); setInfo(null);
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, immeuble: f.cle, adresseCle: cle }) });
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Refusé.'); return; }
+      const relue = await fetch(`${API}?immeuble=${encodeURIComponent(d.data.cle)}`, { cache: 'no-store' }).then((x) => x.json() as Promise<{ etat?: string; data?: Lu }>).catch(() => null);
+      if (relue?.etat === 'ok' && relue.data?.fiche) fusionnerFiche(relue.data.fiche, relue.data.officielle ?? null); else fusionnerFiche(d.data, null);
+      setInfo(message);
+    } catch { setErreur('Le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
+  };
   const validerRattachement = async (): Promise<void> => {
     if (f === null || enAttente.length === 0) return;
     const n = enAttente.length;
@@ -354,15 +389,9 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
       const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Rattachement refusé.'); return; }
-      const nouvelle = d.data;
-      const adr = nouvelle.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
-      setLu((l) => (l === null ? l : { ...l, fiche: nouvelle }));
-      setAdresses(adr);
-      // les digicodes : la saisie en cours est gardée ; une adresse validée reçoit le bloc relu (ses codes déjà connus, s'il y en a)
-      setDigi((dd) => saisieDigicodesInitiale(nouvelle).map((x) => dd.find((y) => y.cle === x.cle) ?? x));
+      fusionnerFiche(d.data);
       if (!f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
-      setInitiale(signatureSaisie({ nom: nouvelle.nom ?? '', hors: nouvelle.horsCopropriete, adresses: adr, contacts: versEdition(nouvelle), syndic: null, retrait: false }));
-      setConfirmees([]); setRattacheeIci(false); setPropositionsOuvertes(false); setExamen(null);
+      setRattacheeIci(false); setPropositionsOuvertes(false);
       setInfo(motAdressesValidees(n));
     } catch { setErreur('Rattachement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
   };
@@ -487,7 +516,12 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             {off !== null && mode === 'normale' && !dejaConfirmees.has(cleImmeuble(a.libelle)) && (
               <button type="button" className="fcp-a-verifier fcp-a-verifier-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
                 title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(a); }} data-fcp-adresse-a-verifier>à vérifier</button>)}{' '}
-            {retirer(a)}{panneauExamen(a)}</li>))}
+            {retirer(a)}
+            {/* 🔴 (Arno, 26/11/2026, 12h50) « Définir comme adresse principale » : une adresse ENREGISTRÉE (pas une écriture d'origine) */}
+            {f.declaree && enregistrees.has(cleImmeuble(a.libelle)) && (
+              <button type="button" className="fcp-lien fcp-definir-principale" onClick={() => setPrincipaleVisee(cleImmeuble(a.libelle))} disabled={envoi}
+                data-fcp-definir-principale={cleImmeuble(a.libelle)}>{LIBELLE_DEFINIR_PRINCIPALE}</button>)}
+            {panneauExamen(a)}</li>))}
         {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
         {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
           <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
@@ -581,7 +615,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
           sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
       {f.saisieDigicodes
-        ? <><DigicodesCopropriete parAdresse={f.batimentsParAdresse === true} s={digiAffiches} onChange={(nv) => setDigi((d) => remettreDigicodes(d, nv))} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
+        ? <><DigicodesCopropriete parAdresse={f.batimentsParAdresse === true} s={digiAffiches}
+          {...(f.declaree ? { onRetirerAdresse: (c: string) => setRetraitAdresse(c), principaleCle: f.cle } : {})} onChange={(nv) => setDigi((d) => remettreDigicodes(d, nv))} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
@@ -698,6 +733,52 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={fermer} disabled={envoi}>×</button>
         </div>
         <div className="fcp-corps">{corps}</div>
+        {retraitAdresse !== null && f !== null && (() => {
+          const a = f.adresses.find((x) => x.cle === retraitAdresse);
+          const d = (f.digicodes ?? []).find((x) => x.cle === retraitAdresse);
+          const r = resumeAdresse(d === undefined ? null : { commun: d.commun, batiments: d.batiments }, (f.biens ?? []).filter((x) => x.cle === retraitAdresse));
+          const saisis = digicodesModifies(digi).some((x) => x.cle === retraitAdresse);
+          return (
+            <div className="dcp-voile" data-fcp-retrait-adresse={retraitAdresse}>
+              <style>{CSS_DIGICODES_COPRO}</style>
+              <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="fcp-retrait-titre"
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRetraitAdresse(null); } }}>
+                <p className="dcp-alerte-titre" id="fcp-retrait-titre">{LIBELLE_RETIRER_ADRESSE} ?</p>
+                <p className="dcp-alerte-texte" data-fcp-retrait-libelle><strong>{a === undefined ? retraitAdresse : adresseImmeuble(a.libelle, a.codePostal, a.commune)}</strong></p>
+                <p className="dcp-alerte-texte">Ses digicodes, bâtiments et cages partent avec elle :</p>
+                <ul className="fcp-liste" data-fcp-retrait-digicodes>{r.digicodes.length === 0 ? <li className="loc-muet">aucun digicode ni bâtiment</li> : r.digicodes.map((x) => <li key={x}>{x}</li>)}</ul>
+                {saisis && <p className="dcp-alerte-texte fcp-alerte">Les digicodes saisis à cette adresse et pas encore validés seront perdus.</p>}
+                <p className="dcp-alerte-texte">Biens du portefeuille à cette adresse :</p>
+                <ul className="fcp-liste" data-fcp-retrait-biens>{r.biens.length === 0 ? <li className="loc-muet">aucun</li> : r.biens.map((x) => <li key={x}>{x}</li>)}</ul>
+                {r.biens.length > 0 && <p className="dcp-alerte-texte loc-muet">{CONSEQUENCE_BIENS}</p>}
+                <p className="dcp-alerte-texte loc-muet">Le retrait entre dans l’historique de la copropriété ; rien n’est effacé.</p>
+                <div className="dcp-alerte-actions">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus onClick={() => setRetraitAdresse(null)} data-fcp-retrait-annuler>Annuler</button>
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-fcp-retrait-oui
+                    onClick={() => { const c = retraitAdresse; setRetraitAdresse(null); void gesteAdresse('adresse-retirer', c, 'Adresse retirée de la copropriété.'); }}>{LIBELLE_OUI_RETIRER_ADRESSE}</button>
+                </div>
+              </div>
+            </div>);
+        })()}
+        {principaleVisee !== null && f !== null && (() => {
+          const a = f.adresses.find((x) => x.cle === principaleVisee);
+          return (
+            <div className="dcp-voile" data-fcp-principale={principaleVisee}>
+              <style>{CSS_DIGICODES_COPRO}</style>
+              <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="fcp-principale-titre"
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setPrincipaleVisee(null); } }}>
+                <p className="dcp-alerte-titre" id="fcp-principale-titre">{LIBELLE_DEFINIR_PRINCIPALE} ?</p>
+                <p className="dcp-alerte-texte"><strong>{a === undefined ? principaleVisee : adresseImmeuble(a.libelle, a.codePostal, a.commune)}</strong> devient l’adresse principale de la copropriété ;
+                  {' '}{adresseImmeuble(f.libelle, f.codePostal, f.commune)} reste une adresse de la copropriété.</p>
+                <p className="dcp-alerte-texte loc-muet">Rien d’autre ne change : digicodes, bâtiments, biens, syndic, AG et arrêté des comptes restent tels quels. Le changement entre dans l’historique.</p>
+                <div className="dcp-alerte-actions">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus onClick={() => setPrincipaleVisee(null)} data-fcp-principale-annuler>Annuler</button>
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-fcp-principale-oui
+                    onClick={() => { const c = principaleVisee; setPrincipaleVisee(null); void gesteAdresse('adresse-principale', c, 'Adresse principale changée.'); }}>Oui, en faire l’adresse principale</button>
+                </div>
+              </div>
+            </div>);
+        })()}
         {sansNumero !== null && (
           <div className="dcp-voile" data-fcp-sans-numero>
             <style>{CSS_DIGICODES_COPRO}</style>
@@ -887,6 +968,7 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-a-verifier-bouton{background:none;border:0;padding:0 2px;font:inherit;font-weight:800;color:var(--color-svv-orange);text-decoration:underline;cursor:pointer;min-height:44px}
 .fcp-examen{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 /* 🔴 (26/11/2026, point 3) l'en-tête repliable des adresses proposées : un bouton qui a l'allure du sous-titre, cible de 44 px */
+.fcp-definir-principale{font-size:.85rem;min-height:44px;margin-left:6px}
 .fcp-en-attente{color:var(--color-svv-muted);font-style:italic;font-size:.85rem}
 .fcp-valider-rattachement{width:100%;min-height:44px;margin:8px 0 4px;white-space:normal}
 .fcp-propositions-tete{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer;color:inherit}

@@ -10,6 +10,7 @@ import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, preciserAdr
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 import { examinerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproExamen';
+import { definirAdressePrincipale, retirerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproGestesRepo';
 import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
 
 /**
@@ -20,6 +21,8 @@ import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContacts
  *   POST `{ action: 'enregistrer', … }` : l'enregistrement (refus avant toute écriture) ;
  *   POST `{ action: 'adresse-examiner', adresse: { libelle, codePostal, commune, banId? } }` : 🔴 (Arno, 26/11/2026, 11h58) l'examen d'une adresse
  *        « à vérifier » (adresse officielle, parcelle, position) — LECTURE SEULE ;
+ *   POST `{ action: 'adresse-retirer' | 'adresse-principale', immeuble, adresseCle }` : 🔴 (Arno, 26/11/2026, 12h50) « Retirer cette adresse » et
+ *        « Définir comme adresse principale », immédiats, journalisés (rien n'est effacé) ;
  *   POST `{ action: 'digicode-corriger' | 'digicode-arbitrer', immeuble, adresseCle, batiment, digicode, code }` : 🔴 (« Digicodes unifiés », lot 3)
  *        « Corriger une erreur » / « Garder ce code », immédiats, par le chemin serveur unique (478) ;
  *   POST `{ action: 'digicode-planifier', immeuble, adresseCle, appliqueLe, changements }` / `{ action: 'digicode-annuler-changement', …, ligneId }` :
@@ -87,6 +90,12 @@ export async function POST(request: Request): Promise<Response> {
       if (cleImmeuble(t(a.libelle, 200)) === '') return Response.json({ etat: 'refus', motif: 'Adresse vide.' }, { status: 400, headers: ENTETES });
       return Response.json({ etat: 'ok', data: await examinerAdresseCopro({ libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10) || null, commune: t(a.commune, 120) || null,
         banId: t(a.banId, 80) || null }) }, { headers: ENTETES });
+    }
+    // 🔴 (Arno, 26/11/2026, 12h50) « Retirer cette adresse » / « Définir comme adresse principale » : immédiats, journalisés
+    if (corps.action === 'adresse-retirer' || corps.action === 'adresse-principale') {
+      const auteur = await auteurDeLaRequete(request);
+      const r = corps.action === 'adresse-retirer' ? await retirerAdresseCopro(corps, auteur) : await definirAdressePrincipale(corps, auteur);
+      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
     }
     // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse d'un bâtiment « à préciser », choisie par Arno
     if (corps.action === 'batiment-adresse') {

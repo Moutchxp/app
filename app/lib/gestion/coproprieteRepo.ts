@@ -70,7 +70,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   const libelle = copro?.libelle ?? ((premier?.immeuble ?? '').trim() || (premier?.adresse ?? '').trim() || immeuble.trim());
   const codePostal = copro?.code_postal ?? siens.find((l) => (l.code_postal ?? '').trim() !== '')?.code_postal ?? null;
   const commune = copro?.commune ?? siens.find((l) => (l.commune ?? '').trim() !== '')?.commune ?? null;
-  const biens: BienCopropriete[] = siens.map((l) => ({ id: Number(l.id), numero: l.numero, adresse: l.adresse, copropriete: l.copropriete }));
+  const biens: BienCopropriete[] = siens.map((l) => ({ id: Number(l.id), numero: l.numero, adresse: l.adresse, copropriete: l.copropriete, cle: cleImmeubleDuBien(l) }));
   // le syndic EN COURS et ses gestionnaires pour cette copropriété (lecture seule)
   let syndic: FicheCopropriete['syndic'] = null;
   let gestionnaires: GestionnaireSyndic[] = [];
@@ -129,6 +129,9 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
       `SELECT b.id::text, b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte, ${avecAdresse ? 'b.adresse_cle' : 'NULL::text'} AS "adresseCle" FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
          ${(await etatBatimentDisponible()) ? `AND ${sqlBatimentActif('b')}` : ''} ORDER BY b.cree_le, b.id`, [copro.id]);
     for (const r of reg) {
+      // 🔴 (Arno, 26/11/2026, 12h50) un bâtiment d'une adresse RETIRÉE de la copropriété (« Retirer cette adresse ») n'est plus proposé ici (rien n'est effacé :
+      // l'adresse revenue, il revient)
+      if (r.adresseCle != null && !cles.has(r.adresseCle)) continue;
       // 🔴 (Arno, 17/11/2026 : « Bâtiment dont l'adresse n'est pas déductible → « adresse à préciser » sur la fiche Copropriété, choix par Arno ; jamais deviné »)
       if (parAdr && r.adresseCle === null) aPreciser.push({ id: Number(r.id), libelle: majusculesBatiment(r.libelle) });
       connus.push({ cle: r.cle, libelle: majusculesBatiment(r.libelle), sorte: r.sorte, adresseCle: r.adresseCle }); // 🔴 (26/11/2026) en MAJUSCULES

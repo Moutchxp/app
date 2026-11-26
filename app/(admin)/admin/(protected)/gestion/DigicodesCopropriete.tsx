@@ -151,7 +151,7 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = false, s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree, onRetirerBatiment }: {
+export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = false, s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree, onRetirerBatiment, onRetirerAdresse, principaleCle }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») les bâtiments sont à leur adresse (490) : le menu d'un bloc ne propose que ceux de SON adresse */
   parAdresse?: boolean;
@@ -181,6 +181,8 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
   onLigneRetiree?: (libelle: string) => void;
   /** 🔴 (Arno, 17/11/2026, 488) le « − » d'un bâtiment enregistré SANS code : le bâtiment est retiré de la copropriété (jamais effacé) */
   onRetirerBatiment?: (adresseCle: string, batiment: string) => Promise<string | null>;
+  /** 🔴 (Arno, 26/11/2026, 12h50) « Retirer cette adresse » sur chaque bloc (fiche Copropriété seulement) ; l'adresse principale : `principaleCle` */
+  onRetirerAdresse?: (adresseCle: string) => void; principaleCle?: string;
 }) {
   /* 🔴🔴 (Arno, 17/11/2026 : « BOUTON ROND « − » au bout de chaque ligne de bâtiment (même colonne que « + », même taille) : ligne en cours de saisie :
      fenêtre de confirmation (« Retirer la ligne Digicode bâtiment X et son code ? »), puis retrait de l'écran ; code déjà enregistré : fenêtre de
@@ -265,7 +267,8 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
         <div key={d.cle} className="dcp-adresse" data-dcp-adresse={d.cle}>
           {d.voie.trim() === ''
             ? <p className="loc-muet dcp-titre-vide" data-dcp-sans-adresse>Choisissez l’adresse du bien : les codes déjà connus de sa copropriété s’afficheront ici. Sinon, saisissez-les.</p>
-            : <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>}
+            : <div className="dcp-titre-ligne"><p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>
+              {onRetirerAdresse !== undefined && <BoutonRetirerAdresse principale={d.cle === principaleCle} onRetirer={() => onRetirerAdresse(d.cle)} />}</div>}
           {placeLue(d.communEtat) ? (
             <div className={`dcp-ligne dcp-ligne--lue${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               <PlaceDigicodeLue titre="Digicode copropriété" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
@@ -814,6 +817,19 @@ export const DUREE_BULLE_MS = 4000;
 export const phraseRegle = (n: Nomenclature | null): string => (n === null
   ? 'Aucune règle encore : le premier bâtiment en lettre ou en chiffre la fixera pour toute la copropriété (un intitulé libre reste possible).'
   : `Règle de la copropriété : ${MOT_REGLE[n]} ; un autre intitulé reste possible, après confirmation.`);
+/**
+ * 🔴🔴 (Arno, 26/11/2026, 12h50) « On doit pouvoir supprimer les blocs d'adresses individuellement, avec une fenêtre de validation intermédiaire. » Le bouton
+ * du bloc : il ouvre la fenêtre de la fiche Copropriété ; sur l'adresse principale, il explique « Choisissez d'abord une autre adresse principale ».
+ */
+function BoutonRetirerAdresse({ principale, onRetirer }: { principale: boolean; onRetirer: () => void }) {
+  const [note, setNote] = useState(false);
+  return <>
+    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini dcp-retirer-adresse" aria-expanded={principale ? note : undefined}
+      onClick={() => (principale ? setNote((n) => !n) : onRetirer())} data-dcp-retirer-adresse={principale ? 'principale' : ''}>Retirer cette adresse</button>
+    {principale && note && <p className="dcp-retirer-note" role="status" data-dcp-retirer-principale>Choisissez d’abord une autre adresse principale (« Définir comme adresse principale », dans ADRESSES) : l’adresse principale ne peut pas être retirée.</p>}
+  </>;
+}
+
 export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ? 'ex. A' : n === 'chiffres' ? 'ex. 1' : 'ex. A, 1 ou CÔTÉ COUR');
 
 /**
@@ -1141,6 +1157,9 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-regle{margin:0;font-size:.85rem}
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.dcp-titre-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
+.dcp-retirer-adresse{min-height:44px}
+.dcp-retirer-note{flex:1 1 100%;margin:0;font-size:.85rem;color:var(--color-svv-muted)}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
 .dcp-avis-batiment{margin:4px 0 0;font-size:.8rem;font-style:italic}
 .dcp-nouveau{flex:1 1 100%;margin:0;font-size:.8rem;font-style:italic}

@@ -119,9 +119,16 @@ describe('la fiche', () => {
     await clic('[data-fcp-ajouter-adresse]');
     expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '14 rue des Lilas', '3 Impasse Neuve']);
     expect(champ.value).toBe('');
-    await clic('[data-fcp-retirer]'); await clic('[data-fcp-retirer-oui]');
+    // 🔴 (26/11/2026, 12h50) le « × » d'une adresse ENREGISTRÉE (12 rue des Lilas) ouvre la fenêtre « Retirer cette adresse » ; « Annuler » ne change rien
+    await clic('[data-fcp-retirer]');
+    expect($('[data-fcp-retrait-adresse]').getAttribute('data-fcp-retrait-adresse')).toBe('12 rue des lilas');
+    await clic('[data-fcp-retrait-annuler]');
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(3);
+    // le « × » d'une adresse EN ATTENTE : la petite confirmation d'avant
+    await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    await clic('[data-fcp-retirer-oui]');
     await clic('[data-fcp-valider]');
-    expect((posts[0].adresses as { libelle: string; codePostal: string }[]).map((a) => [a.libelle, a.codePostal])).toEqual([['14 rue des Lilas', '75011'], ['3 Impasse Neuve', '75011']]);
+    expect((posts[0].adresses as { libelle: string; codePostal: string }[]).map((a) => [a.libelle, a.codePostal])).toEqual([['12 rue des Lilas', '75011'], ['14 rue des Lilas', '75011']]);
   });
   it('🔴 le serveur refuse une adresse non vérifiée : son message s’affiche, rien n’est enregistré', async () => {
     const f = global.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -769,14 +776,15 @@ describe('« à vérifier » sur une adresse rattachée : un bouton, l’examen,
     expect(e.adressesConfirmees).toEqual(['12 rue des lilas']);
     expect(e.adresses).toEqual([{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }]);
   });
-  it('« Retirer de la copropriété » : comme le « × », l’adresse quitte la liste, retirée à « Valider »', async () => {
+  it('« Retirer de la copropriété » sur une adresse ENREGISTRÉE : la fenêtre « Retirer cette adresse » (🔴 26/11, 12h50), puis le retrait immédiat', async () => {
     await ouvrir();
     await clic('[data-fcp-adresse-a-verifier]');
     await clic('[data-fcp-retirer-adresse]');
-    expect(document.querySelector('[data-fcp-adresse="secondaire"]')).toBeNull();
-    await clic('[data-fcp-valider]');
-    const e = posts.find((p) => p.action === 'enregistrer')!;
-    expect([e.adresses, e.adressesConfirmees]).toEqual([[], []]);
+    expect(document.querySelector('[data-fcp-examen]')).toBeNull();
+    expect($('[data-fcp-retrait-adresse]').getAttribute('data-fcp-retrait-adresse')).toBe('12 rue des lilas');
+    await clic('[data-fcp-retrait-oui]');
+    expect(posts.find((p) => p.action === 'adresse-retirer')).toMatchObject({ immeuble: 'residence les tilleuls', adresseCle: '12 rue des lilas' });
+    expect(posts.filter((p) => p.action === 'enregistrer')).toHaveLength(0);
   });
   it('une adresse déjà confirmée (relue) ne porte plus la mention ; l’historique des adresses se lit, fermé', async () => {
     lu = { fiche: FICHE({ adressesConfirmees: ['12 rue des lilas'], historiqueAdresses: [{ le: '26/11/2026 à 12h10', texte: 'Adresse confirmée (vérifiée à l’écran) : 12 rue des Lilas, 75011 Paris', par: 'Arnaud Jorel' }] }),
@@ -917,5 +925,51 @@ describe('« Adresses proposées sur la même parcelle (N) » repliable', () => 
     await ouvrir();
     await clic('[data-fcp-plus-adresse]');
     expect([tete().getAttribute('aria-expanded'), liste().hidden, liste().querySelectorAll('li').length]).toEqual(['false', true, 2]);
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 12h50, point 1) — « On doit pouvoir supprimer les blocs d'adresses individuellement, avec une fenêtre de validation intermédiaire. » */
+describe('« Retirer cette adresse » (DIGICODES et « × ») ; « Définir comme adresse principale »', () => {
+  const DIG = (cle: string, voie: string, commun: { digicode: boolean | null; code: string | null } = { digicode: null, code: null }, batiments: unknown[] = []) =>
+    ({ cle, voie, codePostal: '75011', commune: 'Paris', commun, batiments });
+  beforeEach(() => {
+    lu = { fiche: FICHE({ saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], batimentsParAdresse: true,
+      biens: [{ id: 1, numero: 'W1', adresse: '12 rue des Lilas', copropriete: true, cle: '12 rue des lilas' }],
+      digicodes: [DIG('residence les tilleuls', 'Résidence Les Tilleuls'), DIG('12 rue des lilas', '12 rue des Lilas', { digicode: true, code: '1212' },
+        [{ cle: 'a', libelle: 'A', digicode: true, code: 'A12' }])] }), coproprieteDuBien: true };
+  });
+  it('chaque bloc a « Retirer cette adresse » ; sur l’adresse principale il explique « Choisissez d’abord une autre adresse principale » (rien ne part)', async () => {
+    await ouvrir();
+    const boutons = [...document.querySelectorAll('[data-dcp-retirer-adresse]')];
+    expect(boutons.map((b) => [b.textContent, b.getAttribute('data-dcp-retirer-adresse')])).toEqual([['Retirer cette adresse', 'principale'], ['Retirer cette adresse', '']]);
+    await act(async () => { (boutons[0] as HTMLButtonElement).click(); }); await calmer();
+    expect($('[data-dcp-retirer-principale]').textContent).toContain('Choisissez d’abord une autre adresse principale');
+    expect(document.querySelector('[data-fcp-retrait-adresse]')).toBeNull();
+    expect(posts).toHaveLength(0);
+  });
+  it('la fenêtre : l’adresse, ses digicodes / bâtiments (partent avec elle), ses biens et ce que ça change ; « Annuler » ; « Oui » retire tout de suite', async () => {
+    await ouvrir();
+    await act(async () => { ([...document.querySelectorAll('[data-dcp-retirer-adresse]')][1] as HTMLButtonElement).click(); }); await calmer();
+    const w = $('[data-fcp-retrait-adresse]');
+    expect(w.querySelector('[data-fcp-retrait-libelle]')?.textContent).toBe('12 rue des Lilas, 75011 Paris');
+    expect([...w.querySelectorAll('[data-fcp-retrait-digicodes] li')].map((x) => x.textContent)).toEqual(['digicode copropriété : code 1212', 'bâtiment / cage A : code A12']);
+    expect([...w.querySelectorAll('[data-fcp-retrait-biens] li')].map((x) => x.textContent)).toEqual(['n° W1 (12 rue des Lilas)']);
+    expect(w.textContent).toContain('Ils ne seront plus rattachés à cette copropriété');
+    expect([...w.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, retirer cette adresse']);
+    await clic('[data-fcp-retrait-annuler]');
+    expect([document.querySelector('[data-fcp-retrait-adresse]'), posts.length]).toEqual([null, 0]);
+    await clic('[data-fcp-retirer]'); // le « × » de la liste, sur la même adresse (elle a son bloc) : la même fenêtre
+    await clic('[data-fcp-retrait-oui]');
+    expect(posts).toEqual([{ action: 'adresse-retirer', immeuble: 'residence les tilleuls', adresseCle: '12 rue des lilas' }]);
+    expect($('[data-fcp-info]').textContent).toBe('Adresse retirée de la copropriété.');
+  });
+  it('« Définir comme adresse principale » : sur chaque adresse enregistrée, avec sa confirmation ; immédiat', async () => {
+    await ouvrir();
+    await clic('[data-fcp-definir-principale="12 rue des lilas"]');
+    const w = $('[data-fcp-principale]');
+    expect(w.textContent).toContain('12 rue des Lilas, 75011 Paris devient l’adresse principale de la copropriété');
+    expect(w.textContent).toContain('Résidence Les Tilleuls, 75011 Paris reste une adresse de la copropriété');
+    await clic('[data-fcp-principale-oui]');
+    expect(posts).toEqual([{ action: 'adresse-principale', immeuble: 'residence les tilleuls', adresseCle: '12 rue des lilas' }]);
   });
 });

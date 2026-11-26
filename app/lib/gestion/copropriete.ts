@@ -46,7 +46,9 @@ export interface DigicodesAdresseFiche {
 export interface AdresseCopropriete { cle: string; libelle: string; codePostal: string | null; commune: string | null; principale: boolean }
 export interface GestionnaireSyndic { id: number; civilite: string | null; prenom: string | null; nom: string | null; titre: string | null;
   coordonnees: { sorte: 'email' | 'telephone'; libelle: string | null; valeur: string }[] }
-export interface BienCopropriete { id: number; numero: string; adresse: string | null; copropriete: boolean | null }
+export interface BienCopropriete { id: number; numero: string; adresse: string | null; copropriete: boolean | null;
+  /** 🔴 (Arno, 26/11/2026, 12h50) la clé de l'adresse (immeuble) du bien dans la copropriété : les biens d'une adresse qu'on retire */
+  cle?: string }
 
 export interface FicheCopropriete {
   /** la clé de la copropriété (son immeuble principal) */
