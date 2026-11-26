@@ -1401,9 +1401,29 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   maximum. », plus aucune coupe (20 / 8). Aucun code > 15 en recette ; requête prod LECTURE SEULE :
   `.captures/digicode-longueur/digicodes-plus-de-15-lecture-seule.sql`. `syndicBien.itest.ts` mis à jour (16 caractères), non lancé.
 
+### 26/11/2026, 16h — MIGRATION 520 : une adresse, une seule copropriété, EN BASE (`30e05d78`, NON POUSSÉ)
+- Décision d'Arno après le contrôle de production de 15h53 (0 / 0 / 0). Registre `gestion_copropriete_adresse_exclusive` (clés « a:<clé
+  comparable>|<code postal> » et « ban:<BAN> », jamais effacé : `fermee_le`) + index unique partiel `…_ouverte` + déclencheurs sur
+  `gestion_copropriete` et `gestion_copropriete_adresse` ; clé calculée par `gestion_cle_adresse_comparable` = `cleComparable` (parité 365 / 0 écart).
+  Refus : 23505, contrainte `gestion_copropriete_adresse_exclusive`, message « Cette adresse appartient déjà à la copropriété … : « adresse ». Rien
+  n'est enregistré. » ; verrou par clé (`pg_advisory_xact_lock`) pour deux écritures simultanées. Le code : `motifExclusiviteAdresse`
+  (enregistrerCopropriete, définir la principale, 10 routes d'écriture → 409 dans la forme de chaque route).
+- Épreuve : copie jetable de la recette à 518 (port 5433, `.captures/maj/essai-copie-520/`, pgdata effacé) — journal `epreuve.log`. **Appliquée en
+  RECETTE seulement** (115 clés, 58 copropriétés). Production : NON.
+- ⚠️ **La 361 et la 519** : l'outil refuse une migration numérotée sous la dernière inscrite. La 361 ne prend la 519 que si elle part AVEC la 520 (ou
+  avant) ; une fois la 520 inscrite en production, elle prendra la 521 (`migrationsEnAttente.test.ts` le fige). À décider par Arno.
+- Limite connue : une adresse sans code postal et la même avec code postal ne sont pas vues comme la même clé EN BASE (le serveur, lui, les
+  rapproche : codes postaux compatibles) ; la clé `cle_immeuble` des adresses secondaires (index d'avant) ignore toujours le code postal.
+- Scripts `.captures/maj/` préparés pour la prochaine mise en production, SANS rien lancer (anciens rangés dans `.captures/maj/avant-520/`) :
+  1-sauvegarde, 2-push calés sur le commit ; **3-essai lance d'abord `0-controles-lecture-seule.sh`** (nouveau contrôle n° 4 : doublons selon la
+  clé EXACTE de la 520, éprouvé sur un doublon « 77b / 77 bis ») et exige 0, puis l'essai avec exactement 1 nouvelle (520) ; 4-appliquer exige
+  l'essai du jour ; 5-verifier : registre 517 / 4 écartées, 520 inscrite par le commit, verrou en place (`lecture-exclusivite-520.sql`).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d` + leurs passations. Arno : lancer `bash .captures/maj/0-controles-lecture-seule.sh` (les deux contrôles en lecture seule sur la production), puis décider de la
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d`, `30e05d78` + leurs passations.
+Prochaine mise en production : `.captures/maj/1-sauvegarde.sh` → `2-push.sh` → `3-essai.sh` → `4-appliquer.sh` → `5-verifier.sh` (calés sur le
+commit de cette passation ; tout nouveau commit les fait refuser : les recaler). Arno : lancer `bash .captures/maj/0-controles-lecture-seule.sh` (les deux contrôles en lecture seule sur la production), puis décider de la
 migration 520 (exclusivité des adresses) selon le résultat.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
