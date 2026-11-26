@@ -1395,12 +1395,15 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   (motValeur, libelleValeur, motChangementAVenir, motCode ×2, résumé/fiche du bien, mail Nouvelle location, fiche d'intervention, sortie). Aucune
   réécriture en masse ; `memeCode` ignore toujours la casse → réenregistrer un code identique n'écrit rien. En recette : 2 codes en minuscules
   seulement (« 7 rue test digicode », restes d'essai « …undefined »), laissés tels quels.
-- Dette relevée, non traitée : `enregistrerCopropriete` contrôle encore le code avec l'ancienne limite de 8 caractères (`verifierDigicode`) avant
-  `ecrireDigicode` (15) ; `validerDigicodesBien` et `coproprieteEcritureRepo` coupent en silence à 20 caractères.
+- ~~Dette relevée~~ → **réglée par `d3076e1d`** (décision d'Arno du 26/11/2026) : une seule limite, `MAX_CODE_DIGICODE = 15`
+  (digicodeImmeuble.ts) ; `MAX_CODE_DIGICODE_UNIFIE`, la limite 8 et la sonde de la 482 supprimées ; champ commun `ChampCodeDigicode` (6 saisies,
+  compteur « n/15 », « 15 caractères au maximum » sous le champ, pas de maxLength) ; serveur : refus « Digicode trop long : 15 caractères au
+  maximum. », plus aucune coupe (20 / 8). Aucun code > 15 en recette ; requête prod LECTURE SEULE :
+  `.captures/digicode-longueur/digicodes-plus-de-15-lecture-seule.sql`. `syndicBien.itest.ts` mis à jour (16 caractères), non lancé.
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d` + leurs passations. Arno : lancer en prod les deux requêtes en lecture seule (doublons d’adresses, digicodes > 15). Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
