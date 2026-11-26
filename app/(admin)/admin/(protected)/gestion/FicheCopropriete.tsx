@@ -1,7 +1,7 @@
 'use client';
 
 import { ContactsSyndicCopropriete } from './ContactsSyndicCopropriete';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
@@ -51,6 +51,11 @@ const versEdition = (f: Fiche): ContactEdit[] => f.contacts.map((c) => ({ cle: c
  * rien n'avait été enregistré » : les messages verts de la fiche. « Valider » sans rien de changé enregistre comme avant, et le dit.
  */
 export const MOT_FICHE_ENREGISTREE = 'Fiche copropriété enregistrée.';
+/** 🔴 (Arno, 26/11/2026, 12h23) le bouton du rattachement en deux temps, et ses messages. */
+export const libelleValiderRattachement = (n: number): string => `Valider le rattachement des adresses à cette copropriété (${n})`;
+export const MOT_ADRESSES_EN_ATTENTE = 'en attente de validation';
+export const motAdressesValidees = (n: number): string => `${n} adresse${n > 1 ? 's' : ''} rattachée${n > 1 ? 's' : ''} à la copropriété : chacune a son bloc dans DIGICODES.`;
+export const motFermerAvecAttente = (n: number): string => `${n} adresse${n > 1 ? 's' : ''} rattachée${n > 1 ? 's' : ''} non validée${n > 1 ? 's' : ''} ${n > 1 ? 'seront perdues' : 'sera perdue'}.`;
 export const MOT_AUCUNE_MODIFICATION = 'Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout.';
 export const motDateAgEnregistree = (jour: string): string => `Date d’AG du ${dateFr(jour)} enregistrée.`;
 export const motArreteEnregistre = (a: { jour: number; mois: number } | null): string => (a === null ? 'Date d’arrêté des comptes effacée.' : `Date d’arrêté des comptes enregistrée : ${arreteEnLettres(a)}.`);
@@ -197,8 +202,22 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const f = lu?.fiche ?? null;
   const toutes: Adresse[] = f === null ? [] : [{ libelle: f.libelle, codePostal: f.codePostal ?? '', commune: f.commune ?? '' }, ...adresses];
   const signature = JSON.stringify(toutes);
-  // 🔴🔴 (Arno, 26/11/2026, point 2) un bloc de digicodes par adresse de la saisie, dès son rattachement (avant même le premier « Valider »)
-  useEffect(() => { if (f?.saisieDigicodes) setDigi((d) => digicodesDesAdresses(d, toutes)); }, [signature, f?.saisieDigicodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* 🔴🔴 (Arno, 26/11/2026, 12h23, point 1) LE RATTACHEMENT EN DEUX TEMPS : « je voudrais pouvoir rattacher autant d'adresses que je veux et, une fois
+     toutes les adresses voulues rattachées, valider l'ensemble avec un bouton « Valider le rattachement des adresses à cette copropriété » ; une fois
+     validé, chacune des adresses a son bloc configurable dans la partie DIGICODES. » Une adresse de la saisie qui n'est pas (encore) une adresse
+     ENREGISTRÉE de la copropriété est « en attente de validation » : pas de bloc de digicodes (dd2aa115 adapté : le bloc vient à la validation). */
+  const enregistrees = new Set((f?.adresses ?? []).filter((a) => !a.principale).map((a) => a.cle));
+  const enAttente = adresses.filter((a) => !enregistrees.has(cleImmeuble(a.libelle)));
+  const validees: Adresse[] = f === null ? [] : [toutes[0], ...adresses.filter((a) => enregistrees.has(cleImmeuble(a.libelle)))];
+  const signatureValidees = JSON.stringify(validees);
+  // 🔴🔴 (Arno, 26/11/2026) un bloc de digicodes par adresse VALIDÉE (la principale, puis les rattachées dans l'ordre ADRESSES)
+  useEffect(() => { if (f?.saisieDigicodes) setDigi((d) => digicodesDesAdresses(d, validees)); }, [signatureValidees, f?.saisieDigicodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [fermerAttente, setFermerAttente] = useState(false);
+  /* 🔴 (12h23) fermer avec des adresses en attente : on le demande d'abord (« N adresses rattachées non validées seront perdues ») */
+  const fermer = (): void => { if (enAttente.length > 0) { setFermerAttente(true); return; } onFerme(); };
+  // 🔴 (12h23) Échap passe par la même porte que « Fermer » (la question des adresses en attente)
+  const fermerRef = useRef<() => void>(onFerme);
+  fermerRef.current = fermer;
   /* 🔴 (lot 4) l'adresse officielle : chaque adresse enregistrée garde sa place dans la saisie (elle part toujours avec « Valider ») ; à l'écran, une adresse
      dont l'adresse officielle est déjà montrée devient une « écriture d'origine » (repliée, avec son « × »), une adresse officielle DIFFÉRENTE garde sa
      ligne sous son libellé officiel, et une adresse non rapprochée s'affiche comme avant */
@@ -290,7 +309,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     return () => { vivant = false; };
   }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && !choixSyndic && sansNumero === null) onFerme(); };
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && !choixSyndic && sansNumero === null) fermerRef.current(); };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
   }, [envoi, ficheSyndic, onFerme, sansNumero]);
@@ -314,6 +333,39 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     : prises.filter((p) => p.syndic !== null && p.syndic.id === syndicVise && p.copropriete !== null);
 
   const [tenteDigi, setTenteDigi] = useState(false);
+  /**
+   * 🔴🔴 (Arno, 26/11/2026, 12h23, point 1) « Valider le rattachement des adresses à cette copropriété (N) » : l'enregistrement IMMÉDIAT des adresses de la
+   * liste (la fiche est créée si elle n'existe pas encore ; chaque ajout est journalisé par le serveur), SANS rien d'autre de la saisie en cours : le nom
+   * enregistré, ni contacts ni digicodes ni syndic (ils restent à l'écran, pour le « Valider » du bas). Une fiche nouvelle part avec ce que sa création
+   * emporte (nom, « hors copropriété », arrêté des comptes et AG saisis : tout ou rien, comme le premier « Valider »). Ensuite, chaque adresse validée a
+   * son bloc DIGICODES, et les propositions de la parcelle se replient.
+   */
+  const validerRattachement = async (): Promise<void> => {
+    if (f === null || enAttente.length === 0) return;
+    const n = enAttente.length;
+    setEnvoi(true); setErreur(null); setInfo(null);
+    try {
+      const corps = { action: 'enregistrer', immeuble: f.cle, nom: f.declaree ? f.nom : (nom.trim() === '' ? null : nom),
+        ...(f.avec476 ? { horsCopropriete: f.declaree ? f.horsCopropriete : hors } : {}),
+        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
+        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
+        syndicId: f.syndic?.id ?? null, retirerSyndic: false, alerteParcelleVue: false, conflitsParcelle: [],
+        ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}) };
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Rattachement refusé.'); return; }
+      const nouvelle = d.data;
+      const adr = nouvelle.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
+      setLu((l) => (l === null ? l : { ...l, fiche: nouvelle }));
+      setAdresses(adr);
+      // les digicodes : la saisie en cours est gardée ; une adresse validée reçoit le bloc relu (ses codes déjà connus, s'il y en a)
+      setDigi((dd) => saisieDigicodesInitiale(nouvelle).map((x) => dd.find((y) => y.cle === x.cle) ?? x));
+      if (!f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
+      setInitiale(signatureSaisie({ nom: nouvelle.nom ?? '', hors: nouvelle.horsCopropriete, adresses: adr, contacts: versEdition(nouvelle), syndic: null, retrait: false }));
+      setConfirmees([]); setRattacheeIci(false); setPropositionsOuvertes(false); setExamen(null);
+      setInfo(motAdressesValidees(n));
+    } catch { setErreur('Rattachement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
+  };
   const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string; syndicId?: number } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
@@ -430,6 +482,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             saisie, et part avec « Valider ») ; une adresse que rien n'a encore rapprochée garde sa ligne, marquée « à vérifier » */}
         {rangees.filter((x) => x.mode !== 'ecriture').map(({ a, mode, libelle }) => (
           <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
+            {/* 🔴 (Arno, 26/11/2026, 12h23) pas encore enregistrée : « en attente de validation » (retirable par son « × ») — distinct de « à vérifier » */}
+            {!enregistrees.has(cleImmeuble(a.libelle)) && <><span className="fcp-en-attente" data-fcp-en-attente>{MOT_ADRESSES_EN_ATTENTE}</span>{' '}</>}
             {off !== null && mode === 'normale' && !dejaConfirmees.has(cleImmeuble(a.libelle)) && (
               <button type="button" className="fcp-a-verifier fcp-a-verifier-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
                 title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(a); }} data-fcp-adresse-a-verifier>à vérifier</button>)}{' '}
@@ -438,6 +492,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
           <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
       </ul>
+      {/* 🔴🔴 (Arno, 26/11/2026, 12h23) dès qu'une adresse est en attente : le bouton pleine largeur qui valide l'ensemble */}
+      {enAttente.length > 0 && (
+        <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-valider-rattachement" disabled={envoi} onClick={() => { void validerRattachement(); }}
+          data-fcp-valider-rattachement>{envoi ? 'Enregistrement…' : libelleValiderRattachement(enAttente.length)}</button>)}
       {off !== null && (
         <details className="fcp-histo" data-fcp-ecritures>
           <summary>Écritures d’origine ({off.ecritures.length})</summary>
@@ -637,7 +695,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <div className="fcp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fiche-copropriete={horsAffiche ? 'hors' : 'copropriete'}>
         <div className="fcp-tete">
           <h2 id={titreId} className="fcp-h2" data-fcp-titre>{titre}{f !== null ? <span className="fcp-nom"> · {nomAffiche({ nom: nom || null, libelle: off?.principale.court ?? f.libelle })}</span> : null}</h2>
-          <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={onFerme} disabled={envoi}>×</button>
+          <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={fermer} disabled={envoi}>×</button>
         </div>
         <div className="fcp-corps">{corps}</div>
         {sansNumero !== null && (
@@ -687,8 +745,17 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         {erreur !== null && lu !== null && <p className="cp-refus fcp-pied-msg" role="alert" data-fcp-erreur>{erreur}</p>}
         {/* 🔴 Arno (23/11/2026) — un message vert bien visible (avant : un petit texte gris) ; le pied de la fiche reste toujours à l'écran */}
         {info !== null && <p className="fcp-confirmation fcp-pied-msg" role="status" data-fcp-info>{info}</p>}
+        {fermerAttente && (
+          <div className="fcp-etape" role="alertdialog" aria-label="Adresses non validées" data-fcp-fermer-attente>
+            <p className="fcp-sans-marge"><strong>{motFermerAvecAttente(enAttente.length)}</strong></p>
+            <div className="fcp-examen-gestes">
+              <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" onClick={() => { setFermerAttente(false); void validerRattachement(); }} data-fcp-fermer-attente-valider>Valider le rattachement</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { setFermerAttente(false); onFerme(); }} data-fcp-fermer-attente-oui>Fermer quand même</button>
+              <button type="button" className="fcp-lien" onClick={() => setFermerAttente(false)} data-fcp-fermer-attente-non>Revenir</button>
+            </div>
+          </div>)}
         <div className="fcp-actions fcp-pied">
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme} disabled={envoi} data-fcp-annuler>Fermer</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={fermer} disabled={envoi} data-fcp-annuler>Fermer</button>
           {f !== null && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider(); }} disabled={envoi || etape !== null} data-fcp-valider>{envoi ? 'Enregistrement…' : 'Valider'}</button>}
         </div>
       </div>
@@ -820,6 +887,8 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-a-verifier-bouton{background:none;border:0;padding:0 2px;font:inherit;font-weight:800;color:var(--color-svv-orange);text-decoration:underline;cursor:pointer;min-height:44px}
 .fcp-examen{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 /* 🔴 (26/11/2026, point 3) l'en-tête repliable des adresses proposées : un bouton qui a l'allure du sous-titre, cible de 44 px */
+.fcp-en-attente{color:var(--color-svv-muted);font-style:italic;font-size:.85rem}
+.fcp-valider-rattachement{width:100%;min-height:44px;margin:8px 0 4px;white-space:normal}
 .fcp-propositions-tete{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer;color:inherit}
 .fcp-examen-gestes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fcp-petit{font-size:.82rem}

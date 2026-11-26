@@ -789,47 +789,108 @@ describe('« à vérifier » sur une adresse rattachée : un bouton, l’examen,
   });
 });
 
-/** 🔴🔴 Arno (26/11/2026, 11h58, point 2) — « je dois pouvoir rattacher un digicode pour chacune des adresses de la copropriété […] des bâtiments /
- *  cages d'escalier avec un digicode pour chacun » : un bloc par adresse, dans l'ordre ADRESSES, y compris avant le premier « Valider ». */
-describe('DIGICODES : un bloc par adresse de la copropriété', () => {
+/** 🔴🔴 Arno (26/11/2026, 11h58, point 2, puis 12h23, point 1) — un bloc DIGICODES par adresse de la copropriété ; « je voudrais pouvoir rattacher autant
+ *  d'adresses que je veux et, une fois toutes les adresses voulues rattachées, valider l'ensemble avec un bouton […] ; une fois validé, chacune des
+ *  adresses a son bloc configurable dans la partie DIGICODES. » */
+describe('DIGICODES : un bloc par adresse VALIDÉE ; le rattachement en deux temps', () => {
   const DIG = (cle: string, voie: string) => ({ cle, voie, codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] });
+  const ADR = (cle: string, libelle: string, principale = false) => ({ cle, libelle, codePostal: '75011', commune: 'Paris', principale });
+  const BASE = { declaree: false, id: null, syndic: null, saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], batimentsParAdresse: true };
+  let ferme: number;
   beforeEach(() => {
-    lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], batimentsParAdresse: true,
-      digicodes: [DIG('residence les tilleuls', 'Résidence Les Tilleuls'), DIG('12 rue des lilas', '12 rue des Lilas')] }), coproprieteDuBien: true };
+    ferme = 0;
+    lu = { fiche: FICHE({ ...BASE, digicodes: [DIG('residence les tilleuls', 'Résidence Les Tilleuls'), DIG('12 rue des lilas', '12 rue des Lilas')] }), coproprieteDuBien: true };
+    // l'enregistrement rend la fiche AVEC les adresses envoyées (comme le serveur)
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).startsWith('/api/admin/gestion/coproprietes/fiche') && init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'enregistrer') {
+          posts.push(c);
+          const sec = (c.adresses as { libelle: string }[]).map((a) => ADR(a.libelle.toLowerCase(), a.libelle));
+          return json({ etat: 'ok', data: FICHE({ ...BASE, declaree: true, id: 7, adresses: [ADR('residence les tilleuls', 'Résidence Les Tilleuls', true), ...sec],
+            digicodes: [DIG('residence les tilleuls', 'Résidence Les Tilleuls'), ...sec.map((a) => DIG(a.cle, a.libelle))] }) });
+        }
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
   });
+  const monter = async () => { await act(async () => { root.render(createElement(FicheCopropriete, { lotId: 1, onFerme: () => { ferme++; } })); }); await calmer(); };
   const blocs = () => [...document.querySelectorAll('[data-digicodes-copro] [data-dcp-adresse]')].map((x) => x.getAttribute('data-dcp-adresse'));
-  it('une adresse rattachée reçoit SON bloc tout de suite (avant « Valider »), à sa place dans l’ordre ADRESSES ; retirée, son bloc s’en va', async () => {
-    await ouvrir();
+  const rattacher = async () => { await clic('[data-fcp-plus-adresse]'); await clic('[data-fcp-rattacher-parcelle]'); };
+  it('rattachée : « en attente de validation », retirable, PAS de bloc ; le bouton pleine largeur la valide : enregistrée, journalisée, son bloc arrive', async () => {
+    await monter();
     expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']);
-    await clic('[data-fcp-plus-adresse]');
-    await clic('[data-fcp-rattacher-parcelle]');
+    expect(document.querySelector('[data-fcp-valider-rattachement]')).toBeNull();
+    await rattacher();
+    const ligne = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!;
+    expect(ligne.querySelector('[data-fcp-en-attente]')?.textContent).toBe('en attente de validation');
+    expect(ligne.querySelector('[data-fcp-retirer]')).not.toBeNull();
+    expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']); // pas encore de bloc
+    expect($('[data-fcp-valider-rattachement]').textContent).toBe('Valider le rattachement des adresses à cette copropriété (1)');
+    await clic('[data-fcp-valider-rattachement]');
+    const e = posts.find((p) => p.action === 'enregistrer')!;
+    expect(e.adresses).toMatchObject([{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { libelle: '14 rue des Lilas', codePostal: '75011', commune: 'Paris' }]);
+    expect([e.contacts, e.digicodes, e.syndicId]).toEqual([undefined, undefined, null]); // rien d'autre de la saisie
     expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas', '14 rue des lilas']);
-    // chaque bloc : son digicode, « pas de digicode », le « + » d'un bâtiment ou d'une cage
-    const b = document.querySelector('[data-dcp-adresse="14 rue des lilas"]')!;
-    expect([!!b.querySelector('[data-dcp-code-commun]'), !!b.querySelector('[data-dcp-plus]')]).toEqual([true, true]);
-    await act(async () => { (document.querySelector('[data-fcp-adresse="secondaire"]:last-child [data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
-    await clic('[data-fcp-retirer-oui]');
-    expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']);
+    expect(document.querySelector('[data-fcp-en-attente]')).toBeNull();
+    expect(document.querySelector('[data-fcp-valider-rattachement]')).toBeNull();
+    expect($('[data-fcp-info]').textContent).toBe('1 adresse rattachée à la copropriété : chacune a son bloc dans DIGICODES.');
+    expect($('[data-fcp-propositions-basculer]').getAttribute('aria-expanded')).toBe('false');
   });
-  it('le digicode de l’adresse rattachée et deux cages d’escalier partent avec le premier « Valider », à SON adresse', async () => {
-    await ouvrir();
-    await clic('[data-fcp-plus-adresse]');
-    await clic('[data-fcp-rattacher-parcelle]');
-    const sel = (s: string) => `[data-dcp-adresse="14 rue des lilas"] ${s}`;
+  it('« × » sur une adresse en attente : elle s’en va, sans bloc ni bouton ; la saisie en cours (nom) n’est pas perdue par la validation', async () => {
+    await monter();
+    await saisir('[data-fcp-nom]', 'Les Tilleuls');
+    await rattacher();
+    await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    await clic('[data-fcp-retirer-oui]');
+    expect([document.querySelector('[data-fcp-en-attente]'), document.querySelector('[data-fcp-valider-rattachement]')]).toEqual([null, null]);
+    await clic('[data-fcp-rattacher-parcelle]'); // le panneau d'ajout est resté ouvert
+    await clic('[data-fcp-valider-rattachement]');
+    expect(($('[data-fcp-nom]') as HTMLInputElement).value).toBe('Les Tilleuls'); // gardé à l'écran (fiche nouvelle : envoyé avec sa création)
+    expect(posts.find((p) => p.action === 'enregistrer')!.nom).toBe('Les Tilleuls');
+  });
+  it('après la validation : le digicode de l’adresse et deux cages d’escalier partent avec « Valider », à SON adresse', async () => {
+    await monter();
+    await rattacher();
+    await clic('[data-fcp-valider-rattachement]');
+    posts.length = 0;
+    const sel = (x: string) => `[data-dcp-adresse="14 rue des lilas"] ${x}`;
     await saisir(sel('[data-dcp-code-commun]'), '1414');
     await clic(sel('[data-dcp-plus]'));
     await saisir(sel('[data-dcp-nom-batiment]'), 'A');
     await saisir(sel('[data-dcp-batiment="nouveau"] [data-dcp-code-batiment]'), 'A14');
     await clic(sel('[data-dcp-plus]'));
-    const noms = document.querySelectorAll(sel('[data-dcp-nom-batiment]'));
     await saisir(`${sel('[data-dcp-batiment="nouveau"]')}:last-of-type [data-dcp-nom-batiment]`, 'B');
-    expect(noms.length).toBe(2);
     await saisir(`${sel('[data-dcp-batiment="nouveau"]')}:last-of-type [data-dcp-code-batiment]`, 'B14');
     await clic('[data-fcp-valider]');
-    expect(document.querySelector('[data-fcp-etape-alerte], [data-fcp-valider-quand-meme]')).toBeNull(); // une adresse rattachée : pas d'alerte de parcelle
-    const e = posts.find((p) => p.action === 'enregistrer')!;
-    expect(e.digicodes).toEqual([{ cle: '14 rue des lilas', commun: { code: '1414', aucun: false },
+    expect(posts.find((p) => p.action === 'enregistrer')!.digicodes).toEqual([{ cle: '14 rue des lilas', commun: { code: '1414', aucun: false },
       batiments: [{ libelle: 'A', code: 'A14', aucun: false, confirme: false }, { libelle: 'B', code: 'B14', aucun: false, confirme: false }] }]);
+  });
+  it('filet : le « Valider » du bas enregistre AUSSI les adresses en attente ; rien n’est perdu', async () => {
+    await monter();
+    await rattacher();
+    await clic('[data-fcp-valider]');
+    expect((posts.find((p) => p.action === 'enregistrer')!.adresses as unknown[]).length).toBe(2);
+    expect(document.querySelector('[data-fcp-en-attente]')).toBeNull();
+  });
+  it('fermer avec des adresses en attente : la question ; « Revenir » garde tout ; « Fermer quand même » ferme ; Échap passe par la même question', async () => {
+    await monter();
+    await rattacher();
+    await clic('[data-fcp-annuler]');
+    expect([ferme, $('[data-fcp-fermer-attente]').textContent]).toEqual([0, '1 adresse rattachée non validée sera perdue.Valider le rattachementFermer quand mêmeRevenir']);
+    await clic('[data-fcp-fermer-attente-non]');
+    expect([document.querySelector('[data-fcp-fermer-attente]'), document.querySelector('[data-fcp-en-attente]') !== null]).toEqual([null, true]);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }); await calmer();
+    expect([ferme, document.querySelector('[data-fcp-fermer-attente]') !== null]).toEqual([0, true]);
+    await clic('[data-fcp-fermer-attente-oui]');
+    expect(ferme).toBe(1);
+    expect(posts.filter((p) => p.action === 'enregistrer')).toHaveLength(0);
+  });
+  it('sans adresse en attente : « Fermer » ferme tout de suite (comme avant)', async () => {
+    await monter();
+    await clic('[data-fcp-annuler]');
+    expect(ferme).toBe(1);
   });
 });
 
