@@ -4,7 +4,7 @@ import type { MandatDUnBien } from '../../../../lib/location/mandatParBienRepo';
 import { PropositionRattachement } from '../location/PropositionRattachement';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
-import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, useRetraitsBatiment } from './DigicodesCopropriete';
+import { ChampCodeDigicode, CSS_CHAMP_CODE_DIGICODE, ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, useRetraitsBatiment } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
@@ -112,7 +112,7 @@ function Repli({ titre, resume, children }: { titre: string; resume?: string; ch
   return (
     <details className="slf" data-section-location>
       <summary><span className="slf-titre">{titre}</span>{resume !== undefined && resume !== '' && <span className="slf-resume"> · {resume}</span>}</summary>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_PREAVIS + CSS_CONDITIONS}</style>
+      <style>{CSS_CHAMP_CODE_DIGICODE + CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_PREAVIS + CSS_CONDITIONS}</style>
       <div className="slf-corps loc-page">{children}</div>
     </details>
   );
@@ -967,8 +967,8 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             ) : digiCharge ? <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicodes-charge>Digicode : chargement…</p> : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
             {/* 🔴 (Arno, 26/11/2026, 14h35) le code en MAJUSCULES pendant la frappe */}
-            {v.digicode === 'oui' && <label className="loc-champ">Code du digicode<input value={majusculesDigicode(v.digicodeCode)}
-              onChange={(e) => { const val = majusculesDigicode(e.target.value); setV((x) => ({ ...x, digicodeCode: val })); }} /></label>}
+            {v.digicode === 'oui' && <label className="loc-champ">Code du digicode<ChampCodeDigicode valeur={v.digicodeCode}
+              onCode={(val) => setV((x) => ({ ...x, digicodeCode: val }))} data-sl-code-digicode /></label>}
             {c.digicodeImmeuble?.mention && <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicode-immeuble>Digicode : {c.digicodeImmeuble.mention}. Le modifier ici le modifie pour tous ces biens.</p>}
             </>}
             {champ('precisionAcces', 'Précision d’accès')}

@@ -25,7 +25,9 @@ describe('l’immeuble d’une adresse : la clé normalisée', () => {
     expect(mentionDigicode({ voie: '12 rue Victor Hugo', codePostal: null, commune: null }, 1)).toBe('Commun à tous les biens du 12 rue Victor Hugo (1 bien)');
     expect(verifierDigicode({ digicode: 'oui', code: ' 57B83 ' })).toEqual({ ok: true, valeur: { digicode: true, code: '57B83' } });
     expect(verifierDigicode({ digicode: false, code: '57B83' })).toEqual({ ok: true, valeur: { digicode: false, code: null } });
-    expect(verifierDigicode({ digicode: true, code: '123456789' })).toEqual({ ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' });
+    // 🔴🔴 (décision d'Arno, 26/11/2026) la limite unique : 15 (avant : 8)
+    expect(verifierDigicode({ digicode: true, code: '123456789' })).toEqual({ ok: true, valeur: { digicode: true, code: '123456789' } });
+    expect(verifierDigicode({ digicode: true, code: '1234567890123456' })).toEqual({ ok: false, motif: 'Digicode trop long : 15 caractères au maximum.' });
     expect(libelleValeur({ digicode: true, code: 'A1' })).toBe('oui · code A1');
   });
   it('🔴 le syndic n’entre PAS dans la clé (rien dans le module ne le nomme)', () => {

@@ -313,7 +313,9 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
     expect(ecritures().filter((x) => x.s.includes('SET nomenclature_batiments = $2')).map((x) => x.p[1])).toEqual(['lettres']); // la règle déjà en place, jamais « chiffres »
   });
   it('un code trop long : refusé dès la saisie ; une adresse qui n’est pas de la copropriété : refusée', async () => {
-    expect((await enregistrerCopropriete(D([{ libelle: 'B', code: '123456789' }]), AUTEUR)).ok).toBe(false);
+    // 🔴🔴 (décision d'Arno, 26/11/2026) la limite unique : 15 — 9 caractères passent désormais, 16 sont refusés avec le message (jamais coupés)
+    expect(await enregistrerCopropriete(D([{ libelle: 'B', code: '1234567890123456' }]), AUTEUR)).toMatchObject({ ok: false, motif: 'Digicode trop long : 15 caractères au maximum.' });
+    expect(await enregistrerCopropriete(D([{ libelle: 'B', code: '123456789012345678901' }]), AUTEUR)).toMatchObject({ ok: false, motif: 'Digicode trop long : 15 caractères au maximum.' });
     expect(await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: '99 rue Ailleurs', batiments: [{ libelle: 'B', code: '1', aucun: false }] }] }, AUTEUR))
       .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
     expect(dg.ecrits).toEqual([]);

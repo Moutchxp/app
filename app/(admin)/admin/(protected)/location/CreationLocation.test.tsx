@@ -281,19 +281,21 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(posts).toEqual([]);
   });
 
-  it('ACCÈS : le « Code » à droite des boutons du digicode — 8 caractères au plus, actif sur Oui, vidé sur Non ; « Précision »', async () => {
+  it('ACCÈS : le « Code » à droite des boutons du digicode — 15 caractères au plus (décision d’Arno, 26/11/2026 ; avant : 8), actif sur Oui, vidé sur Non ; « Précision »', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     await repondreEnGestion();
     expect(container.querySelector('[aria-label="Ascenseur"]')).not.toBeNull();
     const code = () => container.querySelector('[data-digicode] input') as HTMLInputElement;
     expect(code().placeholder).toBe('ex. 57B83');
-    expect(code().maxLength).toBe(8);
+    expect(code().hasAttribute('maxlength')).toBe(false); // borné à 15 par ChampCodeDigicode, jamais coupé
     expect(code().disabled).toBe(true);
     const digi = (mot: string) => [...container.querySelectorAll('[aria-label="Digicode"] button')].find((x) => x.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
     await act(async () => { digi('Oui').click(); });
     expect(code().disabled).toBe(false);
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(code(), '57B83XYZ99'); code().dispatchEvent(new Event('input', { bubbles: true })); });
-    expect(code().value).toBe('57B83XYZ');
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(code(), '57b83xyz99'); code().dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(code().value).toBe('57B83XYZ99'); // 10 caractères : acceptés entiers, en majuscules
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(code(), '57B83XYZ99ABCDEF'); code().dispatchEvent(new Event('input', { bubbles: true })); });
+    expect([code().value, container.querySelector('[data-digicode] [data-ccd-trop]')?.textContent]).toEqual(['57B83XYZ99', '15 caractères au maximum']); // 16 : refusé, rien de coupé
     await act(async () => { digi('Non').click(); });
     expect(code().value).toBe('');
     expect(code().disabled).toBe(true);

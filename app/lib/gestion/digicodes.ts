@@ -1,4 +1,4 @@
-import { cleBatiment, libelleBatiment, libelleValeur, majusculesDigicode, type ValeurDigicode } from '../location/digicodeImmeuble';
+import { cleBatiment, libelleBatiment, libelleValeur, majusculesDigicode, MAX_CODE_DIGICODE, MOTIF_CODE_DIGICODE_TROP_LONG, type ValeurDigicode } from '../location/digicodeImmeuble';
 
 /**
  * ══ 🔴🔴 LES DIGICODES UNIFIÉS (Arno, 16/11/2026, chantier « Digicodes unifiés », migration 478). MODULE PUR. ═══════════════════════════════
@@ -197,17 +197,17 @@ export const MOTIF_ARBITRAGE_HORS_LISTE = 'Cette valeur ne fait pas partie des v
 export const MOTIF_PAS_A_ARBITRER = 'Ce digicode n’est pas (ou plus) à arbitrer : rechargez la fiche. Rien n’est enregistré.';
 
 /** 🔴 (Arno, 17/11/2026 : « saisie limitée à 15 caractères […] Un code existant plus long reste affiché tel quel, jamais tronqué en base. Même réglage partout où le composant unique sert. ») la base unique : 15 caractères au plus (482). Les anciennes saisies (396, 399, fiche du bien) gardent leurs 8 caractères. */
-export const MAX_CODE_DIGICODE_UNIFIE = 15;
+// 🔴🔴 (décision d'Arno, 26/11/2026) la limite est MAX_CODE_DIGICODE (location/digicodeImmeuble.ts), la seule ; plus de copie ici
 /** Le refus d'un code trop long. PUR. */
-export const motifCodeTropLong = (max: number): string => `Le code du digicode fait ${max} caractères au plus.`;
+export const motifCodeTropLong = (): string => MOTIF_CODE_DIGICODE_TROP_LONG;
 
 /** La saisie d'une valeur : oui / non, code de 15 caractères au plus (`max`) et seulement avec oui ; `null` (rien) refusé — un code ne se « vide » pas. PUR. */
-export function valeurSaisie(brut: { digicode?: unknown; code?: unknown }, max: number = MAX_CODE_DIGICODE_UNIFIE): { ok: true; valeur: { digicode: boolean; code: string | null } } | { ok: false; motif: string } {
+export function valeurSaisie(brut: { digicode?: unknown; code?: unknown }): { ok: true; valeur: { digicode: boolean; code: string | null } } | { ok: false; motif: string } {
   const digicode = brut.digicode === true || brut.digicode === 'oui' ? true : brut.digicode === false || brut.digicode === 'non' ? false : null;
   if (digicode === null) return { ok: false, motif: 'Indiquez le code, ou « pas de digicode ».' };
   // 🔴 (Arno, 26/11/2026, 14h35) le code s'enregistre en MAJUSCULES (tout écrit de gestion_digicode passe ici)
   const code = digicode && typeof brut.code === 'string' && brut.code.trim() !== '' ? majusculesDigicode(brut.code.trim()) : null;
-  if (code !== null && code.length > max) return { ok: false, motif: motifCodeTropLong(max) };
+  if (code !== null && code.length > MAX_CODE_DIGICODE) return { ok: false, motif: MOTIF_CODE_DIGICODE_TROP_LONG };
   if (digicode && code === null) return { ok: false, motif: 'Indiquez le code du digicode (ou « pas de digicode »).' };
   return { ok: true, valeur: { digicode, code } };
 }
@@ -288,7 +288,7 @@ export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null 
   const code = (x: unknown): { code: string; aucun: boolean } | null => {
     if (typeof x !== 'object' || x === null) return null;
     const y = x as Record<string, unknown>;
-    return { code: typeof y.code === 'string' ? y.code.trim().slice(0, 20) : '', aucun: y.aucun === true };
+    return { code: typeof y.code === 'string' ? y.code.trim() : '', aucun: y.aucun === true }; // jamais coupé : refusé au-delà de MAX_CODE_DIGICODE
   };
   const batiment = typeof b.batiment === 'string' && b.batiment.trim() !== '' ? b.batiment.replace(/\s+/g, ' ').trim().slice(0, 60) : null;
   const nom = (x: unknown): string | null => (typeof x === 'string' && x.trim() !== '' ? x.replace(/\s+/g, ' ').trim().slice(0, 60) : null);

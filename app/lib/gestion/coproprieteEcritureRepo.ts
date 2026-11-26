@@ -97,7 +97,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   const syndicId = typeof b.syndicId === 'number' && Number.isSafeInteger(b.syndicId) && b.syndicId > 0 ? b.syndicId : null;
   const conflitsParcelle = (Array.isArray(b.conflitsParcelle) ? b.conflitsParcelle.slice(0, 20) : [])
     .map((x) => (x ?? {}) as Record<string, unknown>).map((k) => ({ autre: texte(k.autre), parcelle: nul(texte(k.parcelle, 40)) })).filter((k) => cleImmeuble(k.autre) !== '');
-  const code = (y: Record<string, unknown>): CodeSaisi => ({ code: typeof y.code === 'string' ? y.code.trim().slice(0, 20) : '', aucun: y.aucun === true });
+  // 🔴🔴 (décision d'Arno, 26/11/2026) jamais coupé : un code de plus de MAX_CODE_DIGICODE caractères est REFUSÉ (verifierDigicode, plus bas)
+  const code = (y: Record<string, unknown>): CodeSaisi => ({ code: typeof y.code === 'string' ? y.code.trim() : '', aucun: y.aucun === true });
   const digicodes = (Array.isArray(b.digicodes) ? b.digicodes.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>).map((d) => ({
     cle: cleImmeuble(texte(d.cle)), ...(typeof d.commun === 'object' && d.commun !== null ? { commun: code(d.commun as Record<string, unknown>) } : {}),
     batiments: (Array.isArray(d.batiments) ? d.batiments.slice(0, 40) : []).map((y) => (y ?? {}) as Record<string, unknown>)

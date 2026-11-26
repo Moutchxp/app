@@ -77,10 +77,10 @@ describe.skipIf(!baseEssai)('🔴 le syndic du bien, par les fonctions de la Ges
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_journal')).rows[0].n)).toBe(avant);
   });
 
-  it('③ digicode : 8 caractères au plus, effacé sur « non » ; parking nu : le N° de place dans `porte`', async () => {
+  it('③ digicode : 15 caractères au plus (décision d’Arno, 26/11/2026), effacé sur « non » ; parking nu : le N° de place dans `porte`', async () => {
     const base = { proprietaireIds: [proprietaireId], annexes: [] };
-    const trop = await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '123456789' } }, AUTEUR);
-    expect(trop).toEqual({ etat: 'refus', motif: 'Le code du digicode fait 8 caractères au plus.' });
+    const trop = await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '1234567890123456' } }, AUTEUR);
+    expect(trop).toEqual({ etat: 'refus', motif: 'Digicode trop long : 15 caractères au maximum.' }); // 🔴🔴 (décision d'Arno, 26/11/2026) la limite unique, 15
     const okCode = ok(await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '57B83' } }, AUTEUR));
     const non = ok(await creerBienComplet({ ...base, logement: { adresse: `2 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'non', digicodeCode: '57B83' } }, AUTEUR));
     const p = ok(await creerBienComplet({ ...base, logement: { adresse: `3 rue Garage${S}`, famille: 'parking', parkingType: 'box_simple', porte: '42' } }, AUTEUR));

@@ -14,7 +14,7 @@ import { PropositionRattachement } from './PropositionRattachement';
 import { FenetreCarte } from '../gestion/CartesPersonnes';
 import { TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne } from '../../../../lib/gestion/adresseSaisie';
 import { adresseBienEnLigne, adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode, useRetraitsBatiment } from '../gestion/DigicodesCopropriete';
+import { ChampCodeDigicode, CSS_CHAMP_CODE_DIGICODE, ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode, useRetraitsBatiment } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
@@ -30,7 +30,6 @@ import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
 import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
-import { majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
 import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
@@ -869,7 +868,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_ADRESSE_BIEN + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE + CSS_RENTRE_OCCUPE}</style>
+      <style>{CSS_CHAMP_CODE_DIGICODE + CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_ADRESSE_BIEN + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE + CSS_RENTRE_OCCUPE}</style>
       {modification !== undefined ? (
         <>
           {/* Arno (23/10/2026) : la page « Ajouter un nouveau bien », à l'identique, sans le bloc « Propriétaire(s) » (le bien y est
@@ -1069,10 +1068,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
               <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
                 onChoix={(v) => { digicodeTouche.current = true; setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />
-              {/* Arno (17/10/2026) : le « Code » À DROITE des boutons, 8 caractères au plus ; actif seulement si Oui, vidé sur Non. */}
+              {/* Arno (17/10/2026) : le « Code » À DROITE des boutons ; actif seulement si Oui, vidé sur Non. 🔴🔴 (décision d'Arno, 26/11/2026) la limite
+                  unique, 15 caractères (avant : 8), avec son compteur et « 15 caractères au maximum » — jamais coupé */}
               <label className="loc-code-digicode">Code
-                <input value={majusculesDigicode(b.digicodeCode)} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
-                  onChange={(e) => { digicodeTouche.current = true; const val = majusculesDigicode(e.target.value.slice(0, 8)); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
+                <ChampCodeDigicode valeur={b.digicodeCode} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
+                  onCode={(val) => { digicodeTouche.current = true; setB((x) => ({ ...x, digicodeCode: val })); }} data-loc-code-digicode /></label>
               {digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{lu !== undefined ? ' — le modifier vaut pour tout l’immeuble (son bâtiment)' : digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>
                 : lu?.digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{lu.digicodeImmeuble.mention} — le modifier vaut pour tout l’immeuble (son bâtiment).</small> : null}
             </div>)}

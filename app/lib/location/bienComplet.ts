@@ -16,7 +16,7 @@
  * Un parking nu n'a ni pièces, ni meublé, ni Carrez, ni annexes, ni caractéristiques complémentaires (époque, chauffage,
  * DPE). La famille n'a pas de colonne : elle EST la catégorie (logement / local / parking) — migration 376.
  */
-import { majusculesBatimentOuNul, majusculesDigicodeOuNul } from './digicodeImmeuble';
+import { codeDigicodeTropLong, majusculesBatimentOuNul, majusculesDigicodeOuNul, MAX_CODE_DIGICODE, MOTIF_CODE_DIGICODE_TROP_LONG } from './digicodeImmeuble';
 import { verifierChampsBien, type ChampsBien } from './locationBien';
 import { lireNombre } from '../gestion/honorairesGestion';
 import { aujourdhuiParis, dateDpeFuture } from './reglagesDpe';
@@ -334,9 +334,10 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
     surface = n;
   }
   const digicode = ouiNon(l.digicode);
-  // Le code du digicode : 8 caractères au plus (Arno, 17/10/2026), et seulement si digicode = oui.
-  if (digicode === true && typeof l.digicodeCode === 'string' && l.digicodeCode.trim().length > 8) {
-    return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
+  // Le code du digicode : seulement si digicode = oui ; 🔴🔴 (décision d'Arno, 26/11/2026) MAX_CODE_DIGICODE (15) caractères au plus, la limite
+  // unique (avant : 8 ici) ; au-delà, REFUSÉ (jamais coupé)
+  if (digicode === true && typeof l.digicodeCode === 'string' && codeDigicodeTropLong(l.digicodeCode)) {
+    return { ok: false, motif: MOTIF_CODE_DIGICODE_TROP_LONG };
   }
   // L'ASSURANCE PNO (Arno, 18/10/2026) : la date anniversaire seulement si Oui — repasser à Non la vide.
   // « Paiement des charges » (Arno, 21/10/2026) : Propriétaire / Agence / vide ; toute autre valeur est refusée.
@@ -357,7 +358,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, dpeNonSoumis: dpeNonSoumis ? true : null, commentaire: texte(l.commentaire, 4000),
       typeLocal: dans(TYPES_LOCAL, l.typeLocal), parkingSituation: dans(SITUATIONS_PARKING, l.parkingSituation),
       parkingType: dans(TYPES_PARKING, l.parkingType), surfaceM2: surface,
-      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? majusculesDigicodeOuNul(texte(l.digicodeCode, 8)) : null, // 🔴 (Arno, 26/11/2026, 14h35) en MAJUSCULES
+      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? majusculesDigicodeOuNul(texte(l.digicodeCode, MAX_CODE_DIGICODE)) : null, // 🔴 (Arno, 26/11/2026, 14h35) en MAJUSCULES
       precisionAcces: texte(l.precisionAcces, 500),
       assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
       chargesCopro: dans(CHARGES_COPRO, l.chargesCopro),

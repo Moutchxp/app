@@ -4,9 +4,9 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { avertissementApresSaisie, avertissementsDesBatiments, batimentDe, connusPourAdresse, LIBELLE_BATIMENT_CAGE, menuBatiments, nomenclatureDeLAdresse, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
-import { majusculesBatiment, majusculesDigicode } from '../../../../lib/location/digicodeImmeuble';
+import { codeDigicodeTropLong, majusculesBatiment, majusculesDigicode, MAX_CODE_DIGICODE, TEXTE_LIMITE_CODE_DIGICODE } from '../../../../lib/location/digicodeImmeuble';
 import type { EtatPlaceDigicode, FicheCopropriete, MailGestionHisto } from '../../../../lib/gestion/copropriete';
-import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
+import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, codesEnLigne, enteteLogement, locataireCochable, proprietairesRegroupes, resumeChangements, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
 import { adressesUniques, prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 
@@ -73,6 +73,32 @@ const memes = (a: CodeLigne, b: CodeLigne): boolean => a.aucun === b.aucun && a.
  * remplacé par « Digicode ». Même mot partout, y compris dans la fenêtre « Modifier » (« Nouveau digicode »). » Un seul mot, pour tous les champs.
  */
 export const TEXTE_EXEMPLE_DIGICODE = 'Digicode';
+
+/**
+ * 🔴🔴 (décision d'Arno, 26/11/2026) LE champ de saisie d'un digicode, partout (copropriété, bâtiment / cage, « Corriger une erreur », « Nouveau
+ * digicode », ancien champ « Code » d'un bien) : en MAJUSCULES (14h35), limité à MAX_CODE_DIGICODE caractères avec un compteur discret. Un caractère
+ * de trop (frappe ou collage) n'est PAS accepté et « 15 caractères au maximum » s'affiche sous le champ : jamais un code coupé sans prévenir (pas
+ * d'attribut maxLength, qui couperait un collage en silence). Le serveur refuse de même au-delà.
+ */
+export function ChampCodeDigicode({ valeur, onCode, ...props }: { valeur: string; onCode: (code: string) => void }
+  & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'maxLength'>) {
+  const [trop, setTrop] = useState(false);
+  const v = majusculesDigicode(valeur ?? '');
+  const depasse = trop || codeDigicodeTropLong(v);
+  return (<>
+    <input {...props} value={v} aria-invalid={depasse || undefined}
+      onChange={(e) => { const c = majusculesDigicode(e.target.value); if (c.length > MAX_CODE_DIGICODE) { setTrop(true); return; } setTrop(false); onCode(c); }} />
+    <span className="ccd-pied" data-ccd-pied>
+      {depasse && <span className="ccd-trop" role="alert" data-ccd-trop>{TEXTE_LIMITE_CODE_DIGICODE}</span>}
+      <span className="ccd-compteur" data-ccd-compteur>{v.length}/{MAX_CODE_DIGICODE}</span></span>
+  </>);
+}
+export const CSS_CHAMP_CODE_DIGICODE = `
+.ccd-pied{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;font-size:.75rem;font-weight:400;line-height:1.2;min-height:1em}
+.ccd-compteur{color:var(--color-svv-muted);font-variant-numeric:tabular-nums;margin-left:auto}
+.ccd-trop{color:var(--color-svv-red);font-weight:700}
+.dcp-champ-code .ccd-pied{width:calc(15ch + 20px);max-width:100%;flex-wrap:wrap}
+`;
 
 export function avecTousLesBatiments(lignes: readonly LigneBatiment[], connus: readonly Pick<BatimentConnu, 'cle' | 'libelle'>[], deja: ReadonlySet<string> = new Set()): LigneBatiment[] {
   const vus = new Set([...deja, ...lignes.map((b) => batimentDe(b.libelle)?.cle).filter((x): x is string => x !== undefined)]);
@@ -282,8 +308,8 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
             <span className="dcp-code-groupe">
             <label className="dcp-champ dcp-champ-code"><span>Digicode copropriété</span>
-              <input value={majusculesDigicode(d.commun.code)} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE}
-                onChange={(e) => { const code = majusculesDigicode(e.target.value); maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code } })); }} data-dcp-code-commun /></label>
+              <ChampCodeDigicode valeur={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
+                onCode={(code) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
               onChange={(e) => { const v = pasDeDigicode(`${d.cle}#copro`, d.commun, e.target.checked); maj(d.cle, (x) => ({ ...x, commun: v })); }} data-dcp-aucun-commun /><span>pas de digicode</span></label>
             {plus(d)}
@@ -319,7 +345,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
               </div>}
               <span className="dcp-code-groupe">
               <label className="dcp-champ dcp-champ-code"><span data-dcp-intitule-batiment={b.nouveau && b.choisi !== true ? undefined : b.libelle}>{b.nouveau && b.choisi !== true ? 'Digicode' : intituleDigicodeBatiment(b.libelle)}</span>
-                <input value={majusculesDigicode(b.code)} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: majusculesDigicode(e.target.value) })} data-dcp-code-batiment /></label>
+                <ChampCodeDigicode valeur={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} onCode={(code) => majLigne(d.cle, b.k, { code })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, pasDeDigicode(`${d.cle}#${b.k}`, b, e.target.checked))} data-dcp-aucun-batiment /><span>pas de digicode</span></label>
               {/* 🔴 (Arno, 17/11/2026) le « − » rond, dans la colonne du « + » (il remplace le « × » d'une ligne nouvelle : la même action, confirmée) */}
               {moins(d.cle, b, sorteDeSaisie(b))}
@@ -400,8 +426,8 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
           <div className="dcp-ligne">
             <label className="dcp-champ"><span>Code corrigé</span>
-              <input value={majusculesDigicode(saisie.code)} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} autoFocus
-                onChange={(e) => setSaisie({ ...saisie, code: majusculesDigicode(e.target.value) })} data-dcp-correction-code /></label>
+              <ChampCodeDigicode valeur={saisie.code} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} autoFocus
+                onCode={(code) => setSaisie({ ...saisie, code })} data-dcp-correction-code /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={saisie.aucun} disabled={envoi} onChange={(e) => setSaisie({ code: '', aucun: e.target.checked })} /><span>pas de digicode</span></label>
           </div>
           {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-correction-erreur>{erreur}</p>}
@@ -523,8 +549,8 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
               {c !== undefined && (
                 <div className="dcp-modifier-champs" data-dcp-modifier-champs>
                   <label className="dcp-champ"><span>Nouveau digicode</span>
-                    <input value={majusculesDigicode(c.code)} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
-                      onChange={(e) => { const code = majusculesDigicode(e.target.value); setCoches((x) => ({ ...x, [p.cle]: { ...c, code } })); }} data-dcp-modifier-code /></label>
+                    <ChampCodeDigicode valeur={c.code} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
+                      onCode={(code) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code } }))} data-dcp-modifier-code /></label>
                   <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
                   <label className="dcp-champ"><span>Date d’activation</span>
                     <input type="date" value={c.date} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, date: e.target.value } }))} data-dcp-modifier-date /></label>
@@ -1152,7 +1178,7 @@ export const MOT_CHOIX_B = 'B. Prévenir la Gestion et les locataires';
 export const LARGEUR_ETROITE_DCP = 330;
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : les champs passent a la ligne. */
-export const CSS_DIGICODES_COPRO = `
+export const CSS_DIGICODES_COPRO = CSS_CHAMP_CODE_DIGICODE + `
 .dcp{display:flex;flex-direction:column;gap:10px;min-width:0}
 .dcp-regle{margin:0;font-size:.85rem}
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}

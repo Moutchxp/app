@@ -259,7 +259,9 @@ describe('② le champ du code : 15 caractères', () => {
     await act(async () => { root.render(createElement(Hote)); });
     const commun = $('[data-dcp-code-commun]') as HTMLInputElement;
     const bat = $('[data-dcp-code-batiment]') as HTMLInputElement;
-    expect([commun.maxLength, bat.maxLength]).toEqual([15, 15]);
+    // 🔴🔴 (décision d'Arno, 26/11/2026) bornée à 15 par le champ commun (ChampCodeDigicode) : compteur, pas d'attribut maxLength (il couperait un collage)
+    expect([commun.hasAttribute('maxlength'), bat.hasAttribute('maxlength')]).toEqual([false, false]);
+    expect(commun.nextElementSibling?.querySelector('[data-ccd-compteur]')?.textContent).toMatch(/\/15$/);
     expect([commun.closest('label')?.className, bat.closest('label')?.className]).toEqual(['dcp-champ dcp-champ-code', 'dcp-champ dcp-champ-code']);
     expect(CSS_DIGICODES_COPRO).toContain('.dcp-champ.dcp-champ-code input{width:calc(15ch + 20px);max-width:100%}');
     expect(CSS_DIGICODES_COPRO).toContain('.dcp-code-groupe{display:flex;flex-wrap:nowrap;');
@@ -269,6 +271,7 @@ describe('② le champ du code : 15 caractères', () => {
     expect(ligne.querySelector('.dcp-aucun')).not.toBeNull();
     expect(ligne.querySelector('[data-dcp-plus]')).not.toBeNull();
     expect(bat.value).toBe('CODE-EXISTANT-DE-18');
+    expect(bat.nextElementSibling?.querySelector('[data-ccd-trop]')?.textContent).toBe('15 caractères au maximum'); // gardé tel quel, et signalé
   });
 });
 

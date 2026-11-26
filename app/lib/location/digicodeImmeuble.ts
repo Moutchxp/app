@@ -12,7 +12,15 @@ import { adresseAffichee, cleAdresse } from './mailNouvelleLocation';
 export interface AdresseImmeuble { voie: string | null; codePostal: string | null; commune: string | null }
 export interface ValeurDigicode { digicode: boolean | null; code: string | null }
 
-export const MAX_CODE_DIGICODE = 8;
+/** 🔴🔴 (décision d'Arno, 26/11/2026) « une seule limite partout, 15 caractères, celle de la base » (contrainte gestion_digicode_code_longueur_chk) :
+ *  LA constante de la longueur d'un digicode — fiche Copropriété, création / modification d'un bien, fiche du bien, « Corriger une erreur »,
+ *  « Nouveau digicode », bâtiments et cages ; à l'écran ET au serveur. Au-delà : REFUS, jamais un code coupé. (Avant : 8 ici, 15 dans la base unique.) */
+export const MAX_CODE_DIGICODE = 15;
+/** Le message, sous le champ et dans un refus du serveur. PUR. */
+export const TEXTE_LIMITE_CODE_DIGICODE = `${MAX_CODE_DIGICODE} caractères au maximum`;
+export const MOTIF_CODE_DIGICODE_TROP_LONG = `Digicode trop long : ${TEXTE_LIMITE_CODE_DIGICODE}.`;
+/** Le code dépasse la limite (après les blancs de bord). PUR. */
+export const codeDigicodeTropLong = (code: string | null | undefined): boolean => (code ?? '').trim().length > MAX_CODE_DIGICODE;
 
 /** La clé de l'immeuble d'une adresse, ou `null` sans voie (pas d'immeuble identifiable). PUR. */
 export function cleImmeubleAdresse(a: AdresseImmeuble): string | null {
@@ -88,11 +96,11 @@ export const MENTION_CODE_GENERAL = 'code général de l’adresse';
 const texteCode = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? majusculesDigicode(v.trim()) : null);
 const ouiNon = (v: unknown): boolean | null => (v === true || v === 'oui' ? true : v === false || v === 'non' ? false : null);
 
-/** La saisie (Oui / Non / vide, et le code seulement avec Oui, 8 caractères au plus) : la même règle partout. PUR. */
+/** La saisie (Oui / Non / vide, et le code seulement avec Oui, MAX_CODE_DIGICODE caractères au plus) : la même règle partout. PUR. */
 export function verifierDigicode(brut: { digicode?: unknown; code?: unknown }): { ok: true; valeur: ValeurDigicode } | { ok: false; motif: string } {
   const digicode = ouiNon(brut.digicode);
   const code = digicode === true ? texteCode(brut.code) : null;
-  if (code !== null && code.length > MAX_CODE_DIGICODE) return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
+  if (code !== null && code.length > MAX_CODE_DIGICODE) return { ok: false, motif: MOTIF_CODE_DIGICODE_TROP_LONG };
   return { ok: true, valeur: { digicode, code } };
 }
 
@@ -141,7 +149,7 @@ export function planReprise(lots: readonly LotAReprendre[]): PlanReprise {
       continue;
     }
     if (codes.length === 1) {
-      plan.aReprendre.push({ cle, adresse, valeur: { digicode: true, code: (texteCode(avecCode[0].code) as string).slice(0, MAX_CODE_DIGICODE) }, lots: ids });
+      plan.aReprendre.push({ cle, adresse, valeur: { digicode: true, code: texteCode(avecCode[0].code) as string }, lots: ids }); // jamais coupé (décision d'Arno, 26/11/2026)
       continue;
     }
     const reponses = [...new Set(g.map((l) => l.digicode).filter((x): x is boolean => x !== null))];

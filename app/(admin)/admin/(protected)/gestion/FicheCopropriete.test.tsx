@@ -1203,3 +1203,28 @@ describe('les champs de digicode de la fiche : en MAJUSCULES', () => {
     expect(JSON.stringify(posts.find((p) => p.action === 'enregistrer')!.digicodes)).toContain('"57B83#"');
   });
 });
+
+/** 🔴🔴 Décision d'Arno (26/11/2026) — le champ de digicode : 15 caractères, un compteur discret, « 15 caractères au maximum » sous le champ, jamais coupé. */
+describe('le champ de digicode : limité à 15, compteur, message, rien de coupé', () => {
+  const taper = async (el: HTMLInputElement, v: string) => {
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
+  };
+  it('15 caractères : acceptés, compteur 15/15 ; un 16e (frappe ou collage de 21) : refusé, la saisie reste entière à 15, le message s’affiche', async () => {
+    lu = { fiche: FICHE({ saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [],
+      digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] }] }), coproprieteDuBien: true };
+    await ouvrir();
+    const champ = $('[data-dcp-code-commun]') as HTMLInputElement;
+    expect(champ.hasAttribute('maxlength')).toBe(false); // un maxLength couperait un collage en silence
+    const pied = () => champ.nextElementSibling as HTMLElement;
+    await taper(champ, 'a1b2c3d4');
+    expect([champ.value, pied().querySelector('[data-ccd-compteur]')!.textContent, pied().querySelector('[data-ccd-trop]')]).toEqual(['A1B2C3D4', '8/15', null]);
+    await taper(champ, 'A1B2C3D4E5F6G7H');
+    expect([champ.value, pied().querySelector('[data-ccd-compteur]')!.textContent]).toEqual(['A1B2C3D4E5F6G7H', '15/15']);
+    await taper(champ, 'A1B2C3D4E5F6G7H8');
+    expect([champ.value, pied().querySelector('[data-ccd-trop]')?.textContent]).toEqual(['A1B2C3D4E5F6G7H', '15 caractères au maximum']);
+    await taper(champ, 'A1B2C3D4E5F6G7H8I9J0K'); // un collage de 21 : refusé ENTIER, rien n'est coupé
+    expect(champ.value).toBe('A1B2C3D4E5F6G7H');
+    await taper(champ, 'A1B2'); // on revient sous la limite : le message s'en va
+    expect(pied().querySelector('[data-ccd-trop]')).toBeNull();
+  });
+});
