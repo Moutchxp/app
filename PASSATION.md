@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 25/11/2026 (demande d'Arno de 22h51)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 26/11/2026 (mise en production 1d4d8e87)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -69,7 +69,7 @@ LUI-MÊME** et rend messages + hashs :
   (`IF NOT EXISTS`), **enveloppées** (`psql -X -q -v ON_ERROR_STOP=1 -1 -f …`, jouées deux fois sans erreur),
   **appliquées à la RECETTE seulement** ; le code doit tourner SANS elles (sondes de schéma `colonneExisteMemo`,
   hors transaction). Garde à jour : `app/lib/ops/migrationsEnAttente.test.ts` (la 361 en attente se décale à
-  chaque nouvelle migration : **elle devra prendre la 493**).
+  chaque nouvelle migration : **elle prendra la 519**).
 - **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`). **Mesuré le 18/11/2026 :
   1 790 fichiers, 27 096 tests verts + 21 ignorés.** (Le « 173 fichiers » d'`AGENTS.md` est très périmé, le principe
   reste : les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin — précédent :
@@ -311,6 +311,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 25/11/2026, après `b50ea980`) :**
+- ✅ **ÉTAT AU 26/11/2026, ~09h20 (fait foi sur le paragraphe historique qui suit)** : `origin/main` = **`1d4d8e87`** (tout est poussé, y compris les
+  « 93 commits non poussés » listés ci-dessous) ; **PRODUCTION = `1d4d8e87`**, migrations jusqu'à **518** ; HEAD = le commit de cette passation
+  (non poussé). Détail : « MISE EN PRODUCTION DU 26/11/2026 — RÉUSSIE » plus bas.
 - Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `c7ed7867`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
   tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **93 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
@@ -349,7 +352,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   `75067861` (sans doublon), `03a514f5` (coordonnées), `5ac1e617` (recherche), `d9ac7940` (passation), `8031f942` (coordonnées : un seul locataire sans
   son nom), `1775615f` et `38f9fc60` (passation), puis les quatre demandes d'Arno du 25/11 : `91f06df3` (tout replié à l'ouverture), `6939633b`
   (« Alerte du lundi » en 2e position), `f8069b29` (une trame par catégorie), `13cf958f` (capsules AGO, compteur en locataires) — détail plus bas — et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
-  production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
+  production avec ce push (production mise à jour le 26/11/2026 : `1d4d8e87`, voir plus bas).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (26/11, `c7ed7867`) : `npm test` VERT (1 877 fichiers, 28 165 tests, 21 ignorés ; `.captures/historique-locataire/npm-test-complet-26-11.txt`) ; `tsc` = 0 ;
@@ -1230,16 +1233,48 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   bien) » resté (même enregistrement que « Non ») — à confirmer.
 - Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
+### ✅ MISE EN PRODUCTION DU 26/11/2026 — RÉUSSIE (Arno, 08h09 : « on va pousser toutes les évolutions en production »)
+- **PRODUCTION = `1d4d8e87`** (« MISE À JOUR RÉUSSIE — 1d4d8e87 en service », 09:15:21 ; `.captures/maj/appliquer-2026-11-26.txt`). Avant :
+  `351f04de` (20/11). **Migrations 512 → 518 appliquées et inscrites 7/7** : registre de production à **518** (516 lignes dont 4 écartées).
+  Pas de 511 (trou sans effet : le garde ne refuse qu'une migration numérotée SOUS la dernière appliquée). **La 361 en attente prendra la 519**
+  (elle reste dans `db/migrations-en-attente/`, elle n'est PAS partie). Aucune variable d'environnement ni unité systemd nouvelle.
+- **5-verifier.sh : « ÉTAPE E RÉUSSIE »** — pages 200, aucune erreur au journal, services actifs, liste « Restitution des 20 % » (517) **vide**,
+  **aucune ligne d'alerte encore** dans `gestion_location_alerte_vingt` au moment de la vérification.
+- **Sauvegardes** : sauvegarde du jour `/home/ubuntu/sauvegardes/2026-11-26_0823` (TERMINEE, base lisible 4 002 objets, minio.tar, reglages.tgz) ;
+  plus les sauvegardes propres à l'outil dans `/home/ubuntu/sauvegardes-maj/` (une par essai / application). Retour arrière possible vers
+  `351f04de` par `.captures/maj/6-retour-arriere.sh` (code seulement ; la base ne se restaure que sur décision d'Arno).
+- **À surveiller** : l'alerte « [Alerte] 20 % à restituer en retard — N locataires » part de la minuterie du serveur web (toutes les 5 min, à partir
+  de 8 h, tous les 2 jours) vers **gestion@criterimmo.fr** dès qu'au moins un locataire est en « Alerte restitution en retard » (sur la copie
+  d'essai : 10 locataires). Relire le journal : `bash .captures/maj/5-verifier.sh` (partie 4, lecture seule). Montant des 20 % : calculé à la
+  lecture si le dépôt de garantie du bail est connu, sinon « Montant des 20 % à saisir » (40/40 en recette).
+- **Épreuve préalable sur copie (26/11, ~08h15)** : recette restaurée sur un PostgreSQL JETABLE (port 5433), ramenée à l'état 510, puis
+  `migrations-plan.ts` + boucle d'application de `serveur.sh` : 7 NOUVELLE, aucun REFUS, 2e passe sans erreur, plan vide, schéma identique à la
+  recette ; `/admin/login` et « 20 % à restituer » en 200. Tout supprimé ensuite. Journaux : `.captures/maj/essai-copie-2026-11-26/`.
+- 🔴 **1er essai REFUSÉ (08h50, étape 3 « next build en échec »), production restée sur `351f04de`.** Vraie erreur : **« JavaScript heap out of
+  memory » pendant « Running TypeScript »**, puis « Failed to type check » — Node 24 plafonne le tas à ~4 Go par défaut, et la vérification des types
+  de `next build` en demande désormais davantage (4,5 Go mesurés au plus haut). L'avertissement turbopack sur `dilaIngest.ts:225` (« Dynamic
+  filesystem access ») n'est QU'UN avertissement. **Correctif `1d4d8e87`** : `package.json` → `"build": "NODE_OPTIONS=--max-old-space-size=8192 next
+  build"` (le serveur a 62 Go et lance `npm run build`) ; la vérification des types est GARDÉE (pas de `typescript.ignoreBuildErrors`). Échec
+  reproduit sur un clone propre de `fbf1d5f3` (npm ci + npm run build), build réussi sur un clone neuf de `1d4d8e87` ; `npm test` complet vert
+  (1 877 fichiers, 28 165 tests, 21 ignorés ; `.captures/maj-build-26-11/`). Journal refusé : `.captures/maj/essai-2026-11-26-refuse-fbf1d5f3.txt`.
+- 🔴 **FAUTE DE L'AGENT (à ne pas refaire)** : le 26/11 au matin, le build de l'épreuve sur copie avait D'ABORD échoué exactement de la même façon
+  (manque de mémoire à « Running TypeScript ») ; l'agent l'avait relancé avec `NODE_OPTIONS=--max-old-space-size=8192` et avait annoncé « build
+  réussi » **sans signaler** que le serveur, lui, construirait avec le plafond par défaut. D'où l'essai refusé et une boucle de correction évitable.
+  **Règle** : une épreuve « comme en prod » se fait SANS aucun réglage que la prod n'a pas (pas de NODE_OPTIONS, clone propre, `npm ci`,
+  `npm run build`) ; tout contournement nécessaire est un DÉFAUT à corriger dans le dépôt et à signaler, jamais un détail d'exécution.
+- **Scripts `.captures/maj/`** (ignorés par git ; versions du 20/11 dans `.captures/maj/avant-2026-11-26/`) : 1 → 4 visent `1d4d8e87` ; 5-verifier.sh
+  n'exige plus de HEAD (registre 516 / 4, 518 inscrite par `1d4d8e87`, ni 519 ni 361, version en service, alerte et liste 517 en lecture seule via
+  `lecture-alerte-vingt.sql`) ; 6-retour-arriere.sh affiche la sauvegarde du jour et propose `351f04de`. Pour la PROCHAINE mise en production :
+  remettre le hash cible et les numéros de migrations dans 1 → 5.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. Preuve curl faite (26/11, 200, 0 erreur). Arno : retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes, bandeaux des mails de
-restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % enfin transmis, arrêté « 1er MARS », date de sortie à valider) : refaire une
-vraie validation de sortie avec 20 % en recette, la panne étant corrigée. Retour d'Arno en recette sur « 20 % à restituer » (`1819b9f5` → `cf05a27a`) et décision sur le geste « Restitution
-faite ». Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
-faite) — ⚠️ il exige HEAD = `351f04de` : avec les commits du 21/11, relire plutôt `lecture-prod.sh`, les deux pages et
-`systemctl is-active` à la main. Puis retour en recette sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et réponse à la
-question du colocataire d'un autre bail. 🔴 **Prochaine mise en production UNIQUEMENT quand Arno dit « on met en
-production »** (nouveaux scripts, HEAD à jour). Les reprises de données (bâtiments par adresse, mandats par bien) restent
-soumises à leurs rapports d'essai sur une copie de la production. Rien à pousser ni à appliquer côté agent.
+Production à jour (`1d4d8e87`, migrations jusqu'à 518). Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
+bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
+sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
+colocataire d'un autre bail. 🔴 **Prochaine mise en production UNIQUEMENT quand Arno dit « on met en production »** (scripts à remettre à jour,
+HEAD poussé). Les reprises de données (bâtiments par adresse, mandats par bien) restent soumises à leurs rapports d'essai sur une copie de la
+production. Rien à pousser ni à appliquer côté agent.
 
 ---
 
