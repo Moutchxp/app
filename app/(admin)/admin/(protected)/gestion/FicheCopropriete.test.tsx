@@ -120,7 +120,7 @@ describe('la fiche', () => {
     expect(champ.value).toBe('3 impasse Neuve, 75011 Paris'); // 🔴 (lot 7a) le champ après le choix : la fonction d'affichage unique
     expect(document.querySelector('[data-fcp-adresse-introuvable]')).toBeNull();
     await clic('[data-fcp-ajouter-adresse]');
-    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '14 rue des Lilas', '3 Impasse Neuve']);
+    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '3 Impasse Neuve', '14 rue des Lilas']); // 🔴 (13h30) en attente : par rue, puis numéro
     expect(champ.value).toBe('');
     // 🔴 (26/11/2026, 12h50) le « × » d'une adresse ENREGISTRÉE (12 rue des Lilas) ouvre la fenêtre « Retirer cette adresse » ; « Annuler » ne change rien
     await clic('[data-fcp-retirer]');
@@ -128,7 +128,7 @@ describe('la fiche', () => {
     await clic('[data-fcp-retrait-annuler]');
     expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(3);
     // le « × » d'une adresse EN ATTENTE : la petite confirmation d'avant
-    await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    await act(async () => { ([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].find((x) => x.textContent!.startsWith('3 Impasse'))!.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
     await clic('[data-fcp-retirer-oui]');
     await clic('[data-fcp-valider]');
     expect((posts[0].adresses as { libelle: string; codePostal: string }[]).map((a) => [a.libelle, a.codePostal])).toEqual([['12 rue des Lilas', '75011'], ['14 rue des Lilas', '75011']]);
@@ -1074,5 +1074,30 @@ describe('une adresse déjà à une autre copropriété : la fenêtre du conflit
     await clic('[data-fcp-conflit-oui]');
     const envois = posts.filter((p) => p.action === 'enregistrer');
     expect(envois.map((p) => p.deplacementsConfirmes)).toEqual([[], ['14 rue des lilas']]);
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 13h30) — « classées par rue s'il y a plusieurs rues différentes, puis, dans chaque rue, par numéro croissant » : partout le même ordre. */
+describe('le tri des adresses : ADRESSES, DIGICODES, propositions', () => {
+  const ADR = (libelle: string, principale = false) => ({ cle: libelle.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(), libelle, codePostal: '92400', commune: 'Courbevoie', principale });
+  const dig = (a: ReturnType<typeof ADR>) => ({ cle: a.cle, voie: a.libelle, codePostal: '92400', commune: 'Courbevoie', commun: { digicode: null, code: null }, batiments: [] });
+  it('la principale en tête ; les validées par rue puis numéro (2 avant 10, 18 bis après 18) ; les mêmes blocs DIGICODES ; les en attente triées sous les validées, juste au-dessus du bouton ; les propositions triées', async () => {
+    const adresses = [ADR('34 rue Baudin', true), ADR('40 rue Baudin'), ADR('2 rue Arago'), ADR('18 bis rue Baudin'), ADR('10 rue Arago'), ADR('18 rue Baudin')];
+    lu = { fiche: FICHE({ libelle: '34 rue Baudin', cle: '34 rue baudin', codePostal: '92400', commune: 'Courbevoie', adresses,
+      saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], digicodes: adresses.map(dig) }), coproprieteDuBien: true };
+    parcelle = ['12-28 rue Baudin', '5 rue Arago', 'rue Baudin', '3 rue Arago'].map((libelle) => ({ libelle, codePostal: '92400', commune: 'Courbevoie', parcelle: 'AB12', etat: 'libre', copropriete: null, syndic: null }));
+    await ouvrir();
+    const liste = () => [...document.querySelectorAll('[data-fcp-adresses] > ul > li')].map((x) => x.hasAttribute('data-fcp-valider-rattachement-ligne') ? 'BOUTON' : x.textContent!.split(',')[0].replace(/ —.*/, '').trim());
+    expect(liste()).toEqual(['34 rue Baudin', '2 rue Arago', '10 rue Arago', '18 rue Baudin', '18 bis rue Baudin', '40 rue Baudin']);
+    expect([...document.querySelectorAll('[data-digicodes-copro] [data-dcp-adresse]')].map((x) => x.getAttribute('data-dcp-adresse')))
+      .toEqual(['34 rue baudin', '2 rue arago', '10 rue arago', '18 rue baudin', '18 bis rue baudin', '40 rue baudin']);
+    await clic('[data-fcp-plus-adresse]');
+    expect([...document.querySelectorAll('[data-fcp-proposition]')].map((x) => x.textContent!.split(',')[0])).toEqual(['3 rue Arago', '5 rue Arago', '12-28 rue Baudin', 'rue Baudin']);
+    // cochées dans le désordre : en attente, triées, juste au-dessus du bouton
+    for (const k of ['rue baudin', '5 rue arago', '12 28 rue baudin']) {
+      await act(async () => { ($(`[data-fcp-proposition="${k}"] input`) as HTMLInputElement).click(); }); await calmer();
+      if (k === 'rue baudin') await clic('[data-fcp-sans-numero-confirmer]'); // sans numéro : la confirmation d'avant, inchangée
+    }
+    expect(liste()).toEqual(['34 rue Baudin', '2 rue Arago', '10 rue Arago', '18 rue Baudin', '18 bis rue Baudin', '40 rue Baudin', '5 rue Arago', '12-28 rue Baudin', 'rue Baudin', 'BOUTON']);
   });
 });

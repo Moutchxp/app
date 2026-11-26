@@ -9,6 +9,7 @@ import { AgCopropriete, AgFicheNouvelle } from './AgCopropriete';
 import { ArreteComptes, ArreteComptesLocal } from './ArreteComptes';
 import { dateFr, type SaisiePv } from '../../../../lib/location/agCopropriete';
 import { arreteEnLettres } from '../../../../lib/location/arreteComptes';
+import { trierAdresses } from '../../../../lib/gestion/ordreAdresses';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
@@ -242,7 +243,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const groupeDe = (cle: string) => off?.adresses.find((g) => g.cles.includes(cle)) ?? null;
   const representants = new Map<string, string>(); // banId → clé du bloc affiché
   for (const d of digi) { const g = groupeDe(d.cle); if (g !== null && !representants.has(g.banId)) representants.set(g.banId, d.cle); }
-  const digiAffiches = digi.filter((d) => { const g = groupeDe(d.cle); return g === null || representants.get(g.banId) === d.cle; })
+  // 🔴🔴 (Arno, 26/11/2026, 13h30) le même ordre que la liste ADRESSES : la principale en tête, puis par rue et numéro croissant (trierAdresses)
+  const clePrincipaleDigi = f === null ? '' : cleImmeuble(f.libelle);
+  const digiFiltres = digi.filter((d) => { const g = groupeDe(d.cle); return g === null || representants.get(g.banId) === d.cle; });
+  const digiAffiches = [...digiFiltres.filter((d) => d.cle === clePrincipaleDigi), ...trierAdresses(digiFiltres.filter((d) => d.cle !== clePrincipaleDigi), (d) => groupeDe(d.cle)?.court ?? d.voie)]
     .map((d) => {
       const g = groupeDe(d.cle);
       if (g === null) return d;
@@ -328,7 +332,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   /* 🔴🔴 (Arno, 26/11/2026, 13h27) « voir toutes les propositions les unes en dessous des autres, qu'on puisse en sélectionner plusieurs d'un coup » : la liste
      cochable — toutes les propositions sauf les adresses déjà rattachées et VALIDÉES (une adresse en attente y reste, cochée) */
   const principaleCle = f === null ? '' : cleImmeuble(f.libelle);
-  const proposees = propositions.filter((p) => { const k = cleImmeuble(p.libelle); return k !== principaleCle && !enregistrees.has(k); });
+  // 🔴🔴 (13h30) par rue, puis numéro croissant (trierAdresses, la fonction de la liste ADRESSES et des blocs DIGICODES)
+  const proposees = trierAdresses(propositions.filter((p) => { const k = cleImmeuble(p.libelle); return k !== principaleCle && !enregistrees.has(k); }), (p) => p.libelle);
   const decocher = (cle: string): void => {
     setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle));
     if (deplacementsRef.current[cle] !== undefined) { const { [cle]: _x, ...reste } = deplacementsRef.current; deplacementsRef.current = reste; setDeplacements(reste); }
@@ -542,7 +547,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <strong>{off !== null ? off.principale.libelle : adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
         {/* 🔴 (Arno, 20/11/2026, lot 5) une écriture d'origine n'est JAMAIS une adresse : elle ne vit que dans « Écritures d'origine » (elle reste dans la
             saisie, et part avec « Valider ») ; une adresse que rien n'a encore rapprochée garde sa ligne, marquée « à vérifier » */}
-        {rangees.filter((x) => x.mode !== 'ecriture').map(({ a, mode, libelle }) => (
+        {/* 🔴🔴 (Arno, 26/11/2026, 13h30) la principale en tête ; puis les adresses validées, puis celles en attente (juste au-dessus du bouton), chacune
+            par rue puis numéro croissant (trierAdresses, la même fonction que les blocs DIGICODES et les propositions). L'ordre de la SAISIE ne change pas. */}
+        {(() => { const l = rangees.filter((x) => x.mode !== 'ecriture'); const enreg = (x: (typeof l)[number]) => enregistrees.has(cleImmeuble(x.a.libelle));
+          return [...trierAdresses(l.filter(enreg), (x) => x.libelle), ...trierAdresses(l.filter((x) => !enreg(x)), (x) => x.libelle)]; })().map(({ a, mode, libelle }) => (
           <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
             {/* 🔴 (Arno, 26/11/2026, 12h23) pas encore enregistrée : « en attente de validation » (retirable par son « × ») — distinct de « à vérifier » */}
             {!enregistrees.has(cleImmeuble(a.libelle)) && <><span className="fcp-en-attente" data-fcp-en-attente>{MOT_ADRESSES_EN_ATTENTE}</span>{' '}</>}
