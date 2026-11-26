@@ -15,6 +15,7 @@ import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle
 import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import { lienCarte, type ExamenAdresse } from '../../../../lib/gestion/adresseCoproExamenModele';
+import { LIBELLE_NON_DEPLACER, libelleOuiDeplacer, motifPrincipaleAilleurs, nomCopropriete, texteConflit, type ConflitAdresse } from '../../../../lib/gestion/adresseCoproExclusivite';
 import { CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse } from '../../../../lib/gestion/adresseCoproGestes';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
@@ -187,7 +188,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     const adr = f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
     const cts = versEdition(f);
     setNom(f.nom ?? ''); setHors(h);
-    setAdresses(adr); setConfirmees([]); setExamen(null);
+    setAdresses(adr); setConfirmees([]); setExamen(null); deplacementsRef.current = {}; setDeplacements({});
     setContacts(cts);
     setInitiale(signatureSaisie({ nom: f.nom ?? '', hors: h, adresses: adr, contacts: cts, syndic: null, retrait: false })); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
     if (f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
@@ -331,6 +332,20 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     setAdresses((x) => [...x, a]); setRattacheeIci(true); setInfo(null);
     return true;
   };
+  /** 🔴🔴 (Arno, 26/11/2026, 12h50, point 2) le rattachement CONTRÔLÉ : une adresse déjà portée par une autre copropriété ouvre la fenêtre du conflit ;
+   *  sinon, l'ajout d'avant (le serveur contrôle de nouveau à l'enregistrement). Le serveur muet : l'ajout d'avant, contrôlé à l'enregistrement. */
+  const rattacherControle = async (a: Adresse, apres?: () => void): Promise<void> => {
+    if (f === null) return;
+    const cle = cleImmeuble(a.libelle);
+    if (cle === '' || clesIci.has(cle)) return;
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'adresse-conflit', immeuble: f.cle, adresse: { libelle: a.libelle, codePostal: a.codePostal, banId: a.banId ?? null } }) });
+      const d = (await r.json()) as { etat?: string; data?: ConflitAdresse | null };
+      if (d.etat === 'ok' && d.data) { setConflit({ a, c: d.data, apres: apres ?? (() => {}) }); return; }
+    } catch { /* contrôlé à l'enregistrement */ }
+    if (ajouter(a)) apres?.();
+  };
   // les conflits : la copropriété reçoit un syndic, et une adresse de la parcelle est la copropriété d'un AUTRE syndic
   const conflits = syndicChoisi === null ? [] : prises.filter((p) => p.syndic !== null && p.syndic.id !== syndicChoisi.id);
   // 🔴 (lot 6, déplacé de la fiche syndic) « Même syndic : regrouper ? » : une adresse de la parcelle est la copropriété du MÊME syndic ; proposé
@@ -356,13 +371,20 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     // les digicodes : la saisie en cours est gardée ; une adresse validée reçoit le bloc relu (ses codes déjà connus, s'il y en a)
     setDigi((dd) => saisieDigicodesInitiale(nouvelle).map((x) => dd.find((y) => y.cle === x.cle) ?? x));
     setInitiale(signatureSaisie({ nom: nouvelle.nom ?? '', hors: nouvelle.horsCopropriete, adresses: adr, contacts: versEdition(nouvelle), syndic: null, retrait: false }));
-    setConfirmees([]); setExamen(null);
+    setConfirmees([]); setExamen(null); deplacementsRef.current = {}; setDeplacements({});
   };
   /* 🔴🔴 (Arno, 26/11/2026, 12h50, point 1) « Retirer cette adresse » (fenêtre de confirmation) et « Définir comme adresse principale » : IMMÉDIATS,
      journalisés par le serveur ; la fiche est ensuite relue en entier (adresse officielle comprise) */
   const [retraitAdresse, setRetraitAdresse] = useState<string | null>(null);
   const [principaleVisee, setPrincipaleVisee] = useState<string | null>(null);
-  fenetreAdresseOuverte.current = retraitAdresse !== null || principaleVisee !== null;
+  /* 🔴🔴 (Arno, 26/11/2026, 12h50, point 2) une adresse déjà portée par une AUTRE copropriété : la fenêtre du conflit (au rattachement, ou rendue par le
+     serveur à l'enregistrement) ; « Oui » note le déplacement confirmé (il part avec l'enregistrement, contrôlé de nouveau par le serveur) */
+  const [conflit, setConflit] = useState<{ a: Adresse | null; c: ConflitAdresse; apres: () => void } | null>(null);
+  const deplacementsRef = useRef<Record<string, string>>({});
+  const [deplacements, setDeplacements] = useState<Record<string, string>>({});
+  const noterDeplacement = (cle: string, autre: string): void => { deplacementsRef.current = { ...deplacementsRef.current, [cle]: autre }; setDeplacements(deplacementsRef.current); };
+  const deplacementsAEnvoyer = (): string[] => Object.keys(deplacementsRef.current).filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k));
+  fenetreAdresseOuverte.current = retraitAdresse !== null || principaleVisee !== null || conflit !== null;
   const gesteAdresse = async (action: 'adresse-retirer' | 'adresse-principale', cle: string, message: string): Promise<void> => {
     if (f === null) return;
     setEnvoi(true); setErreur(null); setInfo(null);
@@ -383,11 +405,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: f.declaree ? f.nom : (nom.trim() === '' ? null : nom),
         ...(f.avec476 ? { horsCopropriete: f.declaree ? f.horsCopropriete : hors } : {}),
         adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
-        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
+        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(),
         syndicId: f.syndic?.id ?? null, retirerSyndic: false, alerteParcelleVue: false, conflitsParcelle: [],
         ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}) };
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string; conflitAdresse?: ConflitAdresse };
+      // 🔴 (12h50) le serveur a trouvé un conflit (ajouté entre-temps ailleurs) : la même fenêtre ; « Oui » relance le rattachement
+      if (d.conflitAdresse) { const c = d.conflitAdresse; setConflit({ a: null, c, apres: () => { void validerRattachement(); } }); setErreur(d.motif ?? null); return; }
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Rattachement refusé.'); return; }
       fusionnerFiche(d.data);
       if (!f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
@@ -414,13 +438,14 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
         adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)),
-        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adressesConfirmees: confirmees.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), deplacementsConfirmes: deplacementsAEnvoyer(), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}),
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string; conflitAdresse?: ConflitAdresse };
+      if (d.conflitAdresse) { const c = d.conflitAdresse; setConflit({ a: null, c, apres: () => { void valider(passe); } }); setErreur(d.motif ?? null); return; }
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Enregistrement refusé.'); return; }
       appliquer({ fiche: d.data, coproprieteDuBien: lu?.coproprieteDuBien ?? null }); setRattacheeIci(false); setMemeTraite(false);
       setInfo(passe.regrouperAvec ? `Copropriété regroupée avec « ${passe.regrouperAvec} ».` : inchangee ? MOT_AUCUNE_MODIFICATION : MOT_FICHE_ENREGISTREE);
@@ -513,6 +538,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
             {/* 🔴 (Arno, 26/11/2026, 12h23) pas encore enregistrée : « en attente de validation » (retirable par son « × ») — distinct de « à vérifier » */}
             {!enregistrees.has(cleImmeuble(a.libelle)) && <><span className="fcp-en-attente" data-fcp-en-attente>{MOT_ADRESSES_EN_ATTENTE}</span>{' '}</>}
+            {deplacements[cleImmeuble(a.libelle)] !== undefined && <><span className="fcp-en-attente" data-fcp-deplacee>— sera retirée de {deplacements[cleImmeuble(a.libelle)]}</span>{' '}</>}
             {off !== null && mode === 'normale' && !dejaConfirmees.has(cleImmeuble(a.libelle)) && (
               <button type="button" className="fcp-a-verifier fcp-a-verifier-bouton" aria-expanded={examen?.cle === cleImmeuble(a.libelle)}
                 title="Vérifier cette adresse : adresse officielle, parcelle, position" onClick={() => { void examiner(a); }} data-fcp-adresse-a-verifier>à vérifier</button>)}{' '}
@@ -557,9 +583,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
                   Adresses proposées sur la même parcelle ({libres.length + prises.length}) <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>
                 <ul className="fcp-liste" id={idPropositions} hidden={!ouvert}>
                   {libres.map((p) => <li key={p.libelle}>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}{' '}
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => ajouter(p)} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { void rattacherControle(p); }} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
+                  {/* 🔴 (Arno, 26/11/2026, 12h50) une adresse déjà rattachée à une autre copropriété : « Rattacher » ouvre la fenêtre du conflit */}
                   {prises.map((p) => <li key={p.libelle} className="loc-muet" data-fcp-prise>{adresseImmeuble(p.libelle, p.codePostal, p.commune)} — déjà rattachée à une autre copropriété
-                    {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</li>)}
+                    {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}{' '}
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { void rattacherControle(p); }} data-fcp-rattacher-prise>Rattacher</button></li>)}
                 </ul>
               </div>);
           })()}
@@ -576,8 +604,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={autre.trim() === ''}
             onClick={() => {
               if (autreChoisie === null) { setIntrouvable(true); return; }
-              if (!ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune, ...(autreBan !== null ? { banId: autreBan } : {}) })) return;
-              setAutre(''); setAutreChoisie(null); setAutreBan(null);
+              void rattacherControle({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune, ...(autreBan !== null ? { banId: autreBan } : {}) },
+                () => { setAutre(''); setAutreChoisie(null); setAutreBan(null); });
             }} data-fcp-ajouter-adresse>Ajouter</button>
         </div>
       )}
@@ -756,6 +784,34 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus onClick={() => setRetraitAdresse(null)} data-fcp-retrait-annuler>Annuler</button>
                   <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-fcp-retrait-oui
                     onClick={() => { const c = retraitAdresse; setRetraitAdresse(null); void gesteAdresse('adresse-retirer', c, 'Adresse retirée de la copropriété.'); }}>{LIBELLE_OUI_RETIRER_ADRESSE}</button>
+                </div>
+              </div>
+            </div>);
+        })()}
+        {conflit !== null && (() => {
+          const { c, a } = conflit;
+          const pour = a !== null ? cleImmeuble(a.libelle) : c.pour ?? c.cle;
+          return (
+            <div className="dcp-voile" data-fcp-conflit={c.cle}>
+              <style>{CSS_DIGICODES_COPRO}</style>
+              <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="fcp-conflit-titre"
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setConflit(null); } }}>
+                <p className="dcp-alerte-titre" id="fcp-conflit-titre">{c.ecrite}</p>
+                {c.principale ? <p className="dcp-alerte-texte" data-fcp-conflit-principale><strong>{motifPrincipaleAilleurs(c)}</strong></p> : <>
+                  <p className="dcp-alerte-texte" data-fcp-conflit-texte><strong>{texteConflit(c)}</strong></p>
+                  <p className="dcp-alerte-texte">La rattacher ici l’effacera de {nomCopropriete(c.copropriete)} (l’historique des deux copropriétés le gardera).</p>
+                  <p className="dcp-alerte-texte">Biens du portefeuille à cette adresse :</p>
+                  <ul className="fcp-liste" data-fcp-conflit-biens>{c.biens.length === 0 ? <li className="loc-muet">aucun</li> : c.biens.map((x) => <li key={x}>{x}</li>)}</ul>
+                  <p className="dcp-alerte-texte">Ce qui partira de l’autre fiche :</p>
+                  <ul className="fcp-liste" data-fcp-conflit-digicodes>{c.digicodes.length === 0 ? <li className="loc-muet">aucun digicode ni bâtiment</li> : c.digicodes.map((x) => <li key={x}>{x}</li>)}</ul>
+                </>}
+                <div className="dcp-alerte-actions">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus onClick={() => setConflit(null)} data-fcp-conflit-non>{c.principale ? 'Fermer' : LIBELLE_NON_DEPLACER}</button>
+                  {!c.principale && (
+                    <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-fcp-conflit-oui onClick={() => {
+                      setConflit(null); noterDeplacement(pour, nomCopropriete(c.copropriete)); setErreur(null);
+                      if (a !== null) { if (ajouter(a)) conflit.apres(); } else conflit.apres();
+                    }}>{libelleOuiDeplacer(c)}</button>)}
                 </div>
               </div>
             </div>);

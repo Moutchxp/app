@@ -8,6 +8,7 @@ import { BoutonCopropriete, FicheCopropriete, refusContact } from './FicheCoprop
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const json = (c: unknown) => ({ ok: true, status: 200, json: async () => c }) as unknown as Response;
 let container: HTMLDivElement; let root: Root; let posts: Record<string, unknown>[]; let lu: Record<string, unknown>; let parcelle: unknown[];
+let conflitLu: unknown = null;
 const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleuls', declaree: true, id: 7, libelle: 'Résidence Les Tilleuls', nom: null, horsCopropriete: false, nomenclature: null,
   codePostal: '75011', commune: 'Paris', adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', principale: true },
     { cle: '12 rue des lilas', libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris', principale: false }],
@@ -16,7 +17,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
   contacts: [{ id: 1, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [{ id: 3, sorte: 'telephone', libelle: null, valeur: '0611223344' }] }],
   biens: [{ id: 1, numero: 'W1', adresse: '12 rue des Lilas', copropriete: true }], desaccord: false, avec476: true, ...o });
 beforeEach(() => {
-  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); posts = [];
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); posts = []; conflitLu = null;
   lu = { fiche: FICHE(), coproprieteDuBien: true };
   parcelle = [{ libelle: '14 rue des Lilas', codePostal: '75011', commune: 'Paris', parcelle: 'AB12', etat: 'libre', copropriete: null, syndic: null },
     { libelle: '10 rue Voisine', codePostal: '75011', commune: 'Paris', parcelle: 'AB12', etat: 'prise', copropriete: '10 rue Voisine', syndic: { id: 9, nom: 'Cabinet B', ville: 'Lyon' } }];
@@ -26,6 +27,8 @@ beforeEach(() => {
     if (u.startsWith('/api/admin/gestion/coproprietes/fiche')) {
       const c = JSON.parse(String(init?.body)) as Record<string, unknown>;
       if (c.action === 'parcelle') return json({ etat: 'ok', data: parcelle });
+      // 🔴 (26/11/2026, 12h50) le contrôle d'exclusivité au rattachement (lecture) : aucun conflit par défaut
+      if (c.action === 'adresse-conflit') return json({ etat: 'ok', data: conflitLu });
       posts.push(c); return json({ etat: 'ok', data: FICHE() });
     }
     // la Base Adresse Nationale (les suggestions de ChampAdresseBan)
@@ -971,5 +974,64 @@ describe('« Retirer cette adresse » (DIGICODES et « × ») ; « Définir comm
     expect(w.textContent).toContain('Résidence Les Tilleuls, 75011 Paris reste une adresse de la copropriété');
     await clic('[data-fcp-principale-oui]');
     expect(posts).toEqual([{ action: 'adresse-principale', immeuble: 'residence les tilleuls', adresseCle: '12 rue des lilas' }]);
+  });
+});
+
+/** 🔴🔴 Arno (26/11/2026, 12h50, point 2) — « elle ne doit pas pouvoir appartenir à 2 copropriétés différentes en même temps […] une fenêtre ». */
+describe('une adresse déjà à une autre copropriété : la fenêtre du conflit', () => {
+  const CONFLIT = { cle: '14 rue des lilas', ecrite: '14 rue des Lilas, 75011 Paris', copropriete: { id: 9, cle: '10 rue voisine', libelle: '10 rue Voisine', nom: '_TEST Copro Voisine', syndic: 'Cabinet B / Lyon' },
+    principale: false, biens: ['n° W9 (14 rue des Lilas)'], digicodes: ['digicode copropriété : code 1414'] };
+  it('au « Rattacher » : la fenêtre (copropriété, syndic, biens, ce qui partira) ; « Non » : rien ne change', async () => {
+    conflitLu = CONFLIT;
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]');
+    const w = $('[data-fcp-conflit]');
+    expect(w.querySelector('[data-fcp-conflit-texte]')?.textContent).toBe('Cette adresse appartient déjà à la copropriété _TEST Copro Voisine (syndic Cabinet B / Lyon).');
+    expect(w.textContent).toContain('La rattacher ici l’effacera de _TEST Copro Voisine');
+    expect([...w.querySelectorAll('[data-fcp-conflit-biens] li')].map((x) => x.textContent)).toEqual(['n° W9 (14 rue des Lilas)']);
+    expect([...w.querySelectorAll('[data-fcp-conflit-digicodes] li')].map((x) => x.textContent)).toEqual(['digicode copropriété : code 1414']);
+    expect([...w.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Non, ne pas la rattacher', 'Oui, la rattacher ici et la retirer de _TEST Copro Voisine']);
+    await clic('[data-fcp-conflit-non]');
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(1); // rien d'ajouté
+  });
+  it('« Oui » : en attente, « sera retirée de … » ; le déplacement confirmé part avec l’enregistrement', async () => {
+    conflitLu = CONFLIT;
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]');
+    await clic('[data-fcp-conflit-oui]');
+    const ligne = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].at(-1)!;
+    expect(ligne.querySelector('[data-fcp-deplacee]')?.textContent).toBe('— sera retirée de _TEST Copro Voisine');
+    await clic('[data-fcp-valider-rattachement]');
+    expect(posts.find((p) => p.action === 'enregistrer')!.deplacementsConfirmes).toEqual(['14 rue des lilas']);
+  });
+  it('l’adresse PRINCIPALE de l’autre : « changez d’abord son adresse principale », aucun « Oui »', async () => {
+    conflitLu = { ...CONFLIT, principale: true };
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]');
+    expect($('[data-fcp-conflit-principale]').textContent).toBe('C’est l’adresse principale de _TEST Copro Voisine : changez d’abord son adresse principale.');
+    expect(document.querySelector('[data-fcp-conflit-oui]')).toBeNull();
+    await clic('[data-fcp-conflit-non]');
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(1);
+  });
+  it('le serveur trouve le conflit à l’enregistrement (ajouté ailleurs entre-temps) : la même fenêtre ; « Oui » relance avec le déplacement', async () => {
+    const f = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    const avant = f.getMockImplementation() as (u: string | URL | Request, i?: RequestInit) => Promise<Response>;
+    let refus = true;
+    f.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const c = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      if (c?.action === 'enregistrer' && refus) { refus = false; posts.push(c); return json({ etat: 'refus', motif: 'conflit', conflitAdresse: { ...CONFLIT, pour: '14 rue des lilas' } }); }
+      return avant(url, init);
+    });
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]'); // le contrôle à l'écran ne voyait rien
+    await clic('[data-fcp-valider-rattachement]');
+    expect($('[data-fcp-conflit]').getAttribute('data-fcp-conflit')).toBe('14 rue des lilas');
+    await clic('[data-fcp-conflit-oui]');
+    const envois = posts.filter((p) => p.action === 'enregistrer');
+    expect(envois.map((p) => p.deplacementsConfirmes)).toEqual([[], ['14 rue des lilas']]);
   });
 });

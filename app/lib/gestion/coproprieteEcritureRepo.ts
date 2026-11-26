@@ -1,4 +1,6 @@
 import { majusculesBatiment } from '../location/digicodeImmeuble';
+import { conflitDeLAdresse, deplacerAdresse, type ConflitAdresse } from './adresseCoproExclusiviteRepo';
+import { motifConflitNonConfirme, motifPrincipaleAilleurs } from './adresseCoproExclusivite';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { registreParAdresse, reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
@@ -55,6 +57,9 @@ export interface SaisieCopropriete {
   sansNumeroConfirmees: string[];
   /** 🔴 (Arno, 26/11/2026, 11h58) les adresses secondaires « à vérifier » CONFIRMÉES à l'écran (« Confirmer cette adresse »), par clé — journalisées */
   adressesConfirmees?: string[];
+  /** 🔴 (Arno, 26/11/2026, 12h50, point 2) les adresses d'une AUTRE copropriété dont le déplacement ici a été confirmé à l'écran (« Oui, la rattacher ici
+   *  et la retirer de … »), par clé */
+  deplacementsConfirmes?: string[];
 }
 /** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
 export interface CodeSaisi { code: string; aucun: boolean }
@@ -109,7 +114,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
     adresses, contacts, syndicId, retirerSyndic: b.retirerSyndic === true, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
     regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec),
     sansNumeroConfirmees: (Array.isArray(b.sansNumeroConfirmees) ? b.sansNumeroConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== ''),
-    adressesConfirmees: (Array.isArray(b.adressesConfirmees) ? b.adressesConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
+    adressesConfirmees: (Array.isArray(b.adressesConfirmees) ? b.adressesConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== ''),
+    deplacementsConfirmes: (Array.isArray(b.deplacementsConfirmes) ? b.deplacementsConfirmes.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
 }
 
 /** La copropriété (principale) d'une clé : la sienne, ou celle dont elle est une adresse en cours. */
@@ -122,7 +128,7 @@ async function coproDeCle(q: RequeteTx, cle: string): Promise<{ id: string; cle:
 }
 
 /** L'enregistrement. Rend la fiche relue. */
-export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string; conflitsParcelle?: ConflitAConfirmer[] }> {
+export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string; conflitsParcelle?: ConflitAConfirmer[]; conflitAdresse?: ConflitAdresse }> {
   const v = validerSaisieCopropriete(brut);
   if (!v.ok) return v;
   const s = v.saisie;
@@ -137,6 +143,16 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   // 🔴 (16/11/2026) une nouvelle adresse SANS NUMÉRO : seulement avec la confirmation de l'écran
   const sansNumero = nouvelles.find((a) => adresseSansNumero(a.libelle) && !s.sansNumeroConfirmees.includes(cleImmeuble(a.libelle)));
   if (sansNumero !== undefined) return { ok: false, motif: motifSansNumero(adresseImmeuble(sansNumero.libelle, sansNumero.codePostal || null, sansNumero.commune || null)) };
+  // 🔴🔴 (Arno, 26/11/2026, 12h50, point 2) « une adresse ne doit pas pouvoir appartenir à 2 copropriétés différentes en même temps » : une NOUVELLE adresse
+  // déjà portée par une autre copropriété — son adresse principale : refus ; sinon, sans la confirmation de l'écran : refus qui rend le conflit (la
+  // fenêtre « Oui / Non ») ; confirmée : déplacée dans la transaction (contrôlé de nouveau plus bas, sous verrou)
+  const deplacer = new Set(s.deplacementsConfirmes ?? []);
+  for (const a of nouvelles) {
+    const c = await conflitDeLAdresse(query, { coproId: lue.id ?? null, coproCle: lue.cle }, { libelle: a.libelle, codePostal: a.codePostal || null, banId: a.banId ?? null });
+    if (c === null) continue;
+    if (c.principale) return { ok: false, motif: motifPrincipaleAilleurs(c) };
+    if (!deplacer.has(cleImmeuble(a.libelle))) return { ok: false, motif: motifConflitNonConfirme(c), conflitAdresse: { ...c, pour: cleImmeuble(a.libelle) } };
+  }
   const verif = await verifierAdresses(nouvelles);
   if (!verif.ok) return verif;
   // 🔴🔴 (Arno, 20/11/2026, lot 7a) le format unique : l'identifiant BAN de chaque NOUVELLE adresse, seulement si le module la retrouve avec certitude
@@ -151,7 +167,8 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     else if (formatUnique) return { ok: false, motif: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} n’est pas une adresse officielle retrouvée avec certitude : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.` };
   }
   if (formatUnique && banDesNouvelles.size > 0) {
-    const autre = await coproprieteDeLAdresseOfficielle([...banDesNouvelles.values()], lue.id ?? null);
+    // 🔴 (26/11/2026) une adresse dont le déplacement est confirmé n'est pas un refus : elle quitte l'autre copropriété
+    const autre = await coproprieteDeLAdresseOfficielle([...banDesNouvelles].filter(([k]) => !deplacer.has(k)).map(([, v]) => v), lue.id ?? null);
     if (autre !== null) {
       const a = nouvelles.find((x) => banDesNouvelles.get(cleImmeuble(x.libelle)) === autre.banId)!;
       return { ok: false, motif: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} est déjà l’adresse officielle de la copropriété « ${autre.libelle} » : elle ne peut pas être ajoutée ici. Rien n’est ajouté.` };
@@ -186,15 +203,17 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   const nouvellesDigi = new Map([...voulues0].filter(([k]) => !lue.digicodes.some((x) => x.cle === k)));
   const r = await withTransaction(async (q) => {
     // ── ① TOUS LES REFUS, AVANT TOUTE ÉCRITURE ─────────────────────────────────────────────────────────────────────────────────────────────
+    // 🔴🔴 (Arno, 26/11/2026, 12h50) jamais d'adresse en double, même à deux personnes en même temps : le conflit relu DANS la transaction ; l'adresse
+    // principale d'une autre copropriété : refus ; un déplacement non confirmé : refus qui rend le conflit ; confirmé : fait au ③, avant l'ajout ici
+    const deplacements: ConflitAdresse[] = [];
     for (const a of s.adresses) {
       const cle = cleImmeuble(a.libelle);
       if (cle === lue.cle) continue;
-      const autre = await coproDeCle(q, cle);
-      if (autre !== null && autre.cle !== lue.cle) {
-        return { ok: false as const, motif: autre.cle === cle
-          ? `${adresseImmeuble(a.libelle, a.codePostal, a.commune)} est déjà une autre copropriété (« ${autre.libelle} »).`
-          : `${adresseImmeuble(a.libelle, a.codePostal, a.commune)} est déjà une adresse de la copropriété « ${autre.libelle} ».` };
-      }
+      const c = await conflitDeLAdresse(q, { coproId: lue.id ?? null, coproCle: lue.cle }, { libelle: a.libelle, codePostal: nul(a.codePostal), banId: a.banId ?? null });
+      if (c === null) continue;
+      if (c.principale) return { ok: false as const, motif: motifPrincipaleAilleurs(c) };
+      if (!deplacer.has(cle)) return { ok: false as const, motif: motifConflitNonConfirme(c), conflitAdresse: { ...c, pour: cle } };
+      deplacements.push(c);
     }
     // les digicodes : chaque adresse est une adresse de la copropriété ; les NOUVEAUX bâtiments suivent la règle lettres OU chiffres
     if (s.digicodes.length > 0) {
@@ -259,6 +278,8 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
         }
       }
     }
+    // 🔴 (26/11/2026) les déplacements confirmés : l'adresse quitte l'autre copropriété (les deux historiques le notent), puis elle est ajoutée ici
+    for (const c of deplacements) await deplacerAdresse(q, c, { id: coproId, libelle: (s.nom ?? '').trim() !== '' ? (s.nom as string) : lue.libelle }, auteur);
     const deja = new Set(enCours.map((x) => x.cle));
     for (const [cle, a] of voulues) {
       if (deja.has(cle)) continue;

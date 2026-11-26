@@ -56,6 +56,10 @@ vi.mock('../adresse/adresseSaisieRepo', () => ({ banIdDeLAdresse: async (a: { li
 const sl = vi.hoisted(() => ({ dispo: true }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => sl.dispo }));
 vi.mock('../location/mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nomFamille: 'Jorel' }) }));
+// 🔴 (Arno, 26/11/2026, 12h50, point 2) l'exclusivité d'une adresse : le conflit lu et le déplacement, simulés (leur SQL est éprouvé à part)
+const ex = vi.hoisted(() => ({ conflit: null as unknown, deplaces: [] as unknown[][], lectures: 0 }));
+vi.mock('./adresseCoproExclusiviteRepo', () => ({ conflitDeLAdresse: async () => { ex.lectures++; return ex.conflit; },
+  deplacerAdresse: async (_q: unknown, c: unknown, vers: unknown) => { ex.deplaces.push([c, vers]); } }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -65,7 +69,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { sl.dispo = true; bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; h.actuelles = []; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
+beforeEach(() => { sl.dispo = true; bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; h.actuelles = []; ex.conflit = null; ex.deplaces = []; ex.lectures = 0; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -90,10 +94,29 @@ describe('l’enregistrement', () => {
     expect(sans.s).not.toContain('ban_id');
     expect(sans.p).toHaveLength(7);
   });
-  it('🔴 une adresse déjà à une AUTRE copropriété : refus, et RIEN n’est écrit', async () => {
-    h.coproDeCle['12 rue des lilas'] = { id: '9', cle: 'autre copro', libelle: 'Autre copro' };
-    expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual({ ok: false, motif: '12 rue des Lilas, 75011 Paris est déjà une adresse de la copropriété « Autre copro ».' });
-    expect(ecritures()).toEqual([]);
+  // 🔴🔴 (Arno, 26/11/2026, 12h50, point 2) « une adresse ne doit pas pouvoir appartenir à 2 copropriétés différentes en même temps »
+  const CONFLIT = { cle: '12 rue des lilas', ecrite: '12 rue des Lilas, 75011 Paris', copropriete: { id: 9, cle: 'autre copro', libelle: 'Autre copro', nom: '_TEST Autre', syndic: 'Cabinet B / Lyon' },
+    principale: false, biens: ['n° W9 (12 rue des Lilas)'], digicodes: ['digicode copropriété : code 9999'] };
+  it('🔴 une adresse déjà à une AUTRE copropriété, déplacement NON confirmé : refus qui rend le conflit (la fenêtre), RIEN n’est écrit', async () => {
+    ex.conflit = CONFLIT;
+    const r = await enregistrerCopropriete(SAISIE, AUTEUR);
+    expect(r).toEqual({ ok: false, motif: '12 rue des Lilas, 75011 Paris appartient déjà à la copropriété _TEST Autre : confirmez son déplacement, ou retirez-la. Rien n’est enregistré.',
+      conflitAdresse: { ...CONFLIT, pour: '12 rue des lilas' } });
+    expect([ecritures(), ex.deplaces]).toEqual([[], []]);
+  });
+  it('🔴 l’adresse PRINCIPALE de l’autre copropriété : refus (« changez d’abord son adresse principale »), même confirmée', async () => {
+    ex.conflit = { ...CONFLIT, principale: true };
+    expect(await enregistrerCopropriete({ ...SAISIE, deplacementsConfirmes: ['12 rue des Lilas'] }, AUTEUR))
+      .toEqual({ ok: false, motif: 'C’est l’adresse principale de _TEST Autre : changez d’abord son adresse principale.' });
+    expect([ecritures(), ex.deplaces]).toEqual([[], []]);
+  });
+  it('🔴 déplacement CONFIRMÉ : relu dans la transaction, l’adresse quitte l’autre copropriété AVANT d’être ajoutée ici', async () => {
+    ex.conflit = CONFLIT;
+    const r = await enregistrerCopropriete({ ...SAISIE, deplacementsConfirmes: ['12 rue des Lilas'] }, AUTEUR);
+    expect(r.ok).toBe(true);
+    expect(ex.lectures).toBe(2); // avant la transaction, puis dedans
+    expect(ex.deplaces).toEqual([[CONFLIT, { id: '7', libelle: 'Les Tilleuls' }]]);
+    expect(ecritures().some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'))).toBe(true);
   });
   it('créée au premier « Valider » ; nom et « hors copropriété » ; la nouvelle adresse ajoutée ; le carnet par la porte commune', async () => {
     h.fiche = FICHE({ declaree: false, id: null, syndic: null });

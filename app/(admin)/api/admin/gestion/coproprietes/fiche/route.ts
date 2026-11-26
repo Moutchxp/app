@@ -11,6 +11,7 @@ import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 import { examinerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproExamen';
 import { definirAdressePrincipale, retirerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproGestesRepo';
+import { conflitDeLAdresse } from '../../../../../../lib/gestion/adresseCoproExclusiviteRepo';
 import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
 
 /**
@@ -23,6 +24,8 @@ import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContacts
  *        « à vérifier » (adresse officielle, parcelle, position) — LECTURE SEULE ;
  *   POST `{ action: 'adresse-retirer' | 'adresse-principale', immeuble, adresseCle }` : 🔴 (Arno, 26/11/2026, 12h50) « Retirer cette adresse » et
  *        « Définir comme adresse principale », immédiats, journalisés (rien n'est effacé) ;
+ *   POST `{ action: 'adresse-conflit', immeuble, adresse }` : 🔴 (Arno, 26/11/2026, 12h50, point 2) l'autre copropriété qui porte déjà cette adresse
+ *        (ou `null`) — LECTURE SEULE ; le refus d'« enregistrer » rend aussi `conflitAdresse` (contrôle dans la transaction) ;
  *   POST `{ action: 'digicode-corriger' | 'digicode-arbitrer', immeuble, adresseCle, batiment, digicode, code }` : 🔴 (« Digicodes unifiés », lot 3)
  *        « Corriger une erreur » / « Garder ce code », immédiats, par le chemin serveur unique (478) ;
  *   POST `{ action: 'digicode-planifier', immeuble, adresseCle, appliqueLe, changements }` / `{ action: 'digicode-annuler-changement', …, ligneId }` :
@@ -91,6 +94,16 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', data: await examinerAdresseCopro({ libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10) || null, commune: t(a.commune, 120) || null,
         banId: t(a.banId, 80) || null }) }, { headers: ENTETES });
     }
+    // 🔴 (Arno, 26/11/2026, 12h50, point 2) une adresse déjà portée par une autre copropriété ? — LECTURE SEULE
+    if (corps.action === 'adresse-conflit') {
+      const a = (corps.adresse ?? {}) as Record<string, unknown>;
+      const t = (v: unknown, m: number): string => (typeof v === 'string' ? v.slice(0, m).trim() : '');
+      const ici = await ficheCopropriete(t(corps.immeuble, 300));
+      const cle = cleImmeuble(t(corps.immeuble, 300));
+      if (cle === '' || cleImmeuble(t(a.libelle, 200)) === '') return Response.json({ etat: 'refus', motif: 'Adresse vide.' }, { status: 400, headers: ENTETES });
+      return Response.json({ etat: 'ok', data: await conflitDeLAdresse(query, { coproId: ici?.id ?? null, coproCle: ici?.cle ?? cle },
+        { libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10) || null, banId: t(a.banId, 80) || null }) }, { headers: ENTETES });
+    }
     // 🔴 (Arno, 26/11/2026, 12h50) « Retirer cette adresse » / « Définir comme adresse principale » : immédiats, journalisés
     if (corps.action === 'adresse-retirer' || corps.action === 'adresse-principale') {
       const auteur = await auteurDeLaRequete(request);
@@ -104,7 +117,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (corps.action === 'enregistrer') {
       const r = await enregistrerCopropriete(corps, await auteurDeLaRequete(request));
-      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}) }, { headers: ENTETES });
+      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}),
+        ...(r.conflitAdresse ? { conflitAdresse: r.conflitAdresse } : {}) }, { headers: ENTETES });
     }
     // 🔴 (« Digicodes unifiés », lot 3) « Corriger une erreur » et « Garder ce code » (à arbitrer) : immédiats, par le chemin serveur unique
     // 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires (lecture seule), puis « Enregistrer et envoyer »

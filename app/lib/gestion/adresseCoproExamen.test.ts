@@ -48,7 +48,7 @@ describe('les adresses confirmées et l’historique des adresses', () => {
   it('l’historique : ajout, confirmation, retrait, vérification — du plus récent', async () => {
     h.rangs = [{ le: '26/11/2026 à 12h10', texte: 'Adresse confirmée', par: 'Arnaud Jorel' }];
     expect(await historiqueAdresses(7)).toEqual(h.rangs);
-    expect(h.sql[0].p).toEqual([7, ['adresse_ajoutee', 'adresse_confirmee', 'adresse_retiree', 'adresse_verifiee', 'adresse_principale_changee']]);
+    expect(h.sql[0].p).toEqual([7, ['adresse_ajoutee', 'adresse_confirmee', 'adresse_retiree', 'adresse_verifiee', 'adresse_principale_changee', 'adresse_cedee', 'adresse_reprise']]);
     expect(h.sql[0].s).toContain('ORDER BY j.survenu_le DESC, j.id DESC');
   });
 });

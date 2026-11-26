@@ -53,7 +53,7 @@ export async function adressesConfirmees(coproId: number): Promise<string[]> {
 }
 
 /** Les actions sur les adresses de la copropriété, montrées dans « Historique des adresses ». */
-export const ACTIONS_ADRESSES = ['adresse_ajoutee', 'adresse_confirmee', 'adresse_retiree', 'adresse_verifiee', 'adresse_principale_changee'] as const;
+export const ACTIONS_ADRESSES = ['adresse_ajoutee', 'adresse_confirmee', 'adresse_retiree', 'adresse_verifiee', 'adresse_principale_changee', 'adresse_cedee', 'adresse_reprise'] as const;
 
 /** L'historique des adresses de la copropriété (journal, du plus récent au plus ancien). LECTURE SEULE. */
 export async function historiqueAdresses(coproId: number): Promise<{ le: string; texte: string; par: string }[]> {
