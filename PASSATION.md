@@ -1383,9 +1383,24 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Vérifié en lecture seule sur le 30 rue Baudin (n° 373 ; Arno en a fait l'adresse principale à 13h59 et y a ajouté 32, 36, 38). Ses six adresses
   sont vérifiées : « À vérifier » montré en modifiant la seule réponse de lecture dans le navigateur. Captures `.captures/copro-lignes/`.
 
+- ✅ **Décision d'Arno (26/11/2026, 14h35)** : on garde le « × » SANS question pour une adresse en attente (retrait immédiat).
+
+### 26/11/2026, 14h35 — boutons pleine largeur, digicodes en MAJUSCULES (NON POUSSÉS, aucune migration)
+- **`9af33a9a` — boutons d'action de section en pleine largeur** (classe `fcp-bouton-plein`, rendu des boutons du bloc AG) : « + Ajouter un habitant
+  ou un gardien », « Choisir / créer le syndic » / « Changer de syndic », et aussi « Retirer le syndic », « + Rattacher un contact du syndic »
+  (`ContactsSyndicCopropriete`, rendu seulement par la fiche), « Ajouter » (« Une autre adresse »). Petits boutons de ligne inchangés.
+  Inventaire mesuré dans Chrome (30 rue Baudin sans syndic, 25 rue Edith Cavell avec syndic).
+- **`3c17655f` — digicodes en MAJUSCULES** : `majusculesDigicode` (digicodeImmeuble.ts) ; frappe (6 champs : commun, bâtiment, correction, « Nouveau
+  digicode » planifié, ancien champ CreationBien et fiche du bien) ; serveur (`valeurSaisie`, `verifierDigicode`, `bienComplet`) ; affichage
+  (motValeur, libelleValeur, motChangementAVenir, motCode ×2, résumé/fiche du bien, mail Nouvelle location, fiche d'intervention, sortie). Aucune
+  réécriture en masse ; `memeCode` ignore toujours la casse → réenregistrer un code identique n'écrit rien. En recette : 2 codes en minuscules
+  seulement (« 7 rue test digicode », restes d'essai « …undefined »), laissés tels quels.
+- Dette relevée, non traitée : `enregistrerCopropriete` contrôle encore le code avec l'ancienne limite de 8 caractères (`verifierDigicode`) avant
+  `ecrireDigicode` (15) ; `validerDigicodesBien` et `coproprieteEcritureRepo` coupent en silence à 20 caractères.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
