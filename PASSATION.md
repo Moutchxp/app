@@ -1421,12 +1421,17 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   clé EXACTE de la 520, éprouvé sur un doublon « 77b / 77 bis ») et exige 0, puis l'essai avec exactement 1 nouvelle (520) ; 4-appliquer exige
   l'essai du jour ; 5-verifier : registre 517 / 4 écartées, 520 inscrite par le commit, verrou en place (`lecture-exclusivite-520.sql`).
 
+### ✅ 26/11/2026, 16h25-16h41 — MISE EN PRODUCTION TERMINÉE (lancée par Arno)
+- Sauvegarde : `/home/ubuntu/sauvegardes/2026-11-26_1625`. `3-essai.sh` : ESSAI RÉUSSI. `4-appliquer.sh` : « MISE À JOUR RÉUSSIE — 1c40ed6c en
+  service », migration 520 appliquée et inscrite 1/1. `5-verifier.sh` : « ÉTAPE E RÉUSSIE » — déclencheurs = 2, index unique = 1, copropriétés sans
+  clé = 0, clés ouvertes = 29, copropriétés 16 / 16.
+- Partis avec elle : tous les lots du 26/11/2026 (`fc4f3098` → `1c40ed6c` : 20 %, Syndics, fenêtre Copropriété, adresses, exclusivité, digicodes
+  en MAJUSCULES et limite de 15, migration 520).
+- **Migrations : 519 inutilisé ; la 361 (en attente) prendra la 521.**
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4`, `29b26f1b`, `9af33a9a`, `3c17655f`, `d3076e1d`, `30e05d78` + leurs passations.
-Prochaine mise en production : `.captures/maj/1-sauvegarde.sh` → `2-push.sh` → `3-essai.sh` → `4-appliquer.sh` → `5-verifier.sh` (calés sur le
-commit de cette passation ; tout nouveau commit les fait refuser : les recaler). Arno : lancer `bash .captures/maj/0-controles-lecture-seule.sh` (les deux contrôles en lecture seule sur la production), puis décider de la
-migration 520 (exclusivité des adresses) selon le résultat.
+**Production = `1c40ed6c`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; 519 inutilisé, la 361 prendra la 521). Rien en attente
+de mise en production. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
