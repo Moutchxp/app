@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { annulerChoix, choixRecents, compteAVerifier, fileAVerifier, gesteFile } from '../../../../../lib/adresse/fileVerificationRepo';
+import { motifExclusiviteAdresse } from '../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/gestion/adresses-a-verifier — LA FILE « ADRESSES À VÉRIFIER » (Arno, 20/11/2026, « Adresse officielle BAN », lot 6). Au droit « Gestion ».
@@ -37,6 +38,9 @@ export async function POST(request: Request): Promise<Response> {
       : corps.action === 'geste' ? await gesteFile(corps, auteur) : { ok: false as const, motif: 'Action inconnue.' };
     return Response.json(r.ok ? { etat: 'ok', data: r } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/adresses-a-verifier] écriture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’est enregistré.' }, { status: 503, headers: ENTETES });
   }

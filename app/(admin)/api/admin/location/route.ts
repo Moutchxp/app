@@ -79,6 +79,7 @@ import { calculHonorairesDuBien } from '../../../../lib/location/honorairesPropr
 import { ligneJournalEchec } from '../../../../lib/location/issueEnregistrement';
 // 🔴 Arno (26/10/2026, 430) — le bien « rentré occupé » et le bail du locataire en place.
 import { bauxEnPlace, marquerBailEnPlace, rentreOccupeDisponible, rentreOccupeDuBien } from '../../../../lib/location/rentreOccupeRepo';
+import { motifExclusiviteAdresse } from '../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -966,6 +967,9 @@ async function postLocation(request: Request): Promise<Response> {
         return incomplet();
     }
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[api/admin/location] écriture impossible', e);
     if (estCreation(action)) journaliserEchec(auteur.libelle, action, corps.ecran, 'technique', (e as Error)?.message ?? 'erreur inattendue');
     // 🔴 (15/11/2026) le message dit la VRAIE panne : « la base n'a pas répondu » seulement si c'est la base

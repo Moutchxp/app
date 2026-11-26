@@ -4,6 +4,7 @@ import { coproprieteDeCle, enregistrerAgOfficielle, enregistrerPv, entreesAg, en
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { enregistrerArrete, lireArrete, arreteDisponible } from '../../../../../../lib/location/arreteComptesRepo';
+import { motifExclusiviteAdresse } from '../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/gestion/immeubles/ag — L'HISTORIQUE DES AG D'UNE COPROPRIÉTÉ (Arno, 16/11/2026, migration 475), pour le bloc « AG de la
@@ -62,6 +63,9 @@ export async function POST(request: Request): Promise<Response> {
       const r = await enregistrerArrete({ coproprieteId: corps.coproprieteId, jour: corps.jour, mois: corps.mois }, await auteurDeLaRequete(request));
       return Response.json(r, { headers: ENTETES });
     } catch (e) {
+      // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+      const exclusivite = motifExclusiviteAdresse(e);
+      if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
       console.error('[gestion/immeubles/ag] arrêté des comptes non enregistré', e);
       return Response.json({ etat: 'erreur', message: 'La date d’arrêté des comptes n’a pas été enregistrée : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
     }
@@ -72,6 +76,9 @@ export async function POST(request: Request): Promise<Response> {
     const r = corps.action === 'ag' ? await enregistrerAgOfficielle(corps, await auteurDeLaRequete(request)) : await enregistrerPv(corps, await auteurDeLaRequete(request));
     return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/immeubles/ag] PV non enregistré', e);
     return Response.json({ etat: 'erreur', message: 'Le PV n’a pas été enregistré : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
   }

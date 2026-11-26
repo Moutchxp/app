@@ -1,6 +1,6 @@
 import { majusculesBatiment } from '../location/digicodeImmeuble';
 import { conflitDeLAdresse, deplacerAdresse, type ConflitAdresse } from './adresseCoproExclusiviteRepo';
-import { motifConflitNonConfirme, motifPrincipaleAilleurs } from './adresseCoproExclusivite';
+import { motifConflitNonConfirme, motifPrincipaleAilleurs, motifExclusiviteAdresse } from './adresseCoproExclusivite';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { registreParAdresse, reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
@@ -398,7 +398,13 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       await q('UPDATE gestion_copropriete SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = $2 WHERE id = $1 AND alerte_parcelle_le IS NULL', [coproId, auteur.libelle]);
     }
     return { ok: true as const };
-  }).catch((e: unknown) => { if (e instanceof RefusCopro || e instanceof RefusDigicode) return { ok: false as const, motif: e.message }; throw e; });
+  }).catch((e: unknown) => {
+    if (e instanceof RefusCopro || e instanceof RefusDigicode) return { ok: false as const, motif: e.message };
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété (ajoutée ailleurs au même instant) : en mots
+    const m = motifExclusiviteAdresse(e);
+    if (m !== null) return { ok: false as const, motif: m };
+    throw e;
+  });
   if (!r.ok) return r;
   const relue = await ficheCopropriete(lue.cle);
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };

@@ -42,5 +42,22 @@ export const texteConflit = (c: ConflitAdresse): string =>
 export const libelleOuiDeplacer = (c: ConflitAdresse): string => `Oui, la rattacher ici et la retirer de ${nomCopropriete(c.copropriete)}`;
 export const LIBELLE_NON_DEPLACER = 'Non, ne pas la rattacher';
 export const motifPrincipaleAilleurs = (c: ConflitAdresse): string => `C’est l’adresse principale de ${nomCopropriete(c.copropriete)} : changez d’abord son adresse principale.`;
+/**
+ * 🔴🔴 (décision d'Arno du 26/11/2026, migration 520) LE REFUS DE LA BASE, EN MOTS : l'exclusivité est verrouillée en base (registre
+ * gestion_copropriete_adresse_exclusive, index unique « une clé ouverte, une seule copropriété »). Le déclencheur refuse avec un message clair
+ * (« Cette adresse appartient déjà à la copropriété … ») : il est relayé tel quel. L'index unique (dernier rempart, deux écritures au même instant)
+ * a un message technique : il est remplacé par une phrase claire. Une autre erreur : `null` (elle suit son chemin habituel). PUR.
+ */
+export const CONTRAINTE_EXCLUSIVITE_ADRESSE = 'gestion_copropriete_adresse_exclusive';
+export const INDEX_EXCLUSIVITE_ADRESSE = 'gestion_copropriete_adresse_exclusive_ouverte';
+export const MOTIF_EXCLUSIVITE_GENERIQUE = 'Cette adresse appartient déjà à une autre copropriété : rien n’est enregistré. Rechargez la fiche pour voir laquelle.';
+export function motifExclusiviteAdresse(e: unknown): string | null {
+  if (typeof e !== 'object' || e === null) return null;
+  const x = e as { code?: unknown; constraint?: unknown; message?: unknown };
+  if (x.code !== '23505') return null;
+  if (x.constraint === CONTRAINTE_EXCLUSIVITE_ADRESSE) return typeof x.message === 'string' && x.message.startsWith('Cette adresse appartient déjà') ? x.message : MOTIF_EXCLUSIVITE_GENERIQUE;
+  if (x.constraint === INDEX_EXCLUSIVITE_ADRESSE) return MOTIF_EXCLUSIVITE_GENERIQUE;
+  return null;
+}
 export const motifConflitNonConfirme = (c: ConflitAdresse): string =>
   `${c.ecrite} appartient déjà à la copropriété ${nomCopropriete(c.copropriete)} : confirmez son déplacement, ou retirez-la. Rien n’est enregistré.`;

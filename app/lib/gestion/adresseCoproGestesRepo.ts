@@ -1,4 +1,5 @@
 import { withTransaction } from '../db/client';
+import { motifExclusiviteAdresse } from './adresseCoproExclusivite';
 import type { Auteur } from './gestes';
 import { ficheCopropriete } from './coproprieteRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille } from './syndics';
@@ -56,7 +57,12 @@ export async function retirerAdresseCopro(brut: unknown, auteur: Auteur): Promis
       await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_retiree', $2, $3, $4, $5)`,
         [lue.id, cle, texteRetraitAdresse(adresse, resume), auteur.id, auteur.libelle]);
     });
-  } catch (e) { if (e instanceof RefusGeste) return { ok: false, motif: e.message }; throw e; }
+  } catch (e) {
+    if (e instanceof RefusGeste) return { ok: false, motif: e.message };
+    const m = motifExclusiviteAdresse(e); // 🔴🔴 (décision d'Arno du 26/11/2026, 520) le refus de la base, en mots
+    if (m !== null) return { ok: false, motif: m };
+    throw e;
+  }
   return { ok: true, fiche: (await ficheCopropriete(lue.cle))! };
 }
 
@@ -86,6 +92,11 @@ export async function definirAdressePrincipale(brut: unknown, auteur: Auteur): P
         [lue.id, c.cle, cle, `Adresse principale : ${adresseImmeuble(a.libelle, a.code_postal ?? c.code_postal, a.commune ?? c.commune)} (avant : ${adresseImmeuble(c.libelle, c.code_postal, c.commune)}, qui reste une adresse de la copropriété)`,
           auteur.id, auteur.libelle]);
     });
-  } catch (e) { if (e instanceof RefusGeste) return { ok: false, motif: e.message }; throw e; }
+  } catch (e) {
+    if (e instanceof RefusGeste) return { ok: false, motif: e.message };
+    const m = motifExclusiviteAdresse(e); // 🔴🔴 (décision d'Arno du 26/11/2026, 520) le refus de la base, en mots
+    if (m !== null) return { ok: false, motif: m };
+    throw e;
+  }
   return { ok: true, fiche: (await ficheCopropriete(cle))! };
 }

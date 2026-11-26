@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (26/11/2026, 12h50, point 1) — « Retirer cette adresse » et « Définir comme adresse principale » : immédiats, journalisés, rien n'est effacé. */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], ligne: null as Record<string, unknown> | null, copro: null as Record<string, unknown> | null, fiche: null as unknown }));
+const rb = vi.hoisted(() => ({ refus: null as unknown }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim(); h.sql.push({ s, p });
+  if (rb.refus !== null && s.startsWith('UPDATE gestion_copropriete SET cle_immeuble')) throw rb.refus;
   if (s.startsWith('SELECT id::text FROM gestion_copropriete_adresse')) return { rows: h.ligne ? [h.ligne] : [] };
   if (s.startsWith('SELECT cle_immeuble AS cle, libelle, code_postal, commune, ban_id FROM gestion_copropriete')) return { rows: h.copro ? [h.copro] : [] };
   if (s.startsWith('SELECT id::text, libelle, code_postal, commune, ban_id, sorte, regroupement_id::text FROM gestion_copropriete_adresse')) return { rows: h.ligne ? [h.ligne] : [] };
@@ -65,6 +67,16 @@ describe('« Définir comme adresse principale »', () => {
     expect(e[1].p).toEqual([7, '17 rue voltaire', '17 rue Voltaire', '92800', 'Puteaux', 'B17']);
     expect(e[2].p).toEqual([7, '137 rue gerhard', '137 rue Gérhard', '92800', 'Puteaux', 2, AUTEUR.libelle, 'B137']);
     expect(e[3].p[3]).toBe('Adresse principale : 17 rue Voltaire, 92800 Puteaux (avant : 137 rue Gérhard, 92800 Puteaux, qui reste une adresse de la copropriété)');
+  });
+  it('🔴 520 : la BASE refuse (la nouvelle principale est devenue l’adresse d’une autre copropriété) : le message clair, pas d’erreur technique', async () => {
+    h.copro = { cle: '137 rue gerhard', libelle: '137 rue Gérhard', code_postal: '92800', commune: 'Puteaux', ban_id: 'B137' };
+    h.ligne = { id: '40', libelle: '17 rue Voltaire', code_postal: '92800', commune: 'Puteaux', ban_id: 'B17', sorte: 'adresse', regroupement_id: null };
+    rb.refus = Object.assign(new Error('Cette adresse appartient déjà à la copropriété _TEST Voisine : « 17 rue Voltaire ». Rien n’est enregistré.'),
+      { code: '23505', constraint: 'gestion_copropriete_adresse_exclusive' });
+    try {
+      expect(await definirAdressePrincipale({ immeuble: '137 rue Gérhard', adresseCle: '17 rue Voltaire' }, AUTEUR))
+        .toEqual({ ok: false, motif: 'Cette adresse appartient déjà à la copropriété _TEST Voisine : « 17 rue Voltaire ». Rien n’est enregistré.' });
+    } finally { rb.refus = null; }
   });
   it('déjà principale, une écriture d’origine, une adresse de regroupement : refus, rien n’est écrit', async () => {
     expect((await definirAdressePrincipale({ immeuble: '137 rue Gérhard', adresseCle: '137 rue gerhard' }, AUTEUR)).ok).toBe(false);

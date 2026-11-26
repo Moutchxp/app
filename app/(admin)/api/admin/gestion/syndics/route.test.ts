@@ -45,6 +45,14 @@ describe('/api/admin/gestion/syndics', () => {
     expect(enregistrerSyndic).not.toHaveBeenCalled();
   });
 
+  // 🔴🔴 (décision d'Arno du 26/11/2026, 520) un immeuble du syndic déjà adresse d'une autre copropriété : la base refuse, la route le DIT (pas « la base n'a pas répondu »)
+  it('POST : la base refuse une adresse déjà à une autre copropriété → 409 et le message clair', async () => {
+    enregistrerSyndic.mockRejectedValueOnce(Object.assign(new Error('Cette adresse appartient déjà à la copropriété 30 Rue Baudin : « 32 Rue Baudin ». Rien n’est enregistré.'),
+      { code: '23505', constraint: 'gestion_copropriete_adresse_exclusive' }));
+    const { POST } = await import('./route');
+    const r = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', immeubles: ['32 rue Baudin'] }));
+    expect([r.status, await r.json()]).toEqual([409, { erreur: 'Cette adresse appartient déjà à la copropriété 30 Rue Baudin : « 32 Rue Baudin ». Rien n’est enregistré.' }]);
+  });
   it('POST valide : création par la seule porte, avec l\'auteur de la SESSION', async () => {
     const { POST } = await import('./route');
     const r = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', immeubles: ['12 rue X'], auteur: 'pirate' }));

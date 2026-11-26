@@ -13,6 +13,7 @@ import { examinerAdresseCopro } from '../../../../../../lib/gestion/adresseCopro
 import { definirAdressePrincipale, retirerAdresseCopro } from '../../../../../../lib/gestion/adresseCoproGestesRepo';
 import { conflitDeLAdresse } from '../../../../../../lib/gestion/adresseCoproExclusiviteRepo';
 import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
+import { motifExclusiviteAdresse } from '../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/gestion/coproprietes/fiche — LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2). Au droit « Gestion ».
@@ -133,6 +134,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/coproprietes/fiche] écriture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503, headers: ENTETES });
   }

@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { degrouper, ignorerProposition, propositionsDeLaListe, regrouper, regroupementDisponible, regroupementsEnCours } from '../../../../../../lib/gestion/regroupementCoproprietesRepo';
+import { motifExclusiviteAdresse } from '../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/gestion/coproprietes/regroupement — LES COPROPRIÉTÉS EN DOUBLE PAR VARIANTES D'ADRESSE (Arno, 19/11/2026, migration 504). Au droit
@@ -47,6 +48,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/coproprietes/regroupement] écriture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’est enregistré.' }, { status: 503, headers: ENTETES });
   }

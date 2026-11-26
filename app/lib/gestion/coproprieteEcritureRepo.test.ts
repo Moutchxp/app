@@ -5,9 +5,12 @@ const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], coproDeC
   liens: [] as { id: string; syndic_id: string }[], enCours: [] as { id: string; cle: string; libelle: string }[], contacts: [] as unknown[], fiche: null as unknown,
   parcelle: [] as unknown[], prise: {} as Record<string, unknown>, porteur: {} as Record<string, unknown>,
   actuelles: [] as { cle: string; libelle: string; code_postal: string | null; commune: string | null; deja: boolean }[] }));
+// 🔴🔴 (décision d'Arno du 26/11/2026, 520) le refus de la BASE simulé : l'ajout d'une adresse lève l'erreur du déclencheur (après `laisser` ajouts)
+const rb = vi.hoisted(() => ({ refus: null as unknown, laisser: 0, tx: 0 }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const norm = (x: string): string => x.replace(/\s+/g, ' ').trim();
   const s = norm(sql); h.sql.push({ s, p });
+  if (rb.refus !== null && s.startsWith('INSERT INTO gestion_copropriete_adresse')) { if (rb.laisser > 0) rb.laisser -= 1; else throw rb.refus; }
   if (s.startsWith('SELECT c.id::text, c.cle_immeuble AS cle, c.libelle FROM gestion_copropriete c')) { const x = h.coproDeCle[p[0] as string]; return { rows: x ? [x] : [] }; }
   // le conflit de parcelle (règle commune) : la copropriété d'une adresse de la parcelle, avec son syndic ; et celle qui est notée
   if (s.startsWith('SELECT c.cle_immeuble AS cle, c.libelle, s.id::text AS syndic_id')) { const x = h.prise[p[0] as string]; return { rows: x ? [x] : [] }; }
@@ -28,7 +31,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   if (s.startsWith('SELECT libelle, arrete_comptes_jour AS jour')) return { rows: [{ libelle: 'Résidence Les Tilleuls', jour: null, mois: null, le: null, par: null }] };
   return { rows: [] };
 });
-vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
+vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => { rb.tx += 1; return fn(q); } }));
 vi.mock('./coproprieteRepo', () => ({ fiche476Disponible: async () => true, ficheCopropriete: async () => h.fiche }));
 vi.mock('./contactsImmeubleRepo', () => ({ enregistrerContactsImmeuble: async (_q: unknown, c: unknown) => { h.contacts.push(c); } }));
 const dg = vi.hoisted(() => ({ avec477: true, ecrits: [] as unknown[][] }));
@@ -57,9 +60,9 @@ const sl = vi.hoisted(() => ({ dispo: true }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => sl.dispo }));
 vi.mock('../location/mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nomFamille: 'Jorel' }) }));
 // 🔴 (Arno, 26/11/2026, 12h50, point 2) l'exclusivité d'une adresse : le conflit lu et le déplacement, simulés (leur SQL est éprouvé à part)
-const ex = vi.hoisted(() => ({ conflit: null as unknown, deplaces: [] as unknown[][], lectures: 0 }));
+const ex = vi.hoisted(() => ({ conflit: null as unknown, deplaces: [] as unknown[][], lectures: 0, qDuDeplacement: null as unknown }));
 vi.mock('./adresseCoproExclusiviteRepo', () => ({ conflitDeLAdresse: async () => { ex.lectures++; return ex.conflit; },
-  deplacerAdresse: async (_q: unknown, c: unknown, vers: unknown) => { ex.deplaces.push([c, vers]); } }));
+  deplacerAdresse: async (qq: unknown, c: unknown, vers: unknown) => { ex.deplaces.push([c, vers]); ex.qDuDeplacement = qq; h.sql.push({ s: 'DEPLACER (retire de l’autre)', p: [] }); } }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -117,6 +120,41 @@ describe('l’enregistrement', () => {
     expect(ex.lectures).toBe(2); // avant la transaction, puis dedans
     expect(ex.deplaces).toEqual([[CONFLIT, { id: '7', libelle: 'Les Tilleuls' }]]);
     expect(ecritures().some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'))).toBe(true);
+  });
+  // 🔴🔴 (décision d'Arno du 26/11/2026, migration 520) l'exclusivité VERROUILLÉE EN BASE
+  const REFUS_BASE = Object.assign(new Error('Cette adresse appartient déjà à la copropriété _TEST Autre (syndic Cabinet B) : « 12 rue des Lilas ». Rien n’est enregistré.'),
+    { code: '23505', constraint: 'gestion_copropriete_adresse_exclusive' });
+  it('🔴 520 : la BASE refuse (ajoutée ailleurs entre la lecture et l’écriture) : le message clair de la base, jamais une erreur technique', async () => {
+    rb.refus = REFUS_BASE;
+    try {
+      const r = await enregistrerCopropriete(SAISIE, AUTEUR);
+      expect(r).toEqual({ ok: false, motif: 'Cette adresse appartient déjà à la copropriété _TEST Autre (syndic Cabinet B) : « 12 rue des Lilas ». Rien n’est enregistré.' });
+      // l'index unique (dernier rempart, message technique) : une phrase claire
+      rb.refus = Object.assign(new Error('duplicate key value violates unique constraint "gestion_copropriete_adresse_exclusive_ouverte"'), { code: '23505', constraint: 'gestion_copropriete_adresse_exclusive_ouverte' });
+      expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual({ ok: false, motif: 'Cette adresse appartient déjà à une autre copropriété : rien n’est enregistré. Rechargez la fiche pour voir laquelle.' });
+      // une autre erreur de la base : elle suit son chemin (la route dit « la base n'a pas répondu »)
+      rb.refus = Object.assign(new Error('connexion perdue'), { code: '57P01' });
+      await expect(enregistrerCopropriete(SAISIE, AUTEUR)).rejects.toThrow('connexion perdue');
+    } finally { rb.refus = null; }
+  });
+  it('🔴 520 : le déplacement confirmé retire PUIS rattache dans UNE SEULE transaction (le même client, la retraite avant l’ajout)', async () => {
+    ex.conflit = CONFLIT;
+    rb.tx = 0;
+    const r = await enregistrerCopropriete({ ...SAISIE, deplacementsConfirmes: ['12 rue des Lilas'] }, AUTEUR);
+    expect(r.ok).toBe(true);
+    expect(rb.tx).toBe(1); // une seule transaction pour tout l'enregistrement
+    expect(ex.qDuDeplacement).toBe(q); // le retrait de l'autre copropriété passe par le client de CETTE transaction
+    const ordre = h.sql.map((x) => x.s).filter((x) => x.startsWith('DEPLACER') || x.startsWith('INSERT INTO gestion_copropriete_adresse'));
+    expect(ordre[0]).toBe('DEPLACER (retire de l’autre)');
+    expect(ordre.slice(1).every((x) => x.startsWith('INSERT INTO gestion_copropriete_adresse'))).toBe(true);
+  });
+  it('🔴 520 : deux enregistrements SIMULTANÉS de la même adresse : le premier passe, le second reçoit le refus clair de la base', async () => {
+    rb.refus = REFUS_BASE; rb.laisser = 1; // la base laisse passer le premier ajout, refuse le second (elle les a rangés l'un après l'autre)
+    try {
+      const [a, b] = await Promise.all([enregistrerCopropriete(SAISIE, AUTEUR), enregistrerCopropriete(SAISIE, AUTEUR)]);
+      expect([a.ok, b.ok].sort()).toEqual([false, true]);
+      expect([a, b].find((x) => !x.ok)).toEqual({ ok: false, motif: REFUS_BASE.message });
+    } finally { rb.refus = null; rb.laisser = 0; }
   });
   it('créée au premier « Valider » ; nom et « hors copropriété » ; la nouvelle adresse ajoutée ; le carnet par la porte commune', async () => {
     h.fiche = FICHE({ declaree: false, id: null, syndic: null });

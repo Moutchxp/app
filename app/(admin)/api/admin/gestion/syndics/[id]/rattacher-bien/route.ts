@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { rattacherBienAuSyndic } from '../../../../../../../lib/gestion/doublonSyndicRepo';
 import { syndicsDisponibles } from '../../../../../../../lib/gestion/syndicRepo';
+import { motifExclusiviteAdresse } from '../../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * POST /api/admin/gestion/syndics/[id]/rattacher-bien — LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE.
@@ -44,6 +45,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
        avec K autres biens », et les contacts du cabinet à proposer quand la copropriété est nouvelle. */
     return Response.json({ ok: true, id: issue.id, resume: issue.resume }, { headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ erreur: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/syndics/%d/rattacher-bien] rattachement impossible', id, e);
     return Response.json({ erreur: 'Rattachement impossible : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
   }

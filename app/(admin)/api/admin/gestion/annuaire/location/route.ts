@@ -36,6 +36,7 @@ import { ECRAN_FICHE_LOCATAIRE } from '../../../../../../lib/location/ficheLocat
 import { enregistrerSuiviLocataire, lireSuiviLocataire } from '../../../../../../lib/location/suiviLocataireRepo';
 import { enregistrerConditionsFicheLocataire, lireConditionsFicheLocataire } from '../../../../../../lib/location/conditionsFicheLocataireRepo';
 import { ECRAN_FICHE_LOCATAIRE_LOCATION } from '../../../../../../lib/location/suiviLocataire';
+import { motifExclusiviteAdresse } from '../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -324,6 +325,9 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
         return incomplet();
     }
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ etat: 'refus', motif: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[api/admin/gestion/annuaire/location] écriture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503 });
   }

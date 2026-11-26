@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { enregistrerSyndic, listerSyndics, syndicsDisponibles } from '../../../../../lib/gestion/syndicRepo';
 import { syndicsQuiRepondent, validerSyndic } from '../../../../../lib/gestion/syndics';
+import { motifExclusiviteAdresse } from '../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * ══ /api/admin/gestion/syndics — LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN : LA LISTE, ET LA CRÉATION ══════════════════
@@ -57,6 +58,9 @@ export async function POST(request: Request): Promise<Response> {
       ...(issue.conflitsParcelle ? { conflitsParcelle: issue.conflitsParcelle } : {}) }, { status: 409, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ erreur: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/syndics] création impossible', e);
     return Response.json({ erreur: 'Enregistrement impossible : la base n’a pas répondu.' },
       { status: 503, headers: ENTETES });

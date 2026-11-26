@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { enregistrerSyndic, ficheSyndic, supprimerSyndic, syndicsDisponibles } from '../../../../../../lib/gestion/syndicRepo';
 import { validerSyndic } from '../../../../../../lib/gestion/syndics';
+import { motifExclusiviteAdresse } from '../../../../../../lib/gestion/adresseCoproExclusivite';
 
 /**
  * ══ /api/admin/gestion/syndics/[id] — LA FICHE D'UN SYNDIC ══════════════════════════════════════════════════════
@@ -69,6 +70,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 404, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {
+    // 🔴🔴 (décision d'Arno du 26/11/2026, 520) la base refuse une adresse déjà à une autre copropriété : le message clair, jamais une panne
+    const exclusivite = motifExclusiviteAdresse(e);
+    if (exclusivite !== null) return Response.json({ erreur: exclusivite }, { status: 409, headers: ENTETES });
     console.error('[gestion/syndics/%d] enregistrement impossible', id, e);
     return Response.json({ erreur: 'Enregistrement impossible : la base n’a pas répondu.' },
       { status: 503, headers: ENTETES });
