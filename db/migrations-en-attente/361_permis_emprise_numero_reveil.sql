@@ -4,6 +4,9 @@
 -- ⚠️ EN ATTENTE DE LA DÉCISION D'ARNO : ce fichier est rangé dans db/migrations-en-attente/, que la mise à jour de la prod
 -- ne lit pas. Le déplacer dans db/migrations/ (en vérifiant que 361 est toujours le numéro suivant) = décider de
 -- l'appliquer à la prochaine mise à jour. Analyse complète : docs/RAPPORT_NUIT_2026-10-16.md, lot 2.
+-- 🔴🔴 NUMÉRO À PRENDRE : 521 (décision d'Arno du 26/11/2026 — elle n'est pas prête et ne part pas avec la 520 ; la 519 n'est pas utilisée).
+-- L'outil refuse toute migration numérotée sous la dernière inscrite : une fois la 520 inscrite en production, seul un numéro ≥ 521 passe.
+-- Au réveil : la renommer 521_permis_emprise_numero_reveil.sql en la déplaçant dans db/migrations/ (si 521 est encore libre, sinon le suivant).
 --
 -- POURQUOI : sur la fiche d'un permis, chaque emprise de « bâtiment en projet » doit recevoir un numéro DÉFINITIF par
 -- dossier, jamais réattribué après une suppression (une note qui cite « bâtiment A (2) » désigne toujours la même).

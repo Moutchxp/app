@@ -69,7 +69,7 @@ LUI-MÊME** et rend messages + hashs :
   (`IF NOT EXISTS`), **enveloppées** (`psql -X -q -v ON_ERROR_STOP=1 -1 -f …`, jouées deux fois sans erreur),
   **appliquées à la RECETTE seulement** ; le code doit tourner SANS elles (sondes de schéma `colonneExisteMemo`,
   hors transaction). Garde à jour : `app/lib/ops/migrationsEnAttente.test.ts` (la 361 en attente se décale à
-  chaque nouvelle migration : **elle prendra la 519**).
+  chaque nouvelle migration : **elle prendra la 521** — décision d'Arno du 26/11/2026 : 519 non utilisé, 361 → 521).
 - **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`). **Mesuré le 18/11/2026 :
   1 790 fichiers, 27 096 tests verts + 21 ignorés.** (Le « 173 fichiers » d'`AGENTS.md` est très périmé, le principe
   reste : les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin — précédent :
@@ -418,7 +418,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   commit `905e0e0a` ; 🔴 516 : `gestion_location_montant_vingt`, montant des 20 %, `887aec04` ; 🔴 517 : sorte « restitution_vingt » des destinataires
   mails, `7fdc82f4` ; 🔴 518 : montant_vingt / motif_difference de la restitution + modèles de mail de restitution, `b50ea980` — chacune testée sur une copie
   de structure supprimée ensuite, appliquée deux fois et inscrite au registre de la RECETTE le 25/11/2026).
-  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 519 (516 à 518 prises le 25/11/2026 au soir), le jour où Arno la sortira** (décision
+  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 519 (516 à 518 prises le 25/11/2026 au soir), le jour où Arno la sortira** (→ **521**
+  depuis la décision d'Arno du 26/11/2026 : 519 non utilisé) (décision
   d'Arno du 23/11/2026, « garde le premier libre suivant » redit le 24/11) — la 511 reste vide (refusée une fois 512-514 inscrites ;
   épreuve dans `migrationsEnAttente.test.ts`, mise à jour). Non touchée.
 - **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
@@ -1236,7 +1237,7 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 ### ✅ MISE EN PRODUCTION DU 26/11/2026 — RÉUSSIE (Arno, 08h09 : « on va pousser toutes les évolutions en production »)
 - **PRODUCTION = `1d4d8e87`** (« MISE À JOUR RÉUSSIE — 1d4d8e87 en service », 09:15:21 ; `.captures/maj/appliquer-2026-11-26.txt`). Avant :
   `351f04de` (20/11). **Migrations 512 → 518 appliquées et inscrites 7/7** : registre de production à **518** (516 lignes dont 4 écartées).
-  Pas de 511 (trou sans effet : le garde ne refuse qu'une migration numérotée SOUS la dernière appliquée). **La 361 en attente prendra la 519**
+  Pas de 511 (trou sans effet : le garde ne refuse qu'une migration numérotée SOUS la dernière appliquée). **La 361 en attente prendra la 519** (→ **521**, décision d'Arno du 26/11/2026)
   (elle reste dans `db/migrations-en-attente/`, elle n'est PAS partie). Aucune variable d'environnement ni unité systemd nouvelle.
 - **5-verifier.sh : « ÉTAPE E RÉUSSIE »** — pages 200, aucune erreur au journal, services actifs, liste « Restitution des 20 % » (517) **vide**,
   **aucune ligne d'alerte encore** dans `gestion_location_alerte_vingt` au moment de la vérification.
@@ -1410,8 +1411,9 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   (enregistrerCopropriete, définir la principale, 10 routes d'écriture → 409 dans la forme de chaque route).
 - Épreuve : copie jetable de la recette à 518 (port 5433, `.captures/maj/essai-copie-520/`, pgdata effacé) — journal `epreuve.log`. **Appliquée en
   RECETTE seulement** (115 clés, 58 copropriétés). Production : NON.
-- ⚠️ **La 361 et la 519** : l'outil refuse une migration numérotée sous la dernière inscrite. La 361 ne prend la 519 que si elle part AVEC la 520 (ou
-  avant) ; une fois la 520 inscrite en production, elle prendra la 521 (`migrationsEnAttente.test.ts` le fige). À décider par Arno.
+- ✅ **Décision d'Arno (26/11/2026) : 519 non utilisé, 361 → 521.** La 361 n'est pas prête et ne part pas avec la 520 ; au réveil, elle sera renommée
+  521 (en-tête de `db/migrations-en-attente/361_permis_emprise_numero_reveil.sql` ; `migrationsEnAttente.test.ts` le fige : 519 refusée après
+  la 520, 521 acceptée). `scripts/migrations-plan.ts` inchangé (il ne nomme aucun numéro).
 - Limite connue : une adresse sans code postal et la même avec code postal ne sont pas vues comme la même clé EN BASE (le serveur, lui, les
   rapproche : codes postaux compatibles) ; la clé `cle_immeuble` des adresses secondaires (index d'avant) ignore toujours le code postal.
 - Scripts `.captures/maj/` préparés pour la prochaine mise en production, SANS rien lancer (anciens rangés dans `.captures/maj/avant-520/`) :
