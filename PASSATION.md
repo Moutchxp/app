@@ -1361,9 +1361,21 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   est passé à Rattachement (code 1291 suivi) ; « 1 rue Léon et Robert Morane » retirée. Captures `.captures/copro-retrait/`, `.captures/copro-exclusivite/` ;
   `npm test` vert (1 882 / 28 222). ⚠️ Preuve curl à faire par Arno (agent via node : 200, 0 erreur).
 
+### 26/11/2026, 13h27 et 13h30 — fenêtre « Copropriété » : sélection multiple et tri (NON POUSSÉS, aucune migration)
+- **`114c86e4` — sélection multiple** : « Adresses proposées sur la même parcelle (N) » OUVERT par défaut, plus de repli automatique (repli d'un clic
+  conservé) ; une case à cocher par proposition (toute la ligne, `data-fcp-proposition`), à la place de « Rattacher » : cocher = « en attente de
+  validation » dans ADRESSES (conflit d'exclusivité dès la coche ; sans numéro : la confirmation d'avant) ; décocher = elle en sort ; une validée
+  n'est plus proposée. Le « × » d'une adresse en attente décoche sa case. Le bouton « Valider le rattachement… (N) » est DANS la liste ADRESSES
+  (`data-fcp-valider-rattachement-ligne`), juste sous les adresses en attente ; validation de 1fe5c7c7 inchangée.
+- **`3583a9f4` — tri** : `app/lib/gestion/ordreAdresses.ts` (`trierAdresses`, fonction UNIQUE) : rue (alphabétique, casse et accents ignorés), numéro
+  en nombre, indice après son numéro, « 12-28 » à 12, sans numéro en fin de rue ; principale en tête. Appliqué à l'affichage (ADRESSES : validées
+  puis en attente ; blocs DIGICODES ; propositions) — l'ordre de la saisie ne change pas.
+- Vérifié en LECTURE SEULE sur la copropriété du 34 rue Baudin (aucune écriture) ; captures `.captures/copro-selection/` ; `npm test` vert
+  (1 883 / 28 230 ; flake connu `PreavisAccueil.test.tsx` vu une fois, vert au 2e passage complet).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussés : `fc4f3098`, `51c69a00`, `1c6f1c06`, `20022366`, `dd2aa115`, `9bac0ec1`, `1fe5c7c7`,
-`9907f0b4`, `aeb97ec7`, `32761a3a` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+`9907f0b4`, `aeb97ec7`, `32761a3a`, `114c86e4`, `3583a9f4` + leurs passations. Arno : lancer la requête des doublons en production, puis décider de la migration 520. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
