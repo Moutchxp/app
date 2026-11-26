@@ -305,7 +305,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     // 🔴 (Arno, 26/11/2026, 12h50) une adresse ENREGISTRÉE (elle a son bloc de digicodes) : la même fenêtre que « Retirer cette adresse »
     ? <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setRetraitAdresse(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>
     : aRetirer === cleImmeuble(a.libelle)
-    ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
+    ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { decocher(cleImmeuble(a.libelle)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
       <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
     : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>);
   // les adresses de la même parcelle (proposées au « + »)
@@ -325,6 +325,14 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const clesIci = new Set(toutes.map((a) => cleImmeuble(a.libelle)));
   const libres = propositions.filter((p) => p.etat === 'libre' && !clesIci.has(cleImmeuble(p.libelle)));
   const prises = propositions.filter((p) => p.etat === 'prise' && !clesIci.has(cleImmeuble(p.libelle)));
+  /* 🔴🔴 (Arno, 26/11/2026, 13h27) « voir toutes les propositions les unes en dessous des autres, qu'on puisse en sélectionner plusieurs d'un coup » : la liste
+     cochable — toutes les propositions sauf les adresses déjà rattachées et VALIDÉES (une adresse en attente y reste, cochée) */
+  const principaleCle = f === null ? '' : cleImmeuble(f.libelle);
+  const proposees = propositions.filter((p) => { const k = cleImmeuble(p.libelle); return k !== principaleCle && !enregistrees.has(k); });
+  const decocher = (cle: string): void => {
+    setAdresses((l) => l.filter((y) => cleImmeuble(y.libelle) !== cle)); setConfirmees((l) => l.filter((y) => y !== cle));
+    if (deplacementsRef.current[cle] !== undefined) { const { [cle]: _x, ...reste } = deplacementsRef.current; deplacementsRef.current = reste; setDeplacements(reste); }
+  };
   const ajouter = (a: Adresse, confirmeSansNumero = false): boolean => {
     if (cleImmeuble(a.libelle) === '' || clesIci.has(cleImmeuble(a.libelle))) return false;
     if (adresseSansNumero(a.libelle) && !confirmeSansNumero) { setSansNumero(a); return false; }
@@ -415,7 +423,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Rattachement refusé.'); return; }
       fusionnerFiche(d.data);
       if (!f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
-      setRattacheeIci(false); setPropositionsOuvertes(false);
+      setRattacheeIci(false); // 🔴 (13h27) les propositions ne se replient plus seules
       setInfo(motAdressesValidees(n));
     } catch { setErreur('Rattachement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
   };
@@ -548,14 +556,15 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               <button type="button" className="fcp-lien fcp-definir-principale" onClick={() => setPrincipaleVisee(cleImmeuble(a.libelle))} disabled={envoi}
                 data-fcp-definir-principale={cleImmeuble(a.libelle)}>{LIBELLE_DEFINIR_PRINCIPALE}</button>)}
             {panneauExamen(a)}</li>))}
+        {/* 🔴🔴 (Arno, 26/11/2026, 13h27) le bouton qui valide toute la sélection, DANS la liste ADRESSES, juste sous les adresses en attente */}
+        {enAttente.length > 0 && (
+          <li className="fcp-ligne-valider-rattachement" data-fcp-valider-rattachement-ligne>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-valider-rattachement" disabled={envoi} onClick={() => { void validerRattachement(); }}
+              data-fcp-valider-rattachement>{envoi ? 'Enregistrement…' : libelleValiderRattachement(enAttente.length)}</button></li>)}
         {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
         {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
           <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
       </ul>
-      {/* 🔴🔴 (Arno, 26/11/2026, 12h23) dès qu'une adresse est en attente : le bouton pleine largeur qui valide l'ensemble */}
-      {enAttente.length > 0 && (
-        <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-valider-rattachement" disabled={envoi} onClick={() => { void validerRattachement(); }}
-          data-fcp-valider-rattachement>{envoi ? 'Enregistrement…' : libelleValiderRattachement(enAttente.length)}</button>)}
       {off !== null && (
         <details className="fcp-histo" data-fcp-ecritures>
           <summary>Écritures d’origine ({off.ecritures.length})</summary>
@@ -574,20 +583,30 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         <div className="fcp-ajout" data-fcp-ajout-adresse>
           {/* 🔴 (Arno, 26/11/2026, point 3) « Sur la même parcelle » devient repliable : « Adresses proposées sur la même parcelle (N) ▸ / ▾ » —
               ouvert tant qu'aucune adresse n'est rattachée, replié dès qu'il y en a une, et ouvrable ou refermable d'un clic ; rien n'est retiré */}
-          {libres.length + prises.length > 0 && (() => {
-            const ouvert = propositionsOuvertes ?? adresses.length === 0;
+          {/* 🔴🔴 (Arno, 26/11/2026, 13h27) OUVERT par défaut, une adresse par ligne, une case à cocher par ligne (toute la ligne cliquable) : cocher = l'adresse
+              entre aussitôt dans ADRESSES « en attente de validation » (la règle d'exclusivité joue dès la coche) ; décocher = elle en sort. Le repli reste d'un clic. */}
+          {proposees.length > 0 && (() => {
+            const ouvert = propositionsOuvertes ?? true;
             return (
               <div data-fcp-propositions={ouvert ? 'ouvert' : 'replie'}>
                 <button type="button" className="fcp-sous-titre fcp-propositions-tete" aria-expanded={ouvert} aria-controls={idPropositions}
                   onClick={() => setPropositionsOuvertes(!ouvert)} data-fcp-propositions-basculer>
-                  Adresses proposées sur la même parcelle ({libres.length + prises.length}) <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>
-                <ul className="fcp-liste" id={idPropositions} hidden={!ouvert}>
-                  {libres.map((p) => <li key={p.libelle}>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}{' '}
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { void rattacherControle(p); }} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
-                  {/* 🔴 (Arno, 26/11/2026, 12h50) une adresse déjà rattachée à une autre copropriété : « Rattacher » ouvre la fenêtre du conflit */}
-                  {prises.map((p) => <li key={p.libelle} className="loc-muet" data-fcp-prise>{adresseImmeuble(p.libelle, p.codePostal, p.commune)} — déjà rattachée à une autre copropriété
-                    {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}{' '}
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { void rattacherControle(p); }} data-fcp-rattacher-prise>Rattacher</button></li>)}
+                  Adresses proposées sur la même parcelle ({proposees.length}) <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span></button>
+                <ul className="fcp-liste fcp-propositions-liste" id={idPropositions} hidden={!ouvert}>
+                  {proposees.map((p) => {
+                    const k = cleImmeuble(p.libelle);
+                    const coche = clesIci.has(k);
+                    return (
+                      <li key={p.libelle} className={p.etat === 'prise' ? 'loc-muet' : undefined} {...(p.etat === 'prise' ? { 'data-fcp-prise': '' } : {})}>
+                        {/* 🔴 (12h50) une adresse déjà rattachée à une autre copropriété : la coche ouvre la fenêtre du conflit */}
+                        <label className="fcp-case fcp-proposition" data-fcp-proposition={k}>
+                          <input type="checkbox" checked={coche} disabled={envoi}
+                            onChange={() => { if (coche) decocher(k); else void rattacherControle(p); }}
+                            {...(p.etat === 'prise' ? { 'data-fcp-rattacher-prise': '' } : { 'data-fcp-rattacher-parcelle': '' })} />
+                          <span>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}
+                            {p.etat === 'prise' && <> — déjà rattachée à une autre copropriété{p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</>}</span>
+                        </label></li>);
+                  })}
                 </ul>
               </div>);
           })()}
@@ -1027,6 +1046,10 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-definir-principale{font-size:.85rem;min-height:44px;margin-left:6px}
 .fcp-en-attente{color:var(--color-svv-muted);font-style:italic;font-size:.85rem}
 .fcp-valider-rattachement{width:100%;min-height:44px;margin:8px 0 4px;white-space:normal}
+.fcp-ligne-valider-rattachement{list-style:none}
+.fcp-propositions-liste > li{list-style:none}
+.fcp-proposition{display:flex;align-items:center;gap:10px;min-height:44px;width:100%;cursor:pointer}
+.fcp-proposition input{width:20px;height:20px;flex:0 0 auto}
 .fcp-propositions-tete{display:flex;align-items:center;gap:6px;width:100%;min-height:44px;background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer;color:inherit}
 .fcp-examen-gestes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .fcp-petit{font-size:.82rem}

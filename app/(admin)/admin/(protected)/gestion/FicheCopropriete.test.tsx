@@ -343,7 +343,7 @@ describe('🔴🔴 (lot 6) AVANT de les retirer de la fiche syndic : chaque él�
     expect(document.querySelector('[data-fcp-retirer]')).not.toBeNull(); // « × » d'une autre adresse
     await clic('[data-fcp-plus-adresse]');
     expect(document.querySelector('[data-fcp-ajout-adresse]')).not.toBeNull(); // le champ d'adresse
-    expect($('[data-fcp-rattacher-parcelle]').textContent).toBe('Rattacher'); // « N adresses sur la même parcelle »
+    expect($('[data-fcp-rattacher-parcelle]').getAttribute('type')).toBe('checkbox'); // 🔴 (26/11, 13h27) une case à cocher par proposition (avant : « Rattacher »)
     expect($('[data-fcp-contacts]').textContent).toContain('Paul');
     expect(document.querySelector('[data-fcp-ajouter-contact]')).not.toBeNull();
     expect(document.querySelector('[data-fcp-digicodes]')).not.toBeNull();
@@ -847,7 +847,7 @@ describe('DIGICODES : un bloc par adresse VALIDÉE ; le rattachement en deux tem
     expect(document.querySelector('[data-fcp-en-attente]')).toBeNull();
     expect(document.querySelector('[data-fcp-valider-rattachement]')).toBeNull();
     expect($('[data-fcp-info]').textContent).toBe('1 adresse rattachée à la copropriété : chacune a son bloc dans DIGICODES.');
-    expect($('[data-fcp-propositions-basculer]').getAttribute('aria-expanded')).toBe('false');
+    expect($('[data-fcp-propositions-basculer]').getAttribute('aria-expanded')).toBe('true'); // 🔴 (13h27) plus de repli automatique
   });
   it('« × » sur une adresse en attente : elle s’en va, sans bloc ni bouton ; la saisie en cours (nom) n’est pas perdue par la validation', async () => {
     await monter();
@@ -905,29 +905,70 @@ describe('DIGICODES : un bloc par adresse VALIDÉE ; le rattachement en deux tem
   });
 });
 
-/** 🔴🔴 Arno (26/11/2026, 11h58, point 3) — « pouvoir refermer les adresses proposées […] avec la possibilité de rouvrir les propositions ». */
-describe('« Adresses proposées sur la même parcelle (N) » repliable', () => {
+/** 🔴🔴 Arno (26/11/2026, 11h58, point 3, puis 13h27) — « Adresses proposées sur la même parcelle (N) » : OUVERT par défaut, cochable, repliable d'un clic. */
+describe('« Adresses proposées sur la même parcelle (N) » : ouvert, cochable, repliable', () => {
   const tete = () => $('[data-fcp-propositions-basculer]');
   const liste = () => tete().nextElementSibling as HTMLElement;
-  it('aucune adresse rattachée : ouvert ; la première rattachée : replié ; un clic rouvre, un autre referme ; « Une autre adresse » toujours là', async () => {
-    lu = { fiche: FICHE({ adresses: [FICHE().adresses[0]] }), coproprieteDuBien: true };
+  it('ouvert par défaut, même avec une adresse déjà rattachée ; ne se replie plus seul ; un clic replie, un autre rouvre ; « Une autre adresse » toujours là', async () => {
     await ouvrir();
     await clic('[data-fcp-plus-adresse]');
     expect([tete().textContent, tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['Adresses proposées sur la même parcelle (2) ▾', 'true', false]);
     await clic('[data-fcp-rattacher-parcelle]');
-    // rattachée : elle quitte les propositions (1 restante, déjà prise) et le bloc se replie
-    expect([tete().textContent, tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['Adresses proposées sur la même parcelle (1) ▸', 'false', true]);
-    expect(document.querySelector('[data-fcp-autre-adresse]')).not.toBeNull();
-    await clic('[data-fcp-propositions-basculer]');
-    expect([tete().getAttribute('aria-expanded'), liste().hidden, $('[data-fcp-propositions]').getAttribute('data-fcp-propositions')]).toEqual(['true', false, 'ouvert']);
+    expect([tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['true', false]); // rien ne se replie seul
     await clic('[data-fcp-propositions-basculer]');
     expect([tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['false', true]);
+    await clic('[data-fcp-propositions-basculer]');
+    expect([tete().getAttribute('aria-expanded'), liste().hidden]).toEqual(['true', false]);
     expect(document.querySelector('[data-fcp-autre-adresse]')).not.toBeNull();
   });
-  it('une adresse déjà rattachée à l’ouverture : replié par défaut, rien de retiré (les propositions restent dans la page)', async () => {
+});
+
+/** 🔴🔴 Arno (26/11/2026, 13h27) — « qu'on puisse en sélectionner plusieurs d'un coup […] on peut supprimer chacune des adresses rattachées indépendamment avant leur validation ». */
+describe('la sélection multiple des adresses proposées', () => {
+  beforeEach(() => {
+    parcelle = [{ libelle: '14 rue des Lilas', codePostal: '75011', commune: 'Paris', parcelle: 'AB12', etat: 'libre', copropriete: null, syndic: null },
+      { libelle: '16 rue des Lilas', codePostal: '75011', commune: 'Paris', parcelle: 'AB12', etat: 'libre', copropriete: null, syndic: null },
+      { libelle: '18 rue des Lilas', codePostal: '75011', commune: 'Paris', parcelle: 'AB12', etat: 'libre', copropriete: null, syndic: null }];
+  });
+  const caseDe = (cle: string) => $(`[data-fcp-proposition="${cle}"] input`) as HTMLInputElement;
+  const enAttente = () => [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].filter((x) => x.querySelector('[data-fcp-en-attente]')).map((x) => x.textContent!.split(',')[0]);
+  it('cocher plusieurs : chacune entre « en attente » ; décocher : elle en sort ; une validée n’est plus proposée', async () => {
     await ouvrir();
     await clic('[data-fcp-plus-adresse]');
-    expect([tete().getAttribute('aria-expanded'), liste().hidden, liste().querySelectorAll('li').length]).toEqual(['false', true, 2]);
+    // 12 rue des Lilas est déjà validée : pas proposée
+    expect(document.querySelector('[data-fcp-proposition="12 rue des lilas"]')).toBeNull();
+    await act(async () => { caseDe('14 rue des lilas').click(); }); await calmer();
+    await act(async () => { caseDe('16 rue des lilas').click(); }); await calmer();
+    await act(async () => { caseDe('18 rue des lilas').click(); }); await calmer();
+    expect([caseDe('14 rue des lilas').checked, caseDe('16 rue des lilas').checked, caseDe('18 rue des lilas').checked]).toEqual([true, true, true]);
+    expect(enAttente()).toEqual(['14 rue des Lilas', '16 rue des Lilas', '18 rue des Lilas']);
+    expect($('[data-fcp-valider-rattachement]').textContent).toBe('Valider le rattachement des adresses à cette copropriété (3)');
+    await act(async () => { caseDe('16 rue des lilas').click(); }); await calmer(); // décocher
+    expect([caseDe('16 rue des lilas').checked, enAttente()]).toEqual([false, ['14 rue des Lilas', '18 rue des Lilas']]);
+  });
+  it('le bouton est DANS la liste ADRESSES, juste sous les adresses en attente ; le « × » d’une adresse en attente la retire et décoche sa case', async () => {
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await act(async () => { caseDe('14 rue des lilas').click(); }); await calmer();
+    await act(async () => { caseDe('18 rue des lilas').click(); }); await calmer();
+    const ligneBouton = $('[data-fcp-valider-rattachement-ligne]');
+    expect(ligneBouton.closest('[data-fcp-adresses] > ul')).not.toBeNull();
+    expect(ligneBouton.previousElementSibling?.querySelector('[data-fcp-en-attente]')).not.toBeNull(); // juste sous les adresses en attente
+    const l14 = [...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].find((x) => x.textContent!.startsWith('14 rue'))!;
+    await act(async () => { (l14.querySelector('[data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    await clic('[data-fcp-retirer-oui]');
+    expect([caseDe('14 rue des lilas').checked, enAttente()]).toEqual([false, ['18 rue des Lilas']]);
+    await clic('[data-fcp-valider-rattachement]');
+    expect((posts.find((p) => p.action === 'enregistrer')!.adresses as { libelle: string }[]).map((a) => a.libelle)).toEqual(['12 rue des Lilas', '18 rue des Lilas']);
+  });
+  it('la règle d’exclusivité joue dès la coche : la fenêtre du conflit ; « Non » laisse la case décochée', async () => {
+    conflitLu = { cle: '14 rue des lilas', ecrite: '14 rue des Lilas, 75011 Paris', copropriete: { id: 9, cle: 'x', libelle: '10 rue Voisine', nom: null, syndic: null }, principale: false, biens: [], digicodes: [] };
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await act(async () => { caseDe('14 rue des lilas').click(); }); await calmer();
+    expect(document.querySelector('[data-fcp-conflit]')).not.toBeNull();
+    await clic('[data-fcp-conflit-non]');
+    expect([caseDe('14 rue des lilas').checked, enAttente()]).toEqual([false, []]);
   });
 });
 
