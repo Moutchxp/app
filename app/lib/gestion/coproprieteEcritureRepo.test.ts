@@ -289,6 +289,22 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
       .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
     expect(dg.ecrits).toEqual([]);
   });
+  // 🔴🔴 (Arno, 26/11/2026, 11h58, point 2) « un digicode pour chacune des adresses de la copropriété » — y compris celle rattachée dans ce « Valider »
+  it('🔴 26/11 : une adresse rattachée DANS CE « Valider » a ses digicodes : le code de l’adresse et une cage, écrits à SON adresse, après son ajout', async () => {
+    const r = await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: '12 rue des lilas', commun: { code: '1212', aucun: false }, batiments: [{ libelle: 'Cage 1', code: 'C1', aucun: false }] }] }, AUTEUR);
+    expect(r.ok).toBe(true);
+    expect(dg.ecrits.map((a) => [a[0], a[1], a[5]])).toEqual([
+      [{ voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { digicode: true, code: '1212' }, null],
+      [{ voie: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }, { digicode: true, code: 'C1' }, 'Cage 1']]);
+    // l'adresse est ajoutée AVANT ses digicodes (même transaction)
+    const i = h.sql.findIndex((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'));
+    expect(i).toBeGreaterThanOrEqual(0);
+    // une adresse ni enregistrée ni dans la saisie : toujours refusée
+    dg.ecrits = []; h.sql = [];
+    expect(await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: '99 rue ailleurs', commun: { code: '1', aucun: false }, batiments: [] }] }, AUTEUR))
+      .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
+    expect([dg.ecrits, ecritures()]).toEqual([[], []]);
+  });
 });
 
 describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche syndic', () => {

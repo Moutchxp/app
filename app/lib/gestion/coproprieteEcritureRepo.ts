@@ -179,6 +179,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     if (manquants.length > 0) return { ok: false, motif: motifConflitParcelle(manquants), conflitsParcelle: manquants };
   }
   const unifie = await digicodesUnifiesDisponibles();
+  // 🔴 (Arno, 26/11/2026, point 2) les adresses secondaires de la saisie, et celles qui n'ont pas encore de bloc de digicodes (rattachées à l'instant)
+  const voulues0 = new Map(s.adresses.filter((a) => cleImmeuble(a.libelle) !== lue.cle).map((a) => [cleImmeuble(a.libelle), a]));
+  const nouvellesDigi = new Map([...voulues0].filter(([k]) => !lue.digicodes.some((x) => x.cle === k)));
   const r = await withTransaction(async (q) => {
     // ── ① TOUS LES REFUS, AVANT TOUTE ÉCRITURE ─────────────────────────────────────────────────────────────────────────────────────────────
     for (const a of s.adresses) {
@@ -194,12 +197,14 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     // les digicodes : chaque adresse est une adresse de la copropriété ; les NOUVEAUX bâtiments suivent la règle lettres OU chiffres
     if (s.digicodes.length > 0) {
       if (!(await depuisCoproprieteDisponible())) return { ok: false as const, motif: 'La saisie des digicodes dans la fiche copropriété demande la mise à jour de la base (migration 477) : rien n’est enregistré.' };
+      // 🔴🔴 (Arno, 26/11/2026, 11h58, point 2) une adresse rattachée DANS CE MÊME « Valider » a ses digicodes aussi (avant : refusés, « rechargez la fiche »)
       for (const d of s.digicodes) {
-        if (!lue.digicodes.some((x) => x.cle === d.cle)) return { ok: false as const, motif: 'Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
+        if (!lue.digicodes.some((x) => x.cle === d.cle) && !nouvellesDigi.has(d.cle)) return { ok: false as const, motif: 'Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
       }
       // 🔴 (lot D) le mélange n'est plus refusé : il est accepté s'il a été CONFIRMÉ à l'écran ; sinon, le même message clair qu'avant
       // 🔴 Arno (18/11/2026) — plusieurs adresses, bâtiments rangés par adresse : chaque adresse se numérote pour elle (la même règle que l'écran)
-      const independantes = adressesIndependantes(lue);
+      // 🔴 (26/11/2026) les adresses de la SAISIE (celles rattachées dans ce même « Valider » comprises), comme l'écran
+      const independantes = adressesIndependantes({ batimentsParAdresse: lue.batimentsParAdresse, adresses: [lue.cle, ...voulues0.keys()] });
       const groupes = independantes ? s.digicodes.map((d) => [d]) : [s.digicodes];
       for (const g of groupes) {
         const cle = g[0]?.cle ?? '';
@@ -309,7 +314,10 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     const parAdr = await registreParAdresse(q);
     const nouveaux: (BatimentConnu & { adresseCle: string })[] = [];
     for (const d of s.digicodes) {
-      const a = lue.digicodes.find((x) => x.cle === d.cle)!;
+      // 🔴 (26/11/2026) une adresse rattachée dans ce même « Valider » : son libellé de la saisie (elle vient d'être ajoutée au ③)
+      const n = nouvellesDigi.get(d.cle);
+      const a = lue.digicodes.find((x) => x.cle === d.cle) ?? (n === undefined ? undefined : { voie: n.libelle, codePostal: nul(n.codePostal), commune: nul(n.commune) });
+      if (a === undefined) throw new RefusCopro('Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.');
       const adresse = { voie: a.voie, codePostal: a.codePostal, commune: a.commune };
       // 🔴🔴 (« Digicodes unifiés », lot 3) avec la 478 : la PREMIÈRE valeur d'une place passe par le chemin serveur unique (un code connu ne se change
       // que par « Corriger une erreur » ou « Modifier ») ; une place laissée vide n'écrit rien ; sans la 478 : comme avant

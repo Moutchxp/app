@@ -788,3 +788,47 @@ describe('« à vérifier » sur une adresse rattachée : un bouton, l’examen,
     expect(h.textContent).toContain('26/11/2026 à 12h10 — Arnaud Jorel');
   });
 });
+
+/** 🔴🔴 Arno (26/11/2026, 11h58, point 2) — « je dois pouvoir rattacher un digicode pour chacune des adresses de la copropriété […] des bâtiments /
+ *  cages d'escalier avec un digicode pour chacun » : un bloc par adresse, dans l'ordre ADRESSES, y compris avant le premier « Valider ». */
+describe('DIGICODES : un bloc par adresse de la copropriété', () => {
+  const DIG = (cle: string, voie: string) => ({ cle, voie, codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] });
+  beforeEach(() => {
+    lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], batimentsParAdresse: true,
+      digicodes: [DIG('residence les tilleuls', 'Résidence Les Tilleuls'), DIG('12 rue des lilas', '12 rue des Lilas')] }), coproprieteDuBien: true };
+  });
+  const blocs = () => [...document.querySelectorAll('[data-digicodes-copro] [data-dcp-adresse]')].map((x) => x.getAttribute('data-dcp-adresse'));
+  it('une adresse rattachée reçoit SON bloc tout de suite (avant « Valider »), à sa place dans l’ordre ADRESSES ; retirée, son bloc s’en va', async () => {
+    await ouvrir();
+    expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']);
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]');
+    expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas', '14 rue des lilas']);
+    // chaque bloc : son digicode, « pas de digicode », le « + » d'un bâtiment ou d'une cage
+    const b = document.querySelector('[data-dcp-adresse="14 rue des lilas"]')!;
+    expect([!!b.querySelector('[data-dcp-code-commun]'), !!b.querySelector('[data-dcp-plus]')]).toEqual([true, true]);
+    await act(async () => { (document.querySelector('[data-fcp-adresse="secondaire"]:last-child [data-fcp-retirer]') as HTMLButtonElement).click(); }); await calmer();
+    await clic('[data-fcp-retirer-oui]');
+    expect(blocs()).toEqual(['residence les tilleuls', '12 rue des lilas']);
+  });
+  it('le digicode de l’adresse rattachée et deux cages d’escalier partent avec le premier « Valider », à SON adresse', async () => {
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await clic('[data-fcp-rattacher-parcelle]');
+    const sel = (s: string) => `[data-dcp-adresse="14 rue des lilas"] ${s}`;
+    await saisir(sel('[data-dcp-code-commun]'), '1414');
+    await clic(sel('[data-dcp-plus]'));
+    await saisir(sel('[data-dcp-nom-batiment]'), 'A');
+    await saisir(sel('[data-dcp-batiment="nouveau"] [data-dcp-code-batiment]'), 'A14');
+    await clic(sel('[data-dcp-plus]'));
+    const noms = document.querySelectorAll(sel('[data-dcp-nom-batiment]'));
+    await saisir(`${sel('[data-dcp-batiment="nouveau"]')}:last-of-type [data-dcp-nom-batiment]`, 'B');
+    expect(noms.length).toBe(2);
+    await saisir(`${sel('[data-dcp-batiment="nouveau"]')}:last-of-type [data-dcp-code-batiment]`, 'B14');
+    await clic('[data-fcp-valider]');
+    expect(document.querySelector('[data-fcp-etape-alerte], [data-fcp-valider-quand-meme]')).toBeNull(); // une adresse rattachée : pas d'alerte de parcelle
+    const e = posts.find((p) => p.action === 'enregistrer')!;
+    expect(e.digicodes).toEqual([{ cle: '14 rue des lilas', commun: { code: '1414', aucun: false },
+      batiments: [{ libelle: 'A', code: 'A14', aucun: false, confirme: false }, { libelle: 'B', code: 'B14', aucun: false, confirme: false }] }]);
+  });
+});

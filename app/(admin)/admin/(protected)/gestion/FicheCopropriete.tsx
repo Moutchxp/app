@@ -97,6 +97,26 @@ export function remettreDigicodes(etat: readonly DigicodesAdresseSaisis[], affic
   return etat.map((x) => { const n = affiches.find((y) => y.cle === x.cle); return n === undefined ? x : { ...n, voie: x.voie, codePostal: x.codePostal, commune: x.commune }; });
 }
 
+/**
+ * 🔴🔴 (Arno, 26/11/2026, 11h58, point 2) « Une fois les adresses rattachées, je dois pouvoir rattacher un digicode pour chacune des adresses de la
+ * copropriété, avec la possibilité pour chaque adresse d'ajouter des bâtiments / cages d'escalier avec un digicode pour chacun. » UN BLOC PAR ADRESSE de
+ * la saisie (la principale, puis les rattachées, dans l'ordre de la liste ADRESSES), y compris une adresse « à vérifier » et AVANT le premier « Valider » :
+ * un bloc déjà là garde sa saisie ; une adresse sans bloc en reçoit un vide (avant : les blocs venaient de la seule fiche enregistrée — une adresse
+ * rattachée n'en avait aucun) ; le bloc d'une adresse retirée de la saisie s'en va avec elle. PUR.
+ */
+export function digicodesDesAdresses(etat: readonly DigicodesAdresseSaisis[], toutes: readonly Adresse[]): DigicodesAdresseSaisis[] {
+  const vus = new Set<string>();
+  const out: DigicodesAdresseSaisis[] = [];
+  for (const a of toutes) {
+    const cle = cleImmeuble(a.libelle);
+    if (cle === '' || vus.has(cle)) continue;
+    vus.add(cle);
+    out.push(etat.find((d) => d.cle === cle) ?? { cle, voie: a.libelle, codePostal: a.codePostal || null, commune: a.commune || null,
+      commun: { code: '', aucun: false }, communInitial: { code: '', aucun: false }, batiments: [] });
+  }
+  return out;
+}
+
 export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number | null; immeuble?: string | null; onFerme: () => void }) {
   useVerrouDefilement();
   const titreId = useId();
@@ -172,6 +192,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const f = lu?.fiche ?? null;
   const toutes: Adresse[] = f === null ? [] : [{ libelle: f.libelle, codePostal: f.codePostal ?? '', commune: f.commune ?? '' }, ...adresses];
   const signature = JSON.stringify(toutes);
+  // 🔴🔴 (Arno, 26/11/2026, point 2) un bloc de digicodes par adresse de la saisie, dès son rattachement (avant même le premier « Valider »)
+  useEffect(() => { if (f?.saisieDigicodes) setDigi((d) => digicodesDesAdresses(d, toutes)); }, [signature, f?.saisieDigicodes]); // eslint-disable-line react-hooks/exhaustive-deps
   /* 🔴 (lot 4) l'adresse officielle : chaque adresse enregistrée garde sa place dans la saisie (elle part toujours avec « Valider ») ; à l'écran, une adresse
      dont l'adresse officielle est déjà montrée devient une « écriture d'origine » (repliée, avec son « × »), une adresse officielle DIFFÉRENTE garde sa
      ligne sous son libellé officiel, et une adresse non rapprochée s'affiche comme avant */
