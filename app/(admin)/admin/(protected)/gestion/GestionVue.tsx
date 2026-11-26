@@ -1212,6 +1212,12 @@ export function GestionVue({ intro, location = false }: {
      l'alerte « relève arrêtée », ni « Copie des pièces vers le Drive à reprendre ». La page commence par « ← Retour à la Gestion ». AFFICHAGE
      SEULEMENT : aucun composant supprimé ; la boîte et les autres écrans gardent le bloc ; les deux alertes hors demande restent ici aussi. */
   const sansBlocVingt = ecran === 'vingt_pourcent';
+  /* 🔴 Arno (26/11/2026, 11h36, retrait accordé pour CET écran) — Gestion › Syndics (`?ecran=syndics`) : « il faut supprimer le bloc d'en-tête dans
+     cette page » — le MÊME traitement que Copropriétés et « 20 % à restituer » : ni titre « Gestion » ni sa phrase, ni le cadre « Dernière relève… »
+     et ses boutons (Relever maintenant, Rafraîchir, Annuaire, À rattacher), ni la ligne « Relève automatique… », ni « Copie des pièces vers le
+     Drive… ». La page commence par « ← Boîte · Syndics (N) · + Ajouter un syndic ». AFFICHAGE SEULEMENT : aucun composant supprimé ; la boîte et les
+     autres écrans gardent le bloc (tous ces boutons y restent) ; les deux alertes hors demande (rattachement en échec, copie ARRÊTÉE) restent ici. */
+  const sansBlocSyndics = ecran === 'syndics';
 
   /**
    * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
@@ -1299,7 +1305,7 @@ export function GestionVue({ intro, location = false }: {
           dossiers clients » (rendus par la page serveur, d'où la feuille, même patron que la page Tâches) ; ni relève, ni ses boutons, ni ses
           alertes (`sansBlocEnTete`). La page commence par « ← Retour à la Gestion ». Partout ailleurs, rien ne change. */}
       {ecran === 'preavis' && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
-      {(sansBlocCopro || sansBlocVingt) && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
+      {(sansBlocCopro || sansBlocVingt || sansBlocSyndics) && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
       {ecran === 'taches' && (
         <header className="svv-page-head gst-titre-taches">
           <div className="svv-page-head-ligne"><h1 className="svv-page-title">{TITRE_PAGE_TACHES}</h1></div>
@@ -1388,7 +1394,7 @@ export function GestionVue({ intro, location = false }: {
           ⚠️ LES ALERTES NON PLUS : « relève arrêtée », « copie arrêtée », « envoi en échec » s'affichent sur TOUS
           les écrans, celui-ci compris. Masquer une sécurité pour gagner de la place, c'est la retirer. */}
       {sansBlocEnTete ? null : (<>
-      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && (
+      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && !sansBlocSyndics && (
       <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
@@ -1450,7 +1456,7 @@ export function GestionVue({ intro, location = false }: {
           y a 47 s ») est descendue dans la colonne : la laisser aussi ici l'afficherait DEUX FOIS, ce qui est
           exactement ce qu'on cherchait à éviter — trois pavés gris permanents à force desquels on ne lit plus rien.
           L'alerte, elle, reste en haut sur TOUS les écrans. */}
-      {sansBlocCopro || sansBlocVingt ? null : veille.niveau !== 'ok' ? (
+      {sansBlocCopro || sansBlocVingt || sansBlocSyndics ? null : veille.niveau !== 'ok' ? (
         <p className="gst-veille gst-veille--alerte" role="alert">
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
@@ -1488,7 +1494,7 @@ export function GestionVue({ intro, location = false }: {
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
       {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage'
-        && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && (
+        && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && !sansBlocSyndics && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — idem : l'avancement ORDINAIRE de la copie quitte l'accueil,
            et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>

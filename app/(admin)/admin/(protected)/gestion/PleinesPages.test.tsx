@@ -92,7 +92,8 @@ describe('🔴 1 — pleine page Préavis : sans l’en-tête de la Gestion ; ai
       expect(styles(c)).not.toContain(MASQUE_PREAVIS);
       expect(c.textContent).toMatch(/relève automatique est arrêtée/i);
     }
-    const s = await gestion('?ecran=syndics');
+    // 🔴 (26/11/2026) Syndics a perdu le bloc avec l'accord d'Arno (GestionVue.syndics.test.ts) : l'exemple devient « Adresses à vérifier »
+    const s = await gestion('?ecran=adresses_a_verifier');
     expect(s.querySelector('.gst-bandeau')).not.toBeNull();
     for (const mot of ['Relever maintenant', 'Rafraîchir', 'Annuaire', 'À rattacher']) expect(boutons(s)).toContain(mot);
   });

@@ -65,7 +65,7 @@ describe('🔴🔴 ① le bloc d’état ne s’affiche plus sur l’accueil', (
       + '        /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1');
     /* 🔴 Arno (20/11/2026, accord pour l'écran Copropriétés seul) : `!sansBlocCopro` s'ajoute — GestionVue.coproprietes.test.ts. */
     expect(VUE).toContain("copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' "
-      + "&& ecran !== 'partage'\n        && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && ("); // 🔴 (25/11/2026) + l'écran « 20 % à restituer »
+      + "&& ecran !== 'partage'\n        && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && !sansBlocVingt && !sansBlocSyndics && ("); // 🔴 (25/11/2026) + l'écran « 20 % à restituer » ; 🔴 (26/11/2026) + Syndics
   });
 
   /**
@@ -76,9 +76,10 @@ describe('🔴🔴 ① le bloc d’état ne s’affiche plus sur l’accueil', (
   it('🔴🔴 les ALERTES restent sur tous les écrans, accueil compris', () => {
     /* 🔴 Arno (20/11/2026) — SEULE exception, accordée pour l'écran Copropriétés (« supprime-moi tout ce bloc dans cette page ») : l'alerte
        « relève arrêtée » n'y est plus affichée ; partout ailleurs elle reste (GestionVue.coproprietes.test.ts le vérifie à l'écran). */
-    expect(VUE).toContain('{sansBlocCopro || sansBlocVingt ? null : veille.niveau !== \'ok\' ? (\n        <p className="gst-veille gst-veille--alerte" role="alert">');
+    expect(VUE).toContain('{sansBlocCopro || sansBlocVingt || sansBlocSyndics ? null : veille.niveau !== \'ok\' ? (\n        <p className="gst-veille gst-veille--alerte" role="alert">');
     expect(VUE).toContain("const sansBlocVingt = ecran === 'vingt_pourcent';"); // 🔴 Arno (25/11/2026), accord pour l'écran « 20 % à restituer » seul
     expect(VUE).toContain("const sansBlocCopro = ecran === 'coproprietes';");
+    expect(VUE).toContain("const sansBlocSyndics = ecran === 'syndics';"); // 🔴 Arno (26/11/2026, 11h36), accord pour l'écran Syndics seul
     expect(VUE).toContain("{copie.niveau === 'alerte' && (");
     expect(VUE).toContain("{suite.niveau === 'echec' && (");
     expect(VUE).toContain('<BandeauEnvois sauf={filOuvert} />');

@@ -91,8 +91,9 @@ describe('🔴 les autres écrans ne changent pas', () => {
     expect(texte()).toMatch(/relève automatique est arrêtée/i);
     expect(appels.some((u) => u.includes('/empreinte'))).toBe(true);
   });
-  it('un écran qui portait tout le bloc (Syndics) le garde : relève, quatre boutons, alerte, ligne Drive, titre', async () => {
-    await monter('?ecran=syndics');
+  // 🔴 (26/11/2026) Syndics a perdu le bloc avec l'accord d'Arno (GestionVue.syndics.test.ts) : l'exemple devient « Adresses à vérifier »
+  it('un écran qui portait tout le bloc (Adresses à vérifier) le garde : relève, quatre boutons, alerte, ligne Drive, titre', async () => {
+    await monter('?ecran=adresses_a_verifier');
     expect(styles()).not.toContain(MASQUE_TITRE);
     expect(container.querySelector('.gst-titre-taches')).toBeNull();
     expect(container.querySelector('.gst-bandeau')).not.toBeNull();

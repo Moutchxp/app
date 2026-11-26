@@ -91,7 +91,8 @@ describe('🔴 la boîte et les autres écrans ne changent pas', () => {
     expect(styles()).not.toContain(MASQUE_EN_TETE);
     expect(texte()).toMatch(/relève automatique est arrêtée/i);
   });
-  it.each(['syndics', 'a_trier', 'adresses_a_verifier'])('« %s » garde tout le bloc : relève, boutons, alerte, ligne Drive', async (e) => {
+  // 🔴 (26/11/2026) « syndics » a désormais son propre retrait (GestionVue.syndics.test.ts)
+  it.each(['a_trier', 'adresses_a_verifier'])('« %s » garde tout le bloc : relève, boutons, alerte, ligne Drive', async (e) => {
     await monter(`?ecran=${e}`);
     expect(styles()).not.toContain(MASQUE_EN_TETE);
     expect(container.querySelector('.gst-bandeau')).not.toBeNull();
