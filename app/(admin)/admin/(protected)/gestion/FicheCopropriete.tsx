@@ -675,7 +675,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               onChoisir={(a, officielle) => { setAutre(adresseImmeuble(a.voie, a.codePostal || null, a.commune || null)); setAutreChoisie(a); setAutreBan(officielle.banId); setIntrouvable(false); }} />
           </div>
           {introuvable && <p className="fcp-alerte" role="alert" data-fcp-adresse-introuvable>Adresse introuvable dans les suggestions : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.</p>}
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={autre.trim() === ''}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-bouton-plein" disabled={autre.trim() === ''}
             onClick={() => {
               if (autreChoisie === null) { setIntrouvable(true); return; }
               void rattacherControle({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune, ...(autreBan !== null ? { banId: autreBan } : {}) },
@@ -773,7 +773,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)} autres={contacts} immeuble={f.libelle} syndicId={f.syndic?.id ?? null}
           onRetirer={edition.id === null && !contacts.some((x) => x.cle === edition.cle) ? null : () => { setContacts((l) => l.filter((x) => x.cle !== edition.cle)); setEdition(null); }}
           onValider={() => { setContacts((l) => (l.some((x) => x.cle === edition.cle) ? l.map((x) => (x.cle === edition.cle ? edition : x)) : [...l, edition])); setEdition(null); }} />
-      ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
+      ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-bouton-plein" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
     </section>
 
     {!horsAffiche && <>
@@ -796,11 +796,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         {/* 🔴 (Arno, 20/11/2026) « même méthode qu'en copie 1 » : les deux boutons ouvrent LA fenêtre « Syndic de la copropriété » de la carte d'un
             bien (FicheSyndic, variante « copropriete ») — recherche, « Ajouter un syndic », création depuis les résultats avec la garde anti-doublon.
             Le syndic choisi ou créé est PRÉPARÉ ici (« Sera rattachée à … à la validation ») : il ne s'applique qu'à « Valider ». */}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic(true)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-bouton-plein" onClick={() => setChoixSyndic(true)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
           {f.syndic === null ? 'Choisir / créer le syndic' : 'Changer de syndic'}</button>
         {/* 🔴 (Arno, 20/11/2026) « Retirer le syndic », à côté de « Changer de syndic » : confirmation, puis retrait seul ou suivi d'un autre syndic (préparé) */}
         {f.syndic !== null && !retraitSyndic && (
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setConfirmerRetrait(true)} data-fcp-retirer-syndic>Retirer le syndic</button>)}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-bouton-plein" onClick={() => setConfirmerRetrait(true)} data-fcp-retirer-syndic>Retirer le syndic</button>)}
         {confirmerRetrait && f.syndic !== null && (
           <div className="fcp-confirmer-retrait" role="alertdialog" aria-labelledby="fcp-retrait-titre" data-fcp-confirmer-retrait>
             <p id="fcp-retrait-titre" className="fcp-sans-marge">Retirer {nomAvecVille(f.syndic.nom, f.syndic.ville)} de cette copropriété ? Ses contacts seront détachés de la
@@ -1159,6 +1159,9 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-lien{border:0;background:transparent;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;padding:4px;min-height:32px;font:inherit}
 .fcp-fort{font-weight:800}
 .fcp-mini{min-height:40px;align-self:flex-start}
+/* 🔴 (Arno, 26/11/2026, 14h35) « Les deux derniers boutons doivent occuper toute la largeur de la colonne, comme les autres boutons du bloc AG » :
+   les boutons d'ACTION DE SECTION en pleine largeur (même rendu que « + Ajouter une date d'AG ») ; les petits boutons de ligne ne changent pas */
+.fcp-mini.fcp-bouton-plein,.fcp-bouton-plein{width:100%;align-self:stretch;box-sizing:border-box;min-height:44px;margin-left:0;margin-right:0}
 .fcp-pilules{display:flex;flex-wrap:wrap;gap:6px}
 .fcp-pastille{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.78rem;font-weight:800;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink)}
 .fcp-contact{padding:4px 0}

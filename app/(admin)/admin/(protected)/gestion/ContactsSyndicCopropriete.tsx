@@ -107,7 +107,7 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
           </div>
         </div>)}
 
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { setOuvert((o) => !o); setMotif(null); }} aria-expanded={ouvert}
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini fcp-bouton-plein" onClick={() => { setOuvert((o) => !o); setMotif(null); }} aria-expanded={ouvert}
         data-csc-ouvrir>+ Rattacher un contact du syndic</button>
       {ouvert && (
         <div className="fcp-ajout" data-csc-recherche>

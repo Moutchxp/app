@@ -1166,3 +1166,23 @@ describe('ADRESSES : une seule présentation de ligne pour les 4 états', () => 
     expect(posts.find((p) => p.action === 'enregistrer')!.adressesConfirmees).toEqual(['30 rue baudin', '34 rue baudin']);
   });
 });
+
+/** 🔴 Arno (26/11/2026, 14h35) — « Les deux derniers boutons doivent occuper toute la largeur de la colonne, comme les autres boutons du bloc AG ». */
+describe('les boutons d’action de section : pleine largeur ; les petits boutons de ligne inchangés', () => {
+  it('habitants et gardiens, syndic (choisir / changer, retirer, rattacher un contact), « Ajouter » d’une autre adresse : fcp-bouton-plein ; et la règle CSS', async () => {
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    for (const sel of ['[data-fcp-ajouter-contact]', '[data-fcp-choisir-syndic]', '[data-fcp-retirer-syndic]', '[data-csc-ouvrir]', '[data-fcp-ajouter-adresse]'])
+      expect([sel, $(sel).classList.contains('fcp-bouton-plein')]).toEqual([sel, true]);
+    expect($('[data-fcp-choisir-syndic]').textContent).toBe('Changer de syndic');
+    // les petits boutons de ligne ne changent pas
+    for (const sel of ['[data-fcp-verifier]', '[data-fcp-retirer]', '[data-fcp-plus-adresse]'])
+      expect([sel, $(sel).classList.contains('fcp-bouton-plein')]).toEqual([sel, false]);
+    expect([...document.querySelectorAll('style')].map((x) => x.textContent).join('')).toContain('.fcp-bouton-plein{width:100%;align-self:stretch');
+  });
+  it('sans syndic : « Choisir / créer le syndic » en pleine largeur', async () => {
+    lu = { fiche: FICHE({ syndic: null, gestionnaires: [] }), coproprieteDuBien: true };
+    await ouvrir();
+    expect([$('[data-fcp-choisir-syndic]').textContent, $('[data-fcp-choisir-syndic]').classList.contains('fcp-bouton-plein')]).toEqual(['Choisir / créer le syndic', true]);
+  });
+});
