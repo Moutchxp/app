@@ -1267,8 +1267,24 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   `lecture-alerte-vingt.sql`) ; 6-retour-arriere.sh affiche la sauvegarde du jour et propose `351f04de`. Pour la PROCHAINE mise en production :
   remettre le hash cible et les numéros de migrations dans 1 → 5.
 
+### 26/11/2026 — « Dates / copropriétés manquantes » = le classement (`fc4f3098`, décision d'Arno du 26/11/2026) — NON POUSSÉ
+- **La règle** : le bloc ne montre plus que les locataires classés « manquantes » (`categorieVingt` : AUCUNE AGO officielle connue — bien sans
+  copropriété, ou copropriété sans AGO officielle). L'arrêté des comptes ne joue PAS sur le classement. Construit sur les groupes de
+  `classerVingtPourcent` ; `datesManquantesVisibles` suit la même règle. **Compteur du bloc = locataires** (`nombreSansDate`, colocataires un par un).
+- **Aucun doublon** : une copropriété à qui ne manque que l'arrêté n'a plus de bloc ; ses locataires restent dans leur catégorie avec « date
+  provisoire — arrêté manquant » et « Fiche copropriété » (déjà présents partout, SAUF quand « AGO à confirmer » occupait la ligne : la mention
+  s'ajoute désormais dessous — cas de « _TEST ARRETE COMPTES 20 POURCENT Locataire 3 », en « Alerte restitution en retard » seulement).
+- **Pastille des boutons de raccourci** (accueil Location + colonne de gauche de la Gestion, même hook) : 3e terme = locataires sans date (et non
+  plus les copropriétés à compléter) → total = Alerte + Urgence + Dates / copropriétés manquantes, en locataires. Détail : « N locataires sans date
+  d'AGO (copropriété à compléter) ». `nombreCoproprietesACompleter` existe toujours (plus lu par les boutons).
+- Recette : bloc 7 (avant 8 copropriétés), bouton 18 = 6 + 5 + 7. Chrome ordinateur et 390 px, clair et sombre, 0 écriture ; `npm test` vert
+  (1 877 / 28 168) ; captures `.captures/vingt-manquantes-bloc/`. ⚠️ Preuve curl à faire par Arno (vérifiée par l'agent via node : 200, 0 erreur).
+- ⚠️ **Défaut PRÉEXISTANT constaté, non corrigé** (hors lot) : à l'ordinateur, sur 18 lignes sur 31, l'étiquette « AGO … (projetée/officielle) » et
+  les mentions orange débordent sur le bouton « Fiche copropriété » (colonne de l'AGO ~240 px, étiquette jusqu'à 263 px, `max-width:60%` de
+  `.vgp-ligne-droite`). Au téléphone, rien ne déborde. À corriger dans un lot dédié si Arno le souhaite.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Production à jour (`1d4d8e87`, migrations jusqu'à 518). Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
+Production à jour (`1d4d8e87`, migrations jusqu'à 518). Non poussé : `fc4f3098` (bloc « Dates / copropriétés manquantes ») + sa passation. Arno : surveiller le premier mail d'alerte des 20 % (gestion@criterimmo.fr) et, en
 production, la page « 20 % à restituer » (montants « à saisir »). Puis retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes,
 bandeaux des mails de restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % transmis, arrêté « 1er MARS », date de
 sortie à valider) ; décision sur les points ouverts ci-dessus ; retour sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et la question du
