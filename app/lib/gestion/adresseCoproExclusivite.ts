@@ -12,9 +12,21 @@ import { cleImmeuble } from './syndics';
 
 const INDICES: Record<string, string> = { b: 'bis', bis: 'bis', t: 'ter', ter: 'ter', q: 'quater', qua: 'quater', quater: 'quater' };
 
-/** La clé de COMPARAISON d'une adresse : la clé normalisée, l'indice écrit en entier et détaché du numéro. PUR. */
+/**
+ * 🔴🔴 (demande du 28/11/2026, migration 522) LES ABRÉVIATIONS COURANTES DU TYPE DE VOIE, écrites en entier : « 7 r. » et « 7 rue » sont la même adresse pour la
+ * règle « une adresse = une seule copropriété ». Seulement JUSTE APRÈS le numéro (et son indice), ou en tête : un mot au milieu de l'adresse n'est jamais
+ * touché (« … de la Place » reste tel quel). La MÊME liste, dans le même ordre, que gestion_cle_adresse_comparable (522) — un essai les compare.
+ */
+export const ABREVIATIONS_VOIE: Readonly<Record<string, string>> = {
+  r: 'rue', av: 'avenue', ave: 'avenue', bd: 'boulevard', bld: 'boulevard', bvd: 'boulevard', boul: 'boulevard', pl: 'place', all: 'allee',
+  imp: 'impasse', ch: 'chemin', chem: 'chemin', sq: 'square', qu: 'quai',
+};
+const VOIE_ABREGEE = new RegExp(`^((?:\\d+ (?:bis |ter |quater )?)?)(${Object.keys(ABREVIATIONS_VOIE).join('|')})\\b`);
+
+/** La clé de COMPARAISON d'une adresse : la clé normalisée, l'indice écrit en entier et détaché du numéro, le type de voie abrégé écrit en entier. PUR. */
 export function cleComparable(libelle: string | null | undefined): string {
-  return cleImmeuble(libelle).replace(/\b(\d+)\s*(bis|ter|quater|qua|b|t|q)\b/g, (_m, n: string, i: string) => `${n} ${INDICES[i] ?? i}`).replace(/\s+/g, ' ').trim();
+  const k = cleImmeuble(libelle).replace(/\b(\d+)\s*(bis|ter|quater|qua|b|t|q)\b/g, (_m, n: string, i: string) => `${n} ${INDICES[i] ?? i}`).replace(/\s+/g, ' ').trim();
+  return k.replace(VOIE_ABREGEE, (_m, debut: string, v: string) => `${debut}${ABREVIATIONS_VOIE[v] ?? v}`);
 }
 /** Deux codes postaux compatibles : égaux, ou l'un des deux inconnu. PUR. */
 export const codesPostauxCompatibles = (a: string | null | undefined, b: string | null | undefined): boolean => {
