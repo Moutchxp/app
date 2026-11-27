@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 27/11/2026 (bloc 3 « État des lieux de sortie », ced02fed et d53856e9)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 27/11/2026 (« 20 % à restituer » : 87c58d69, 691d4b02, e7334caf)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1513,9 +1513,30 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   dans la saisie, « Date de l'EDLS / Heure de début / Heure de fin » → « Date / Début / Fin ». Le bouton de saisie « Planifier » / « Déplacer le rendez-vous » →
   « Voir le récapitulatif » ; « Planifier » passe au récapitulatif. Rien n'est retiré.
 
+### 27/11/2026, 22h17 — « 20 % à restituer » : envoi depuis la Location, adresse libre, coordonnées (`87c58d69`, `691d4b02`, `e7334caf`)
+- **Décisions d'Arno sur le bloc 3** (EDLS) : validés tels quels — « Modifier le RDV » visible à l'état effectué, commentaire modifiable, boutons visibles sous la fenêtre.
+- **Point 1 (`87c58d69`) — le droit d'envoi décide, pas la tuile** (règle de 7b5715a6).
+  - Cause : la page /admin/location/vingt-pourcent ne recevait aucun module d'envoi (décision 1A du 25/11, levée).
+  - Désormais, `mailVingtDuContexte` est partagé par la Gestion et la Location. Mails de la restitution, « Envoyer un mail » de la ligne, « Répondre ».
+  - Sans droit : « Envoi de mails non autorisé pour votre compte : la restitution s'enregistrera sans mail. », cases désactivées. Le serveur relit le droit à chaque envoi.
+  - **Autres écrans de Location vérifiés.** Les « Écrire » des contacts des fiches (bien, propriétaire, locataire, archivage) étaient en mailto : ils ouvrent le
+    « Nouveau message » de gestion@ en fenêtre flottante (`EcrireFlottant.tsx`, brouillon partagé avec PleinEcranBoite).
+  - La fiche syndic de la Location reçoit « Écrire depuis gestion@ ». Les autres écrans (historiques, écran de sortie, préavis, pré-visite, EDLS) étaient déjà sous le droit d'envoi.
+- **Point 2 (`691d4b02`) — « + Ajouter une adresse »** sous PARTENAIRES.
+  - Format vérifié, doublon refusé, nom facultatif, case cochée, « × ».
+  - Un mail par adresse : modèle « Partenaire » par défaut ou « Locataire », texte modifiable, récapitulatif.
+  - Le mail part par la porte d'envoi de la Gestion : journal, « Échanges », historique du bien. Jamais ajoutée aux Paramètres.
+- **Point 3 (`e7334caf`) — un bloc par contact** : « NOM Prénom » (sinon le nom tel qu'il est enregistré), tous les téléphones, tous les mails.
+  - Locataires à gauche, propriétaires à droite, empilés à 390 px ; toutes les catégories.
+  - Le nom est maintenant toujours dit (fin de la règle du 25/11 qui l'omettait pour un locataire seul).
+- Contrôles : `npm test` VERT (1 891 fichiers, 28 326 tests) ; `tsc` = 0 ; pages construites (`/admin/login` 200).
+  - Chrome (recette, Location ET Gestion, ordinateur et 390 px, clair et sombre) : fenêtre ouverte, adresse libre ajoutée (refus de format et de doublon vus), récapitulatif lu.
+  - Restitution NON validée, rien envoyé : toute requête non GET était bloquée. Une seule a été tentée et bloquée : l'aperçu de classement de la fenêtre d'écriture, sur la fiche syndic.
+  - Captures : `.captures/vingt-envoi-adresse-coordonnees/`. Aucune migration.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). En attente
-de mise en production (sans migration) : `ced02fed`, `d53856e9` et cette passation, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
+de mise en production (sans migration) : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf` et leurs passations, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
