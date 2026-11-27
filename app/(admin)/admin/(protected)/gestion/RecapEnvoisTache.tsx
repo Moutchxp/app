@@ -30,7 +30,7 @@ import { phraseRecapLocataires } from '../../../../lib/location/reponsesRdv';
 type Etat =
   | { etape: 'recap'; titre: string; apercu: ApercuEnvois | null; erreur: string | null; occupe: boolean;
       /** 🔴 Arno (10/11/2026) — le texte modifié des mails aux extérieurs ; un refus du serveur (partie protégée) est dit ici. */
-      retouches?: Retouches; refusTexte?: string | null }
+      retouches?: Retouches; refusTexte?: string | null; libelleConfirmer?: string }
   | { etape: 'resultat'; titre: string; issue: IssueGeste };
 
 interface Demande { titre: string; apercu: Record<string, unknown>;
@@ -46,7 +46,9 @@ interface Demande { titre: string; apercu: Record<string, unknown>;
   annulation?: boolean;
   /** 🔴🔴 Arno (19/11/2026) — un CHANGEMENT DE COLLABORATEUR SEUL (date et heure inchangées) : le résumé en tête du récapitulatif, mot pour mot, et sa
    *  phrase dans la fenêtre de résultat. */
-  maintien?: { lignes: string[]; phrase: string } }
+  maintien?: { lignes: string[]; phrase: string };
+  /** 🔴 Arno (27/11/2026, 21h10) — le mot du bouton de confirmation (« Planifier » pour l'état des lieux de sortie) ; absent : « Confirmer et envoyer ». */
+  libelleConfirmer?: string }
 
 const ETATS_PARTIS = new Set(['envoye', 'factice']);
 const MOTIF_ETAT: Record<string, string> = {
@@ -86,7 +88,8 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
         return;
       }
       courant.current = { d, resoudre };
-      setEtat({ etape: 'recap', titre: d.titre, apercu: 'erreur' in a ? null : a, erreur: 'erreur' in a ? a.erreur : null, occupe: false });
+      setEtat({ etape: 'recap', titre: d.titre, apercu: 'erreur' in a ? null : a, erreur: 'erreur' in a ? a.erreur : null, occupe: false,
+        ...(d.libelleConfirmer ? { libelleConfirmer: d.libelleConfirmer } : {}) });
     })();
   }), []);
   const revenir = (): void => { courant.current?.resoudre(null); courant.current = null; setEtat(null); };
@@ -132,7 +135,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
     const a = etat.apercu;
     contenu = <>
       <h2 id={titreId} className="mis-titre" data-titre-recap-envois>Récapitulatif — {etat.titre}</h2>
-      <p className="loc-muet pss-rien">Rien n’est encore enregistré ni envoyé : vérifiez, puis « {annulation ? 'Confirmer l’annulation' : 'Confirmer et envoyer'} ».</p>
+      <p className="loc-muet pss-rien">Rien n’est encore enregistré ni envoyé : vérifiez, puis « {annulation ? 'Confirmer l’annulation' : etat.libelleConfirmer ?? 'Confirmer et envoyer'} ».</p>
       {/* 🔴 Arno (19/11/2026) — l'annulation : ce qui va se passer, dit clairement (mot pour mot) */}
       {annulation && a?.annulation && <p className="mis-note pss-note-neutre rce-avertissement" role="note" data-phrase-annulation>{a.annulation.phrase}</p>}
       {/* 🔴 Arno (19/11/2026) — le changement de collaborateur seul : le rendez-vous maintenu, qui remplace qui, qui reçoit quoi */}
@@ -187,7 +190,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onRevenir} disabled={etat.occupe} data-revenir-recap>{annulation ? 'Ne pas annuler' : 'Revenir'}</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onConfirmer} disabled={etat.occupe || a === null} data-confirmer-recap>
-          {etat.occupe ? 'Envoi…' : annulation ? 'Confirmer l’annulation' : 'Confirmer et envoyer'}</button>
+          {etat.occupe ? 'Envoi…' : annulation ? 'Confirmer l’annulation' : (etat.etape === 'recap' ? etat.libelleConfirmer : undefined) ?? 'Confirmer et envoyer'}</button>
       </div>
     </>;
   } else {

@@ -74,11 +74,11 @@ describe('🔴 l’état des lieux de sortie : récapitulatif, « Revenir », r�
     await act(async () => { r.render(createElement(BlocPreavisAccueil, { gestion: true })); }); await calmer();
     await clic(c.querySelector('[data-ouvrir-preavis="A"]'));
     await clic(c.querySelector('[data-planifier-edls]'));
-    saisir(c.querySelector('[data-edls-jour]'), '2026-11-20');
-    saisir(c.querySelector('[data-edls-debut]'), '10:00');
+    saisir(document.querySelector('[data-edls-jour]'), '2026-11-20');
+    saisir(document.querySelector('[data-edls-debut]'), '10:00');
     await calmer();
-    await clic(c.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
-    await clic(c.querySelector('[data-valider-edls]'));
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
+    await clic(document.querySelector('[data-valider-edls]'));
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-edls', geste: 'planifier', jour: '2026-11-20', debut: '10:00' });
     const f = document.querySelector('[data-fenetre-envois="recap"]')!;
     expect(f.querySelector('[data-total-envois]')?.textContent).toBe('1 invitation partira.');
@@ -86,8 +86,11 @@ describe('🔴 l’état des lieux de sortie : récapitulatif, « Revenir », r�
     expect(f.querySelector('[data-recap-exterieurs]')?.textContent).toContain('Aucun');
     await clic(document.querySelector('[data-revenir-recap]'));
     expect(posts.some((p) => p.action === 'planifier-edls')).toBe(false);
-    expect((c.querySelector('[data-edls-jour]') as HTMLInputElement).value).toBe('2026-11-20');
-    await clic(c.querySelector('[data-valider-edls]'));
+    expect((document.querySelector('[data-edls-jour]') as HTMLInputElement).value).toBe('2026-11-20');
+    await clic(document.querySelector('[data-valider-edls]'));
+    // 🔴🔴 Arno (27/11/2026, 21h10) — « Planifier » depuis le récapitulatif ; la fenêtre de saisie s'efface le temps du récapitulatif
+    expect(document.querySelector('[data-confirmer-recap]')?.textContent).toBe('Planifier');
+    expect(document.querySelector('[data-fenetre-edls]')).toBeNull();
     await clic(document.querySelector('[data-confirmer-recap]'));
     expect(posts.at(-1)).toMatchObject({ action: 'planifier-edls', jour: '2026-11-20' });
     const res = document.querySelector('[data-fenetre-envois="resultat"]')!;

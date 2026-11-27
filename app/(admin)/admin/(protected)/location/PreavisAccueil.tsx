@@ -2,7 +2,7 @@
 
 import { useEtatRetour } from '../_composants/NavigationRetour';
 import { ListeChoix } from './ListeChoix';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
@@ -23,13 +23,13 @@ import {
   heureFinProposee, mentionEdls, pastilleEdls, verifierPlanification, type EdlsAffiche,
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
-import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
+import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
 import { colonnesRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
-import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
+import { BlocPrevisite, CadreFenetreRdv, CartoucheStatutLigne, CartouchesPrevisite, cssFenetreRdv, CSS_PREVISITE, EnteteFenetreRdv, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
@@ -612,10 +612,12 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
         </div>
       )}
       {!ecriture && <MentionReserveLocation />}
+      {/* 🔴🔴 Arno (27/11/2026, 21h10) — plus aucun formulaire déplié dans la case : la FENÊTRE de rendez-vous (le cadre de « RDV pré-visite »),
+          la case garde sa hauteur */}
       {ecriture && (mode === 'planifier' || mode === 'deplacer') && (
-        <FormulaireEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />
+        <FenetreEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />
       )}
-      {ecriture && mode === 'reattribuer' && e !== null && <FormulaireReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
+      {ecriture && mode === 'reattribuer' && e !== null && <FenetreReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
       </div>
     </div>
   );
@@ -662,8 +664,13 @@ function ChoixPersonne({ valeur, onChange, exclure }: { valeur: number | null; o
   );
 }
 
-/** Planifier (ou déplacer) : date*, début*, fin* (proposée = début + 1 h, modifiable, après le début), « Confier à »*, commentaire. */
-function FormulaireEdls({ l, e, onAnnuler, onFait }: {
+/**
+ * 🔴🔴 Arno (27/11/2026, 21h10) — LA FENÊTRE « RDV état des lieux de sortie » : le cadre de la fenêtre « RDV pré-visite » (`CadreFenetreRdv`,
+ * `EnteteFenetreRdv`, la même grille Date / Durée / Début / Fin, le même choix Oui / Non aux locataires, « Annuler » et « Voir le récapitulatif »),
+ * avec les champs propres à l'état des lieux : « Confier à » (un seul collègue) et « Commentaire (facultatif) ». Le récapitulatif est celui des
+ * tâches (`useRecapEnvois`), confirmé par « Planifier » ; ce que fait la planification ne change pas. Durée d'office : 1 h.
+ */
+function FenetreEdls({ l, e, onAnnuler, onFait }: {
   l: LignePreavisAccueil; e: EdlsAffiche | null; onAnnuler: () => void; onFait: (x: EdlsAffiche, phrase: string) => void;
 }) {
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
@@ -709,10 +716,18 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   const emails = useEmailsLocataires(l);
   /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (qui recevra l'invitation, et son texte) ; « Revenir » garde la saisie. */
   const recap = useRecapEnvois();
+  const titreId = useId();
+  // le récapitulatif ouvert : la fenêtre de saisie s'efface (une seule fenêtre à l'écran), sa saisie reste pour « Revenir »
+  const [enRecap, setEnRecap] = useState(false);
+  useEffect(() => {
+    const clavier = (ev: KeyboardEvent): void => { if (ev.key === 'Escape' && !envoi && !enRecap) onAnnuler(); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [envoi, enRecap, onAnnuler]);
   const valider = async (): Promise<void> => {
     if (!verdict.ok) { setRefus(verdict.motif); return; }
     if (choixLoc === null) { setManqueChoix(true); setRefus(MOTIF_CHOIX_LOCATAIRES); return; }
-    setEnvoi(true); setRefus(null);
+    setEnvoi(true); setRefus(null); setEnRecap(true);
     const corps = e === null
       ? { action: 'planifier-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, commentaire, locataires: choixLoc }
       : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, locataires: choixLoc };
@@ -720,10 +735,10 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
     const issue = await recap.demander({
       titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
       lireApercu: () => lireApercuEdls({ ...corps, geste: e === null ? 'planifier' : 'deplacer' }),
-      confirmer: true, ...(maintien !== null ? { maintien } : {}),
+      confirmer: true, ...(maintien !== null ? { maintien } : {}), ...(e === null ? { libelleConfirmer: 'Planifier' } : {}),
       action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé'); },
     });
-    setEnvoi(false);
+    setEnvoi(false); setEnRecap(false);
     if (issue === null) return; // « Revenir » : rien n'est fait, la saisie reste
     const r = tenu.r;
     if (r === null || r.motif !== null) { setRefus(issue.ok ? null : issue.message); return; }
@@ -734,11 +749,15 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
       statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null,
     }, maintien !== null ? maintien.phrase : phraseGeste(e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé', r.data));
   };
-  return (
+  if (enRecap) return <>{recap.fenetre}</>;
+  return (<>
+    {recap.fenetre}
+    <CadreFenetreRdv titreId={titreId} styles={cssFenetreRdv() + CSS_FENETRE_EDLS} donnees={{ 'data-fenetre-edls': e === null ? 'planifier' : 'deplacer' }}>
     <div className="pvs-form pva-form-edls" data-formulaire-edls={e === null ? 'planifier' : 'deplacer'}>
-      {recap.fenetre}
-      {/* 🔴 Arno (19/11/2026) — Date, Heure de début, Heure de fin l'une sous l'autre : libellés de même largeur, champs alignés (grille partagée) */}
-      <GrilleDateHeures classe="pva-grille-edls" libelles={{ date: 'Date de l’EDLS *', debut: 'Heure de début *', fin: 'Heure de fin *' }}
+      <EnteteFenetreRdv titreId={titreId} titre={e === null ? 'RDV état des lieux de sortie' : 'Modifier le RDV — état des lieux de sortie'} l={l} donnees={{ 'data-titre-edls': '' }} />
+      {e !== null && e.heure !== null && <p className="mis-note pss-note-neutre" data-edls-ancien>Rendez-vous actuel : le {creneauFr({ jour: e.jour, heure: e.heure, dureeMinutes: e.dureeMinutes ?? 60 })}.</p>}
+      {/* 🔴🔴 Arno (27/11/2026, 21h10) — la grille de la fenêtre « RDV pré-visite » : Date et Durée sur la même ligne, puis Début et Fin */}
+      <GrilleDateHeures classe="pvv-grille" libelles={{ date: 'Date\u00a0*', debut: 'Début\u00a0*', fin: 'Fin\u00a0*' }}
         jour={jour} onJour={(v) => { setJour(v); setRefus(null); }} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)}
         debut={debut} onDebut={(v) => { setDebut(v); setRefus(null); }}
         fin={fin} onFin={(v) => { setFin(v); setRefus(null); }} durees={dureesRdv}
@@ -754,17 +773,23 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
       <BlocageEmailLocataires e={emails} />
       {!verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-edls-message>{verdict.motif}</p>}
       {refus !== null && <p className="cp-refus" role="alert" data-edls-refus>{refus}</p>}
-      <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !verdict.ok || emails.bloque} onClick={() => { void valider(); }} data-valider-edls>
-          {envoi ? 'Enregistrement…' : e === null ? 'Planifier' : 'Déplacer le rendez-vous'}</button>
+      <div className="mis-actions">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onAnnuler} disabled={envoi} data-annuler-edls>Annuler</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" disabled={envoi || !verdict.ok || emails.bloque} onClick={() => { void valider(); }} data-valider-edls>
+          {envoi ? 'Préparation…' : 'Voir le récapitulatif'}</button>
       </div>
     </div>
-  );
+    </CadreFenetreRdv>
+  </>);
 }
 
+/* AUCUN ACCENT GRAVE DANS CE LITTERAL. La saisie de l'etat des lieux dans la fenetre de rendez-vous : le formulaire sans cadre propre. */
+const CSS_FENETRE_EDLS = `
+.mis-boite .pva-form-edls{border:0;padding:0;margin:0;background:transparent}
+`;
+
 /** Après un refus : confier l'EDLS à quelqu'un d'autre (nouvelle demande, nouveau mail). */
-function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAccueil; e: EdlsAffiche; onAnnuler: () => void; onFait: (x: EdlsAffiche, phrase: string) => void }) {
+function FenetreReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAccueil; e: EdlsAffiche; onAnnuler: () => void; onFait: (x: EdlsAffiche, phrase: string) => void }) {
   const [confieA, setConfieA] = useState<number | null>(null);
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
@@ -791,19 +816,29 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
     onFait({ ...e, confieA: libelle(confieA), confieAId: confieA, statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null },
       phraseGeste(`État des lieux confié à ${libelle(confieA)}`, r.data));
   };
-  return (
-    <div className="pvs-form" data-formulaire-reattribuer>
-      {recap.fenetre}
+  const titreId = useId();
+  useEffect(() => {
+    const clavier = (ev: KeyboardEvent): void => { if (ev.key === 'Escape' && !envoi) onAnnuler(); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [envoi, onAnnuler]);
+  return (<>
+    {recap.fenetre}
+    {/* 🔴🔴 Arno (27/11/2026, 21h10) — plus de formulaire déplié dans la case : la même fenêtre de rendez-vous */}
+    <CadreFenetreRdv titreId={titreId} styles={cssFenetreRdv() + CSS_FENETRE_EDLS} donnees={{ 'data-fenetre-edls': 'reattribuer' }}>
+    <div className="pvs-form pva-form-edls" data-formulaire-reattribuer>
+      <EnteteFenetreRdv titreId={titreId} titre="Confier l’état des lieux de sortie à quelqu’un d’autre" l={l} />
       <ChoixPersonne valeur={confieA} onChange={setConfieA} exclure={e.confieAId} />
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
-      <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || confieA === null || emails.bloque} onClick={() => { void valider(); }} data-valider-reattribution>
+      <div className="mis-actions">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onAnnuler} disabled={envoi}>Annuler</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" disabled={envoi || confieA === null || emails.bloque} onClick={() => { void valider(); }} data-valider-reattribution>
           {envoi ? 'Enregistrement…' : 'Confier'}</button>
       </div>
     </div>
-  );
+    </CadreFenetreRdv>
+  </>);
 }
 
 /**

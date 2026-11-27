@@ -453,7 +453,8 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
   }
   it('la grille partagée de l’état des lieux de sortie n’est pas touchée', async () => {
     const { readFileSync } = await import('node:fs');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('<GrilleDateHeures classe="pva-grille-edls"'); // 🔴 Arno (19/11/2026) — la même grille Date / Début / Fin que la pré-visite
+    // 🔴🔴 Arno (27/11/2026, 21h10) — la fenêtre « RDV état des lieux de sortie » prend la grille de la fenêtre « RDV pré-visite » (classe et libellés)
+    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('<GrilleDateHeures classe="pvv-grille" libelles={{ date: \'Date\\u00a0*\', debut: \'Début\\u00a0*\', fin: \'Fin\\u00a0*\' }}');
     const css = readFileSync('app/(admin)/admin/(protected)/location/PrevisiteAccueil.tsx', 'utf8');
     // 🔴 Arno (19/11/2026) — trois champs sur une ligne quand la place le permet ; sinon la ligne passe à la ligne (une heure n'est jamais coupée)
     // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : la colonne des libellés commune, champs alignés ; téléphone : libellé au-dessus

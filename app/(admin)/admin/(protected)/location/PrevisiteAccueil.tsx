@@ -559,10 +559,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <p className="pvv-adresse-cr" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
         {/* 🔴 (9e retour) la restauration du brouillon tarde : c'est dit, le formulaire reste visible */}
         {geste === 'compte_rendu' && !brouillon.pret && <p className="loc-muet pvv-restauration" role="status" data-brouillon-chargement>Restauration du brouillon…</p>}
-      </> : <>
-        <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
-        <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
-      </>}
+      </> : <EnteteFenetreRdv titreId={titreId} titre={TITRES[geste][0]} l={l} donnees={{ 'data-titre-previsite': '' }} />}
       {avecDate && (
         // 🔴 Arno (11/11/2026, présentation) — les trois champs sur UNE ligne, même hauteur, même largeur ; libellés courts sur une ligne,
         // l'astérisque collé (espace insécable) ; empilés dans le même ordre sur écran étroit. Une grille PROPRE à la pré-visite (la grille de
@@ -733,18 +730,47 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       </div>
     );
   }
+  return (
+    <CadreFenetreRdv titreId={titreId} styles={styles} verrou={false} classeVoile={saisieCr ? ' pvv-voile-cr' : ''} suivreZone={!saisieCr}
+      classeBoite={`${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}${saisieCr ? ' pvv-boite-cr' : ''}`}
+      donnees={{ 'data-fenetre-previsite': etape.etape, 'data-geste-previsite': geste }}>
+      {contenu}
+    </CadreFenetreRdv>
+  );
+}
+
+/**
+ * 🔴🔴 Arno (27/11/2026, 21h10) — LE CADRE DES FENÊTRES DE RENDEZ-VOUS DU PRÉAVIS, UN SEUL CODE : la fenêtre « RDV pré-visite » (et ses autres
+ * gestes) ET la fenêtre « RDV état des lieux de sortie » (planifier, modifier, confier à quelqu'un d'autre). Voile, fenêtre centrée (plein écran
+ * au téléphone), hauteur de la zone visible (clavier iOS), défilement de la page bloqué (`verrou` : la pré-visite le pose déjà elle-même).
+ */
+export function CadreFenetreRdv({ titreId, styles, classeBoite = 'pss-boite-recap', classeVoile = '', suivreZone = true, verrou = true, donnees, children }: {
+  titreId: string; styles: string; classeBoite?: string; classeVoile?: string; suivreZone?: boolean; verrou?: boolean;
+  donnees?: Record<string, string>; children: ReactNode }) {
+  useVerrouDefilement(verrou);
+  const zone = useZoneVisible();
   const boite = (
-    <div className={`mis-voile pvv-voile${saisieCr ? ' pvv-voile-cr' : ''}`} style={zone && !saisieCr ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined}
-      data-zone-visible={zone && !saisieCr ? 'oui' : undefined}>
+    <div className={`mis-voile pvv-voile${classeVoile}`} style={zone && suivreZone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined}
+      data-zone-visible={zone && suivreZone ? 'oui' : undefined}>
       <style>{styles}</style>
-      <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}${saisieCr ? ' pvv-boite-cr' : ''}`} role="dialog" aria-modal="true"
-        aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
-        {contenu}
+      <div className={`mis-boite pss-boite ${classeBoite}`} role="dialog" aria-modal="true" aria-labelledby={titreId} {...donnees}>
+        {children}
       </div>
     </div>
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
+
+/** L'en-tête d'une fenêtre de rendez-vous : le titre, puis « locataire(s) — adresse » (pré-visite et état des lieux de sortie). */
+export function EnteteFenetreRdv({ titreId, titre, l, donnees }: { titreId: string; titre: string; l: LignePreavisAccueil; donnees?: Record<string, string> }) {
+  return <>
+    <h2 id={titreId} className="mis-titre" {...donnees}>{titre}</h2>
+    <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+  </>;
+}
+
+/** Les styles de la fenêtre de rendez-vous (les mêmes pour la pré-visite et l'état des lieux de sortie) ; une fonction : les constantes sont plus bas. */
+export const cssFenetreRdv = (): string => CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_FAMILLES_MAILS;
 
 /**
  * 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE, EN LECTURE : le texte tel qu'enregistré, qui l'a saisi et quand, les pièces jointes, et
