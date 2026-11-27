@@ -31,7 +31,7 @@ import { enregistrerMandatDans } from './mandatBienRepo';
 import { dateFr, verifierRentreOccupe } from './rentreOccupe';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
-import { ecrireDigicodesDuBien, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
+import { ecrireDigicodesDuBien, rattacherBienALaCoproprieteDeSonAdresse, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
 import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
@@ -468,6 +468,8 @@ async function creerBienInterne(s: SaisieBien & {
         ...statut,
         ...occupe,
       }, auteur);
+      // 🔴🔴 (Arno, 27/11/2026, 23h30, point 4) une seule base : le bien rejoint la copropriété qui porte déjà son adresse, même sans digicode saisi
+      await rattacherBienALaCoproprieteDeSonAdresse(q, logementId, auteur);
       if (unifie) {
         if (digicodesBien !== null) {
           const refus = await ecrireDigicodesDuBien(q, logementId, digicodesBien, 'nouveau_bien', auteur);
@@ -510,6 +512,7 @@ async function creerBienInterne(s: SaisieBien & {
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
+        await rattacherBienALaCoproprieteDeSonAdresse(q, id, auteur); // une annexe à une autre adresse : la copropriété de SON adresse
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
         `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`
@@ -860,6 +863,7 @@ export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
         ids.push(id);
+        await rattacherBienALaCoproprieteDeSonAdresse(q, id, auteur); // 🔴 (27/11/2026, point 4) une seule base, comme à la création
       }
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee',
         `${ids.length} annexe(s) ajoutée(s) dans « Modifier » de la fiche (formulaire complet) : ${ids.join(', ')}`, auteur);

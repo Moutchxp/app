@@ -1,4 +1,6 @@
 import type { ComptesStatuts } from '../gestion/statutBien';
+import { cleImmeuble } from '../gestion/syndics';
+import { rattacherBienALaCoproprieteDeSonAdresse } from '../gestion/digicodesBienRepo';
 import { mandatParBienDisponible, mandatsDesBiensDuProprietaire, type MandatDUnBien } from './mandatParBienRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dateMandatDisponible, mandatsDesProprietaires } from './mandatBienRepo';
@@ -470,9 +472,9 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
   const nomAnnexe = c.categorie === 'autre' && typeof brut.nomAnnexe === 'string' ? brut.nomAnnexe.trim().slice(0, 80) : null;
   const avecAnnotation = Object.prototype.hasOwnProperty.call(brut, 'annotation') && (await entretienDisponible());
   return withTransaction(async (q) => {
-    const { rows } = await q<{ wippimmo_id: string; avant: string }>(
+    const { rows } = await q<{ wippimmo_id: string; avant: string; immeuble: string | null; adresse: string | null }>(
       `SELECT wippimmo_id, concat_ws(' | ', categorie, etage, porte, num_lot_copro, surface_carrez_m2, surface_exterieure_m2,
-              adresse, code_postal, commune) AS avant FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE`, [lotId]);
+              adresse, code_postal, commune) AS avant, immeuble, adresse FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE`, [lotId]);
     if (rows[0] === undefined) return { etat: 'inconnu' as const };
     const app = rows[0].wippimmo_id.startsWith('app-');
     await q(
@@ -482,6 +484,17 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
         WHERE id = $1`,
       [lotId, c.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2,
         ...(app ? [c.adresse, c.codePostal, c.commune, normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' '))] : [])]);
+    // 🔴🔴 (Arno, 27/11/2026, 23h30, point 4) l'adresse d'un bien de l'application CHANGE : son « Immeuble » (la clé de sa copropriété) la suit quand il
+    //    n'était que son adresse (un « Immeuble » propre, venu de WIPPIMMO ou choisi, ne bouge pas) — ses digicodes et bâtiments vont dans la copropriété
+    //    de la NOUVELLE adresse ; puis le bien rejoint la copropriété qui porte déjà cette adresse (une seule base). Journalisé.
+    const ancienne = rows[0].adresse ?? '';
+    if (app && c.adresse !== null && cleImmeuble(c.adresse) !== cleImmeuble(ancienne)
+      && ((rows[0].immeuble ?? '').trim() === '' || cleImmeuble(rows[0].immeuble) === cleImmeuble(ancienne))) {
+      await q('UPDATE gestion_annuaire_lot SET immeuble = $2 WHERE id = $1', [lotId, c.adresse]);
+      await journaliser(q, 'annuaire_lot', lotId, 'immeuble_copropriete', rows[0].immeuble ?? ancienne, c.adresse,
+        'l’immeuble du bien suit son adresse (copropriété de la nouvelle adresse)', auteur);
+      await rattacherBienALaCoproprieteDeSonAdresse(q, lotId, auteur);
+    }
     if (app && adr.ecrire) {
       await ecrireNatureAdresseBien(q, lotId, adr.nature);
       // 🔴🔴 (Arno, 20/11/2026, lot 7a) l'adresse changée, au format unique (le rapprochement précédent est fermé, jamais effacé)

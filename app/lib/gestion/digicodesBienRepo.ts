@@ -8,6 +8,7 @@ import { etatPlace, ficheCopropriete } from './coproprieteRepo';
 import { premiereValeur, type DigicodesBienSaisis, type OrigineDigicode } from './digicodes';
 import { cleDeReferenceDigicode, digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode, mailsGestionDesAdresses } from './digicodesRepo';
 import { cleImmeuble } from './syndics';
+import { conflitDeLAdresse } from './adresseCoproExclusiviteRepo';
 
 /**
  * ══ 🔴🔴 LES DIGICODES DEPUIS LA FICHE DU BIEN EN LOCATION (Arno, 16/11/2026, « Digicodes unifiés », lot 4). IMPUR (base). ══════════════════
@@ -92,6 +93,42 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
 }
 
 /**
+ * ══ 🔴🔴 UNE SEULE BASE DE COPROPRIÉTÉ (Arno, 27/11/2026, 23h30, point 4) ══════════════════════════════════════════════════════════════════════════════
+ * « lorsque j'ajoute un bâtiment via la création d'un bien, quel que soit le parcours, ce bâtiment et ses annexes (bâtiments / cages d'escalier) doivent
+ * enrichir la fiche copropriété […] cela nourrit une seule et même base. » La copropriété d'un bien se lit par la clé EXACTE de son « Immeuble » : une
+ * adresse écrite autrement qu'une adresse d'une copropriété existante (« 12bis » / « 12 bis » — la clé de comparaison de la 520 — même code postal) en
+ * faisait une copropriété À PART (ou butait sur le verrou de la 520). Désormais, un bien CRÉÉ DANS L'APPLICATION dont l'adresse appartient déjà à une
+ * copropriété (règle « une adresse = une seule copropriété ») est rattaché à elle : son « Immeuble » prend l'adresse telle que la copropriété l'écrit
+ * (journalisé), et ses bâtiments, cages et digicodes y entrent. Un bien importé (WIPPIMMO) garde son « Immeuble ». Rien n'est créé si rien ne correspond.
+ * Rend `true` si le bien a été rattaché.
+ */
+export async function rattacherBienALaCoproprieteDeSonAdresse(q: RequeteTx, lotId: number, auteur: Auteur): Promise<boolean> {
+  const { rows } = await q<{ immeuble: string | null; adresse: string | null; cp: string | null; wippimmo_id: string | null }>(
+    'SELECT immeuble, adresse, code_postal AS cp, wippimmo_id FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE', [lotId]);
+  const l = rows[0];
+  if (l === undefined || !(l.wippimmo_id ?? '').startsWith('app-')) return false;
+  const immeuble = immeubleDuBien(l);
+  const cle = cleImmeuble(immeuble);
+  if (cle === '') return false;
+  // déjà l'adresse exacte d'une copropriété (principale ou en cours) : rien à faire
+  const { rows: deja } = await q<{ n: string }>(
+    `SELECT count(*)::text AS n FROM (SELECT 1 FROM gestion_copropriete WHERE cle_immeuble = $1
+       UNION ALL SELECT 1 FROM gestion_copropriete_adresse WHERE cle_immeuble = $1 AND retire_le IS NULL) x`, [cle]);
+  if (Number(deja[0]?.n ?? 0) > 0) return false;
+  const c = await conflitDeLAdresse(q, { coproId: null, coproCle: cle }, { libelle: immeuble, codePostal: l.cp });
+  if (c === null) return false;
+  const { rows: a } = await q<{ libelle: string }>(c.principale
+    ? 'SELECT libelle FROM gestion_copropriete WHERE id = $1'
+    : 'SELECT libelle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND cle_immeuble = $2 AND retire_le IS NULL', c.principale ? [c.copropriete.id] : [c.copropriete.id, c.cle]);
+  const libelle = (a[0]?.libelle ?? '').trim();
+  if (libelle === '' || cleImmeuble(libelle) === cle) return false;
+  await q('UPDATE gestion_annuaire_lot SET immeuble = $2 WHERE id = $1', [lotId, libelle]);
+  await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, 'immeuble_copropriete', $2, $3, $4, $5, $6)`,
+    [lotId, immeuble, libelle, `bien rattaché à la copropriété ${c.copropriete.nom ?? c.copropriete.libelle} : même adresse (${c.ecrite}), une seule copropriété par adresse`, auteur.id, auteur.libelle]);
+  return true;
+}
+
+/**
  * L'ÉCRITURE depuis la fiche du bien, DANS LA TRANSACTION DE L'APPELANT (création ou modification) : le bâtiment choisi (lien sûr + texte
  * « Bâtiment » ; un NOUVEAU bâtiment qui ne suit pas la numérotation exige la confirmation de l'écran, sinon refus clair) et la PREMIÈRE valeur
  * des places sans code connu (« saisie »). Un code connu ne se change pas d'ici (« Corriger une erreur », ou « Modifier »). Rend le refus, ou `null`.
@@ -101,6 +138,8 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   /** 🔴 Arno (18/11/2026) — ce qui a RÉELLEMENT été écrit (le lien du bien, son texte « Bâtiment », un code, un nouveau bâtiment) : « Modifier le bien » ne
    *  dit « Bâtiment et digicodes enregistrés. » que si c'est le cas. */
   compte?: { ecrit: number }): Promise<string | null> {
+  // 🔴🔴 (Arno, 27/11/2026, 23h30, point 4) d'abord, le bien rejoint la copropriété qui porte déjà son adresse (une seule base) — tous les parcours passent ici
+  if (await rattacherBienALaCoproprieteDeSonAdresse(q, lotId, auteur) && compte !== undefined) compte.ecrit += 1;
   const { rows } = await q<{ immeuble: string | null; adresse: string | null; cp: string | null; commune: string | null; batiment: string | null }>(
     'SELECT immeuble, adresse, code_postal AS cp, commune, batiment FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
   const l = rows[0];

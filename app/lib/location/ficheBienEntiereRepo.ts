@@ -193,13 +193,22 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   // (un refus — numérotation non confirmée, code déjà connu — arrête tout, rien d'autre n'est écrit)
   const digicodesBien = (await digicodesUnifiesDisponibles()) ? validerDigicodesBien(brut.digicodesBien) : null;
   let digicodesFaits = false;
-  if (digicodesBien !== null) {
-    // 🔴 Arno (18/11/2026) — « Bâtiment et digicodes enregistrés. » seulement si un bâtiment ou un digicode a RÉELLEMENT été écrit ; sinon, aucun message
+  // 🔴🔴 (Arno, 27/11/2026, 23h30, point 4) l'ADRESSE change dans ce même « Modifier » : les digicodes et bâtiments saisis sont ceux de la NOUVELLE adresse
+  //    (l'écran les lit là) — ils s'écrivent APRÈS l'adresse, dans la copropriété qu'elle désigne (avant : dans celle de l'ancienne adresse)
+  const v0 = lu.encart.valeurs;
+  const adresseVaChanger = lu.encart.adresseModifiable && (s.valeurs.adresse !== v0.adresse || s.valeurs.codePostal !== v0.codePostal || s.valeurs.commune !== v0.commune);
+  const ecrireLesDigicodes = async (): Promise<string | null> => {
+    if (digicodesBien === null) return null;
     const compte = { ecrit: 0 };
     const r = await withTransaction((q) => ecrireDigicodesDuBien(q, id, digicodesBien, 'fiche_bien', auteur, compte))
       .catch((e: unknown) => { if (e instanceof RefusDigicode) return e.message; throw e; });
+    if (r === null) digicodesFaits = compte.ecrit > 0;
+    return r;
+  };
+  if (digicodesBien !== null && !adresseVaChanger) {
+    // 🔴 Arno (18/11/2026) — « Bâtiment et digicodes enregistrés. » seulement si un bâtiment ou un digicode a RÉELLEMENT été écrit ; sinon, aucun message
+    const r = await ecrireLesDigicodes();
     if (r !== null) return { etat: 'refus', motif: r };
-    digicodesFaits = compte.ecrit > 0;
   }
   // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement ») : contrôlés avant, écrits dans leur transaction (ajout seul)
   const pvAg = await pvsDuBienValides(brut.pvAg);
@@ -226,6 +235,12 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   const v = await modifierEncartBien(id, GROUPES_FICHE, s.valeurs as unknown as Record<string, unknown>, auteur, adr.bien);
   if (v.etat !== 'ok') return v.etat === 'refus' ? partiel(v.motif) : v;
   faits.push(...v.data.changements.map((c) => c.champ));
+  // 🔴🔴 (point 4) l'adresse a changé : maintenant, les digicodes et bâtiments, dans la copropriété de la nouvelle adresse
+  if (adresseVaChanger) {
+    const rd = await ecrireLesDigicodes();
+    if (rd !== null) return partiel(rd);
+    if (digicodesFaits) faits.push('bâtiment et digicodes');
+  }
   const adresseChangee = lu.encart.adresseModifiable && v.data.changements.some((c) => c.cle === 'adresse' || c.cle === 'codePostal' || c.cle === 'commune');
   if (adresseChangee) notes.push('Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.');
 

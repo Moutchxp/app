@@ -37,11 +37,11 @@ vi.mock('./mandatParBienRepo', () => ({
   mandatsDesBiens: async (ids: number[]) => ids.map((lotId) => ({ lotId, porteur: lotId, ...m.lus })),
   MandatAConfirmer, MandatRefuse,
 }));
-const dg = vi.hoisted(() => ({ ecrit: 0 }));
+const dg = vi.hoisted(() => ({ ecrit: 0, ordre: [] as string[] }));
 vi.mock('../gestion/digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => true, RefusDigicode: class RefusDigicode extends Error {} }));
 vi.mock('../gestion/digicodes', () => ({ validerDigicodesBien: (b: unknown) => (b === undefined ? null : b) }));
 vi.mock('../gestion/digicodesBienRepo', () => ({ ecrireDigicodesDuBien: async (_q: unknown, _id: unknown, _d: unknown, _o: unknown, _a: unknown, compte?: { ecrit: number }) => {
-  if (compte !== undefined) compte.ecrit += dg.ecrit; return null; } }));
+  dg.ordre.push('digicodes'); if (compte !== undefined) compte.ecrit += dg.ecrit; return null; } }));
 vi.mock('../db/client', () => ({ query: async () => ({ rows: [] }), withTransaction: async (f: (q: unknown) => unknown) => f(async () => ({ rows: [] })) }));
 const { lireFicheEntiere, modifierFicheEntiere } = await import('./ficheBienEntiereRepo');
 const { gestesPour } = await import('../gestion/statutBien');
@@ -61,7 +61,7 @@ beforeEach(() => {
   lireStatutBien.mockResolvedValue({ disponible: true, lotId: 7, statut: 'en_gestion', depuis: '2019-03-01', suitLot: null, gestes: gestesPour('en_gestion'), archiveLe: null });
   modifierEncartBien.mockResolvedValue({ etat: 'ok', data: { changements: [] } });
 });
-beforeEach(() => { m.decision = { etat: 'libre' }; m.ecrit = []; dg.ecrit = 0; });
+beforeEach(() => { m.decision = { etat: 'libre' }; m.ecrit = []; dg.ecrit = 0; dg.ordre = []; });
 const lue = async () => { const r = await lireFicheEntiere(7); if (r.etat !== 'ok') throw new Error(r.etat); return r.data; };
 const PLACE = { batiment: null, batimentConfirme: false, commun: null, codeBatiment: null, autres: [] };
 
@@ -80,5 +80,21 @@ describe('🔴 « Bâtiment et digicodes enregistrés. » seulement si quelque c
     const l = await lue();
     const r = await modifierFicheEntiere(7, { version: l.version, valeurs: l.encart.valeurs, annexes: l.annexes, digicodesBien: PLACE }, AUTEUR, 'Location');
     expect(r).toEqual({ etat: 'ok', data: { changements: [], notes: ['Bâtiment et digicodes enregistrés.'] } });
+  });
+});
+
+describe('🔴🔴 Arno (27/11/2026, 23h30, point 4) — une seule base : l’ADRESSE change dans ce même « Modifier »', () => {
+  it('les digicodes et bâtiments saisis (ceux de la NOUVELLE adresse) s’écrivent APRÈS l’adresse ; sans changement d’adresse : avant, comme toujours', async () => {
+    modifierEncartBien.mockImplementation(async () => { dg.ordre.push('adresse'); return { etat: 'ok', data: { changements: [{ cle: 'adresse', champ: 'Adresse' }] } }; });
+    dg.ecrit = 1;
+    const l = await lue();
+    const r = await modifierFicheEntiere(7, { version: l.version, valeurs: { ...l.encart.valeurs, adresse: '7 rue _TEST Deux Adresses', codePostal: '92600', commune: 'ASNIERES' },
+      annexes: l.annexes, digicodesBien: { ...PLACE, batiment: 'C' }, adresseSaisie: { nature: 'hors_liste', horsListeConfirme: true } }, AUTEUR, 'Location');
+    expect(r.etat).toBe('ok');
+    expect(dg.ordre).toEqual(['adresse', 'digicodes']);
+    dg.ordre = [];
+    modifierEncartBien.mockImplementation(async () => { dg.ordre.push('encart'); return { etat: 'ok', data: { changements: [{ cle: 'commentaire', champ: 'Commentaire' }] } }; });
+    await modifierFicheEntiere(7, { version: l.version, valeurs: { ...l.encart.valeurs, commentaire: 'Après.' }, annexes: l.annexes, digicodesBien: { ...PLACE, batiment: 'C' } }, AUTEUR, 'Location');
+    expect(dg.ordre).toEqual(['digicodes', 'encart']);
   });
 });
