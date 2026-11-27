@@ -1434,7 +1434,7 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   du 23/10/2026, option A) n'écrit rien : il ouvre la fenêtre d'ajout d'une carte avec le type « RDV intervention » déjà choisi — la même carte
   que le « + » de la frise ; elle ne déclenche ni tâche, ni rappel, ni mail, ni tableau de bord. Recette : 0 carte RDV intervention posée à la main
   depuis le 23/10 (1 avant, retirée ; 16 venues de Monga). La base ne distingue pas le lien du « + ». Requête prod LECTURE SEULE :
-  `.captures/evenement-ouvert-par/cartes-rdv-intervention-lecture-seule.sql`. **Arno décidera** (lien gardé).
+  `.captures/evenement-ouvert-par/cartes-rdv-intervention-lecture-seule.sql`. ✅ **Décision d'Arno (27/11/2026) : lien et phrase RETIRÉS** — `2adbc759`.
 - **`4cddd862` — point 1** : la création écrivait DÉJÀ l'utilisateur de la session (`ouvert_par`, depuis la 228) et la journalisait ; désormais
   éprouvé (une valeur de la requête est ignorée). Règle unique `ouvreurDe` (`app/lib/gestion/ouvreurEvenement.ts`) + lecture
   `ouvreursDesEvenements` : colonne, sinon journal de création, sinon « non renseigné » ; automate sans compte : « automatique ». Aucune
@@ -1444,9 +1444,14 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - **`5687808e` — point 3** : famille de filtres « OUVERT PAR » (Tous, utilisateurs avec nombre, Automatique, Non renseigné), `&evf=ouvert:…`,
   combinée aux autres. Captures `.captures/evenement-ouvert-par/`.
 
+- **`2adbc759` — retrait du lien « Ajouter une carte RDV intervention » et de sa phrase** sous la carte Ouverture (accord explicite d'Arno du
+  27/11/2026) ; avec eux `onRdvIntervention`, `AIDE_DATE_A_VENIR`, `MOT_LIEN_RDV`, `.fav-aide-ouverture` (aucun autre usage). La carte RDV
+  intervention reste au « + » (vérifié dans Chrome) ; cartes RDV existantes intactes (16 Monga) ; `MOT_OUVERTURE_NON_MODIFIABLE` (refus serveur)
+  inchangé. Sous la carte : « créée le … » et « Ouvert par … le … ». Captures `.captures/retrait-lien-rdv/`.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `1c40ed6c`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; 519 inutilisé, la 361 prendra la 521). En attente
-de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e` + leur passation. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
+de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
