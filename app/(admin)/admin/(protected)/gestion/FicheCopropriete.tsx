@@ -17,7 +17,7 @@ import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesE
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import { lienCarte, type ExamenAdresse } from '../../../../lib/gestion/adresseCoproExamenModele';
 import { LIBELLE_NON_DEPLACER, libelleOuiDeplacer, motifPrincipaleAilleurs, nomCopropriete, texteConflit, type ConflitAdresse } from '../../../../lib/gestion/adresseCoproExclusivite';
-import { CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, MOTIF_PRINCIPALE_NON_RETIRABLE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse } from '../../../../lib/gestion/adresseCoproGestes';
+import { AUCUN_AUTRE_BIEN, biensTouchesParLeRetrait, CONSEQUENCE_BIENS, LIBELLE_DEFINIR_PRINCIPALE, MOTIF_PRINCIPALE_NON_RETIRABLE, LIBELLE_OUI_RETIRER_ADRESSE, LIBELLE_RETIRER_ADRESSE, resumeAdresse, TEXTE_RETRAIT_ADRESSE } from '../../../../lib/gestion/adresseCoproGestes';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -840,6 +840,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           const d = (f.digicodes ?? []).find((x) => x.cle === retraitAdresse);
           const r = resumeAdresse(d === undefined ? null : { commun: d.commun, batiments: d.batiments }, (f.biens ?? []).filter((x) => x.cle === retraitAdresse));
           const saisis = digicodesModifies(digi).some((x) => x.cle === retraitAdresse);
+          // 🔴🔴 (Arno, 27/11/2026, 23h30) les biens DÉJÀ enregistrés à cette adresse, autres que celui d'où la fiche est ouverte
+          const touches = biensTouchesParLeRetrait(f.biens ?? [], retraitAdresse, lotId);
           return (
             <div className="dcp-voile" data-fcp-retrait-adresse={retraitAdresse}>
               <style>{CSS_DIGICODES_COPRO}</style>
@@ -847,12 +849,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
                 onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRetraitAdresse(null); } }}>
                 <p className="dcp-alerte-titre" id="fcp-retrait-titre">{LIBELLE_RETIRER_ADRESSE} ?</p>
                 <p className="dcp-alerte-texte" data-fcp-retrait-libelle><strong>{a === undefined ? retraitAdresse : adresseImmeuble(a.libelle, a.codePostal, a.commune)}</strong></p>
-                <p className="dcp-alerte-texte">Ses digicodes, bâtiments et cages partent avec elle :</p>
+                <p className="dcp-alerte-texte">{TEXTE_RETRAIT_ADRESSE}</p>
                 <ul className="fcp-liste" data-fcp-retrait-digicodes>{r.digicodes.length === 0 ? <li className="loc-muet">aucun digicode ni bâtiment</li> : r.digicodes.map((x) => <li key={x}>{x}</li>)}</ul>
                 {saisis && <p className="dcp-alerte-texte fcp-alerte">Les digicodes saisis à cette adresse et pas encore validés seront perdus.</p>}
-                <p className="dcp-alerte-texte">Biens du portefeuille à cette adresse :</p>
-                <ul className="fcp-liste" data-fcp-retrait-biens>{r.biens.length === 0 ? <li className="loc-muet">aucun</li> : r.biens.map((x) => <li key={x}>{x}</li>)}</ul>
-                {r.biens.length > 0 && <p className="dcp-alerte-texte loc-muet">{CONSEQUENCE_BIENS}</p>}
+                {touches.ceBien !== null && <p className="dcp-alerte-texte" data-fcp-retrait-ce-bien>Le bien d’où vous venez ({touches.ceBien}) est à cette adresse : {CONSEQUENCE_BIENS}</p>}
+                <p className="dcp-alerte-texte">{touches.ceBien !== null ? 'Autres biens déjà enregistrés à cette adresse :' : 'Biens déjà enregistrés à cette adresse :'}</p>
+                <ul className="fcp-liste" data-fcp-retrait-biens>{touches.autres.length === 0 ? <li className="loc-muet" data-fcp-retrait-aucun-bien>{AUCUN_AUTRE_BIEN}</li> : touches.autres.map((x) => <li key={x}>{x}</li>)}</ul>
+                {touches.autres.length > 0 && <p className="dcp-alerte-texte loc-muet" data-fcp-retrait-consequence>Pour {touches.autres.length > 1 ? 'eux' : 'lui'} : {CONSEQUENCE_BIENS}</p>}
                 <p className="dcp-alerte-texte loc-muet">Le retrait entre dans l’historique de la copropriété ; rien n’est effacé.</p>
                 <div className="dcp-alerte-actions">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus onClick={() => setRetraitAdresse(null)} data-fcp-retrait-annuler>Annuler</button>

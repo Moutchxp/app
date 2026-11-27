@@ -11,7 +11,10 @@ import { majusculesDigicode } from '../location/digicodeImmeuble';
 import { adresseImmeuble } from './syndics';
 
 export const LIBELLE_RETIRER_ADRESSE = 'Retirer cette adresse';
-export const LIBELLE_OUI_RETIRER_ADRESSE = 'Oui, retirer cette adresse';
+/** 🔴 (Arno, 27/11/2026, 23h30) « demander de valider ou d'annuler » : « Valider le retrait » / « Annuler » (avant : « Oui, retirer cette adresse »). */
+export const LIBELLE_OUI_RETIRER_ADRESSE = 'Valider le retrait';
+export const TEXTE_RETRAIT_ADRESSE = 'Vous allez retirer cette adresse de la copropriété, avec l’ensemble des digicodes et des bâtiments / cages d’escalier qui lui sont associés :';
+export const AUCUN_AUTRE_BIEN = 'aucun autre bien concerné';
 export const LIBELLE_DEFINIR_PRINCIPALE = 'Définir comme adresse principale';
 export const MOTIF_PRINCIPALE_NON_RETIRABLE = 'Choisissez d’abord une autre adresse principale : l’adresse principale ne peut pas être retirée.';
 export const MOTIF_ADRESSE_ABSENTE = 'Cette adresse n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.';
@@ -30,6 +33,18 @@ export function resumeAdresse(d: DigicodesDeLAdresse | null | undefined, biens: 
     ...(d.commun.digicode !== null || (d.commun.code ?? '') !== '' ? [`digicode copropriété : ${motCode(d.commun)}`] : []),
     ...d.batiments.map((b) => `bâtiment / cage ${b.libelle} : ${motCode(b)}`)];
   return { digicodes, biens: biens.map((b) => `n° ${b.numero}${b.adresse ? ` (${b.adresse})` : ''}`) };
+}
+
+/**
+ * 🔴🔴 (Arno, 27/11/2026, 23h30) « dire si cela impacte d'autres biens déjà enregistrés dans cette copropriété que celui que l'on est en train de créer » :
+ * les biens du portefeuille à cette adresse, SÉPARÉS entre le bien d'où la fiche est ouverte (`lotEnCours`) et les AUTRES. PUR.
+ */
+export function biensTouchesParLeRetrait(biens: readonly (BienDeLAdresse & { id: number; cle?: string })[], cle: string, lotEnCours: number | null | undefined):
+  { ceBien: string | null; autres: string[] } {
+  const ici = biens.filter((b) => b.cle === cle);
+  const mot = (b: BienDeLAdresse) => `n° ${b.numero}${b.adresse ? ` (${b.adresse})` : ''}`;
+  const c = lotEnCours == null ? undefined : ici.find((b) => b.id === lotEnCours);
+  return { ceBien: c === undefined ? null : mot(c), autres: ici.filter((b) => b !== c).map(mot) };
 }
 
 /** Le texte du journal d'un retrait d'adresse (lisible dans l'historique de la copropriété). PUR. */

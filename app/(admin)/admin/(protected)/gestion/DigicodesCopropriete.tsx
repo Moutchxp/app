@@ -849,9 +849,11 @@ export const phraseRegle = (n: Nomenclature | null): string => (n === null
  */
 function BoutonRetirerAdresse({ principale, onRetirer }: { principale: boolean; onRetirer: () => void }) {
   const [note, setNote] = useState(false);
+  // 🔴🔴 (Arno, 27/11/2026, 23h30) « le bouton est beaucoup trop gros ; je préfère juste un picto croix au même niveau que la ligne de l'adresse, justifié à
+  //    droite » : une croix discrète, cible tactile de 44 px, libellé accessible « Retirer cette adresse » ; la fenêtre et la règle de l'adresse principale, inchangées
   return <>
-    <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini dcp-retirer-adresse" aria-expanded={principale ? note : undefined}
-      onClick={() => (principale ? setNote((n) => !n) : onRetirer())} data-dcp-retirer-adresse={principale ? 'principale' : ''}>Retirer cette adresse</button>
+    <button type="button" className="dcp-retirer-adresse" aria-label="Retirer cette adresse" title="Retirer cette adresse" aria-expanded={principale ? note : undefined}
+      onClick={() => (principale ? setNote((n) => !n) : onRetirer())} data-dcp-retirer-adresse={principale ? 'principale' : ''}>×</button>
     {principale && note && <p className="dcp-retirer-note" role="status" data-dcp-retirer-principale>Choisissez d’abord une autre adresse principale (« Définir comme adresse principale », dans ADRESSES) : l’adresse principale ne peut pas être retirée.</p>}
   </>;
 }
@@ -1184,7 +1186,9 @@ export const CSS_DIGICODES_COPRO = CSS_CHAMP_CODE_DIGICODE + `
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .dcp-titre-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
-.dcp-retirer-adresse{min-height:44px}
+.dcp-titre-ligne > .dcp-titre{flex:1 1 0;min-width:0}
+.dcp-retirer-adresse{flex:none;width:44px;height:44px;margin:-10px -10px -10px 0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:1.4rem;line-height:1;cursor:pointer}
+.dcp-retirer-adresse:hover,.dcp-retirer-adresse:focus-visible{color:var(--color-svv-ink);background:var(--color-svv-line)}
 .dcp-retirer-note{flex:1 1 100%;margin:0;font-size:.85rem;color:var(--color-svv-muted)}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
 .dcp-avis-batiment{margin:4px 0 0;font-size:.8rem;font-style:italic}

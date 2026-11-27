@@ -984,7 +984,10 @@ describe('« Retirer cette adresse » (DIGICODES et « × ») ; « Définir comm
   it('chaque bloc a « Retirer cette adresse » ; sur l’adresse principale il explique « Choisissez d’abord une autre adresse principale » (rien ne part)', async () => {
     await ouvrir();
     const boutons = [...document.querySelectorAll('[data-dcp-retirer-adresse]')];
-    expect(boutons.map((b) => [b.textContent, b.getAttribute('data-dcp-retirer-adresse')])).toEqual([['Retirer cette adresse', 'principale'], ['Retirer cette adresse', '']]);
+    // 🔴🔴 (Arno, 27/11/2026, 23h30) une croix discrète sur la ligne de l'adresse, justifiée à droite, libellé accessible « Retirer cette adresse »
+    expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-label'), b.getAttribute('data-dcp-retirer-adresse')])).toEqual([['×', 'Retirer cette adresse', 'principale'], ['×', 'Retirer cette adresse', '']]);
+    expect(boutons.every((b) => b.parentElement?.className === 'dcp-titre-ligne' && b.previousElementSibling?.className === 'dcp-titre')).toBe(true);
+    expect(boutons.some((b) => b.className.includes('svv-btn'))).toBe(false);
     await act(async () => { (boutons[0] as HTMLButtonElement).click(); }); await calmer();
     expect($('[data-dcp-retirer-principale]').textContent).toContain('Choisissez d’abord une autre adresse principale');
     expect(document.querySelector('[data-fcp-retrait-adresse]')).toBeNull();
@@ -996,15 +999,29 @@ describe('« Retirer cette adresse » (DIGICODES et « × ») ; « Définir comm
     const w = $('[data-fcp-retrait-adresse]');
     expect(w.querySelector('[data-fcp-retrait-libelle]')?.textContent).toBe('12 rue des Lilas, 75011 Paris');
     expect([...w.querySelectorAll('[data-fcp-retrait-digicodes] li')].map((x) => x.textContent)).toEqual(['digicode copropriété : code 1212', 'bâtiment / cage A : code A12']);
-    expect([...w.querySelectorAll('[data-fcp-retrait-biens] li')].map((x) => x.textContent)).toEqual(['n° W1 (12 rue des Lilas)']);
-    expect(w.textContent).toContain('Ils ne seront plus rattachés à cette copropriété');
-    expect([...w.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, retirer cette adresse']);
+    // 🔴🔴 (Arno, 27/11/2026, 23h30) la fiche est ouverte depuis le bien W1 : « ce bien » à part, puis les AUTRES biens (ici aucun)
+    expect(w.textContent).toContain('Vous allez retirer cette adresse de la copropriété, avec l’ensemble des digicodes et des bâtiments / cages d’escalier qui lui sont associés');
+    expect(w.querySelector('[data-fcp-retrait-ce-bien]')?.textContent).toContain('Le bien d’où vous venez (n° W1 (12 rue des Lilas)) est à cette adresse : Ils ne seront plus rattachés à cette copropriété');
+    expect([...w.querySelectorAll('[data-fcp-retrait-biens] li')].map((x) => x.textContent)).toEqual(['aucun autre bien concerné']);
+    expect([...w.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Valider le retrait']);
     await clic('[data-fcp-retrait-annuler]');
     expect([document.querySelector('[data-fcp-retrait-adresse]'), posts.length]).toEqual([null, 0]);
     await clic('[data-fcp-retirer]'); // le « × » de la liste, sur la même adresse (elle a son bloc) : la même fenêtre
     await clic('[data-fcp-retrait-oui]');
     expect(posts).toEqual([{ action: 'adresse-retirer', immeuble: 'residence les tilleuls', adresseCle: '12 rue des lilas' }]);
     expect($('[data-fcp-info]').textContent).toBe('Adresse retirée de la copropriété.');
+  });
+  it('🔴 23h30 — d’autres biens déjà enregistrés à cette adresse : listés, avec ce que ça change pour eux ; le bien d’où l’on vient reste à part', async () => {
+    lu = { ...lu, fiche: { ...(lu as { fiche: Record<string, unknown> }).fiche, biens: [
+      { id: 1, numero: 'W1', adresse: '12 rue des Lilas', copropriete: true, cle: '12 rue des lilas' },
+      { id: 2, numero: 'W2', adresse: '12 rue des Lilas', copropriete: true, cle: '12 rue des lilas' },
+      { id: 3, numero: 'W3', adresse: 'Résidence Les Tilleuls', copropriete: true, cle: 'residence les tilleuls' }] } } as typeof lu;
+    await ouvrir();
+    await act(async () => { ([...document.querySelectorAll('[data-dcp-retirer-adresse]')][1] as HTMLButtonElement).click(); }); await calmer();
+    const w = $('[data-fcp-retrait-adresse]');
+    expect([...w.querySelectorAll('[data-fcp-retrait-biens] li')].map((x) => x.textContent)).toEqual(['n° W2 (12 rue des Lilas)']);
+    expect(w.querySelector('[data-fcp-retrait-consequence]')?.textContent).toBe('Pour lui : Ils ne seront plus rattachés à cette copropriété : son syndic, ses AG et le suivi des 20 % ne s’appliqueront plus à eux. Les digicodes de l’adresse restent attachés à l’adresse.');
+    expect(posts).toHaveLength(0);
   });
   it('« Définir comme adresse principale » : sur chaque adresse enregistrée, avec sa confirmation ; immédiat', async () => {
     await ouvrir();
