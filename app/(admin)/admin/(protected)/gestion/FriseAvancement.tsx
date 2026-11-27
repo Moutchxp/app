@@ -56,7 +56,6 @@ import { jourParis } from '../../../../lib/temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
    qui précède sa pose. Deux formulations auraient fini par dire deux choses du même geste. */
 import { questionAvantRetrait, retraitCloturerait } from '../../../../lib/gestion/etatParLaFrise';
-import { AIDE_DATE_A_VENIR, MOT_LIEN_RDV } from '../../../../lib/gestion/ouvertureEvenement';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
 /* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
@@ -824,14 +823,8 @@ export function FriseAvancement({
                 bulleTexte.entrerCible(`i${x.id}`);
               }}
               saisie={carteSaisie} onSaisir={lectureSeule ? undefined : saisirLaCarte} onPoignee={lectureSeule ? undefined : saisirParLaPoignee}
-              /* 🔴 Arno (23/10/2026, option A) — la date d'ouverture ne se corrige plus ; le lien sous elle ouvre DIRECTEMENT
-                 l'ajout d'une carte « RDV intervention », où se note une date à venir. Absent en lecture seule, ou
-                 sur un événement clos (seule une Réouverture peut alors être posée). */
-              onRdvIntervention={lectureSeule || vue.d.ouvert === false ? undefined : () => {
-                ouvrirReservoir(aujourdhui);
-                setTypePose('rdv_intervention');
-                setAjout(true);
-              }}
+              /* 🔴 (décision d'Arno du 27/11/2026) le lien « Ajouter une carte RDV intervention » et sa phrase, sous la carte Ouverture, sont RETIRÉS
+                 (raccourci en double du « + », jamais utilisé à la main) : la carte RDV intervention se pose par le « + » de la frise, inchangé. */
             />
           ))}
         </ol>
@@ -1133,8 +1126,6 @@ function ElementDeLaFrise(p: {
    */
   onAjouter: (jour: string, apresId?: number | 'debut', forme?: 'etape' | 'information') => void;
   aujourdhui: string;
-  /** 🔴 Arno (23/10/2026) — ouvrir l'ajout d'une carte RDV intervention (le lien sous la date d'ouverture). Absent ⇒ pas de lien. */
-  onRdvIntervention?: () => void;
   /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal), pour la carte d'ouverture dérivée. */
   ouvertureCreeeLe?: string | null;
   /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement : « Ouvert par … le … » sous la carte Ouverture. */
@@ -1269,7 +1260,7 @@ export const QUESTION_REFUS_ETAPE = 'Cette étape sera effacée de la frise chro
 
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
-  onOuvrirFil, onConfirmer, onMontant, onRetirer, onRdvIntervention,
+  onOuvrirFil, onConfirmer, onMontant, onRetirer,
   horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
   enEdition = null, ouvertureCreeeLe = null, ouvreur,
 }: {
@@ -1280,7 +1271,6 @@ function Carre({
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
-  onRdvIntervention?: () => void;
   /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal) ; `null` : la carte dérivée dit « inconnue ». */
   ouvertureCreeeLe?: string | null;
   /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement ; `undefined` : réponse d'avant (rien n'est écrit). */
@@ -1346,13 +1336,8 @@ function Carre({
         <div className={`fav-carre fav-carre--dans${CLASSE_COULEUR[couleurDeLaCarte(c.type)]}`}>
           <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} />
         </div>
-        {/* 🔴 Arno (23/10/2026, option A) — « Pour une date à venir, ajoutez une carte RDV intervention. », avec le lien. */}
-        {onRdvIntervention !== undefined && (
-          <p className="fav-aide-ouverture" data-aide-ouverture="">
-            {AIDE_DATE_A_VENIR}{' '}
-            <button type="button" className="fav-lien" data-lien-rdv="" disabled={occupe} onClick={onRdvIntervention}>{MOT_LIEN_RDV}</button>
-          </p>
-        )}
+        {/* 🔴 (décision d'Arno du 27/11/2026) ici se trouvaient « Pour une date à venir, ajoutez une carte RDV intervention. » et son lien : retirés.
+            Sous la carte Ouverture ne restent que « créée le … » et « Ouvert par … le … ». */}
         {/**
           * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES — « SANS EXCEPTION » L'INCLUT, ELLE AUSSI ═══════════
           *
@@ -2544,8 +2529,6 @@ function AjouterEtape({
    desormais toute intersection entre les deux feuilles.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 const CSS_FRISE_AVANCEMENT = `
-.fav-aide-ouverture{margin:4px 0 0;max-width:150px;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted);text-align:center;overflow-wrap:anywhere}
-.fav-aide-ouverture .fav-lien{font-size:.72rem;min-height:32px}
 .fav-ouvert-par{margin:4px 0 0;max-width:150px;font-size:.72rem;line-height:1.35;font-weight:700;color:var(--color-svv-ink);text-align:center;overflow-wrap:anywhere}
 .fav{margin:0}
 

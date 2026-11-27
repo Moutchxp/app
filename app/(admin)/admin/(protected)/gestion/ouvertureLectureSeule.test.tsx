@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FriseAvancement } from './FriseAvancement';
 import { ChampsEvenement } from './BlocEvenement';
-import { AIDE_DATE_A_VENIR, MOT_LIEN_RDV, MOT_OUVERTURE_CREATION_COURT } from '../../../../lib/gestion/ouvertureEvenement';
+import { MOT_OUVERTURE_CREATION_COURT } from '../../../../lib/gestion/ouvertureEvenement';
 
 /**
  * 🔴 Arno (23/10/2026, option A, accord explicite pour ce champ) — la carte « Ouverture » affiche sa date en LECTURE SEULE, avec
@@ -44,24 +44,29 @@ describe('🔴 la carte Ouverture : date en lecture seule, aide et lien vers RDV
     expect(document.querySelector('input[aria-label="Date d’ouverture"]')).toBeNull();
     expect(document.querySelector('[title="Corriger la date d’ouverture de l’événement"]')).toBeNull();
   });
-  it('l’aide d’une ligne, et le lien qui ouvre DIRECTEMENT l’ajout d’une carte RDV intervention', async () => {
+  /** 🔴 (décision d'Arno du 27/11/2026) le lien « Ajouter une carte RDV intervention » et sa phrase, sous la carte Ouverture, sont RETIRÉS. */
+  it('sous la carte Ouverture : ni la phrase « Pour une date à venir… », ni le lien ; ouvert, clos ou en lecture seule', async () => {
+    for (const [o, props] of [[true, {}], [false, {}], [true, { lectureSeule: true }]] as const) {
+      ouvert = o;
+      await rendre(props);
+      expect([q('[data-aide-ouverture]'), q('[data-lien-rdv]')]).toEqual([null, null]);
+      expect(document.body.textContent).not.toContain('Pour une date à venir');
+      expect(document.body.textContent).not.toContain('Ajouter une carte RDV intervention');
+      expect(q('[data-ouverture-lecture]')).not.toBeNull();
+      act(() => root.unmount()); root = createRoot(container);
+    }
+  });
+  it('la carte RDV intervention reste proposée par le « + » de la frise, inchangée : la choisir ouvre son ajout, rien n’est écrit', async () => {
     await rendre();
-    expect(q('[data-aide-ouverture]')?.textContent).toBe(`${AIDE_DATE_A_VENIR} ${MOT_LIEN_RDV}`);
-    await act(async () => { q('[data-lien-rdv]')!.click(); });
+    const plus = [...document.querySelectorAll('button[aria-label="Ajouter une étape ou une information"]')].at(-1) as HTMLButtonElement;
+    await act(async () => { plus.click(); });
+    await attendre();
+    const rdv = q('[data-carte-grille="rdv_intervention"]') as HTMLButtonElement;
+    expect(rdv).not.toBeNull();
+    await act(async () => { rdv.click(); });
     await attendre();
     expect((q('#fav-type') as HTMLSelectElement).value).toBe('rdv_intervention');
-    expect(appels.filter((a) => a.init?.method && a.init.method !== 'GET')).toHaveLength(0);   // rien n'est écrit en l'ouvrant
-  });
-  it('événement clos, ou frise en lecture seule : pas de lien (on ne pose rien après une clôture)', async () => {
-    ouvert = false;
-    await rendre();
-    expect(q('[data-lien-rdv]')).toBeNull();
-    act(() => root.unmount());
-    root = createRoot(container);
-    ouvert = true;
-    await rendre({ lectureSeule: true });
-    expect(q('[data-lien-rdv]')).toBeNull();
-    expect(q('[data-ouverture-lecture]')).not.toBeNull();
+    expect(appels.filter((a) => a.init?.method && a.init.method !== 'GET')).toHaveLength(0);
   });
 });
 
@@ -91,7 +96,7 @@ describe('sous la carte Ouverture : « Ouvert par Prénom NOM le JJ/MM/AAAA »',
     avec({ sorte: 'utilisateur', cle: 'u2', nom: 'Arnaud JOREL' });
     await rendre();
     expect(q('[data-ouvert-par]')?.textContent).toBe('Ouvert par Arnaud JOREL le 23/10/2026');
-    expect(q('[data-lien-rdv]')?.textContent).toBe(MOT_LIEN_RDV);
+    expect(q('[data-lien-rdv]')).toBeNull(); // (27/11/2026) le lien est retiré
     act(() => root.unmount()); root = createRoot(container);
     avec({ sorte: 'automatique', cle: 'auto' });
     await rendre();

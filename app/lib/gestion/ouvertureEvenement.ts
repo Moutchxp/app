@@ -17,9 +17,8 @@ export const MOT_OUVERTURE_NON_MODIFIABLE =
   'La date d’ouverture est celle de la création de l’événement : elle ne se modifie plus. '
   + 'Pour une date à venir, ajoutez une carte « RDV intervention ».';
 
-/** L'aide sous la date de la carte Ouverture. Le lien qui la suit ouvre l'ajout d'une carte RDV intervention. */
-export const AIDE_DATE_A_VENIR = 'Pour une date à venir, ajoutez une carte RDV intervention.';
-export const MOT_LIEN_RDV = 'Ajouter une carte RDV intervention';
+/* 🔴 (décision d'Arno du 27/11/2026) l'aide « Pour une date à venir, ajoutez une carte RDV intervention. » et le lien « Ajouter une carte RDV
+   intervention » sous la carte Ouverture sont retirés (raccourci en double du « + ») ; leurs deux constantes avec eux. */
 
 /** Ce qu'affiche le formulaire de création à la place de l'ancien champ. */
 export const MOT_OUVERTURE_A_LA_CREATION = 'Ouverture : à la création de l’événement (date et heure posées automatiquement).';
