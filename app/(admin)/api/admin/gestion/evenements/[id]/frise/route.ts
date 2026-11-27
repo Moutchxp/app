@@ -5,6 +5,7 @@ import {
   ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, poserCarteDeBorne, referencesDeliees,
   referencesSuiviesAilleurs, reordonnerCartes,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
+import { ouvreursDesEvenements } from '../../../../../../../lib/gestion/ouvreurEvenementRepo';
 /* 🔴 LOT FRISE-CORRECTION-MANUELLE — la 429 est-elle là ? La réponse voyage avec la frise (règle du dépôt : une sonde de schéma
    voyage AVEC les données qu'elle conditionne). */
 import { correctionEtapeDisponible } from '../../../../../../../lib/gestion/schema';
@@ -154,6 +155,8 @@ export async function GET(
       ouvertLe: rows[0].ouvert_le,
       /* 🔴 LOT GES-16/21 — l'instant où l'événement a été créé (journal) ; `null` : inconnu, la carte l'avoue. */
       ouvertureCreeeLe: rows[0].ouverture_creee_le ?? null,
+      /* 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement (la règle commune) — « Ouvert par … le … » sous la carte Ouverture */
+      ouvreur: (await ouvreursDesEvenements([evenementId])).get(evenementId) ?? null,
       typesReservoir: cartesDuReservoir(ouvertParLaFrise),
       /* 🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — LA ROUTE ANNONCE CE QUE LA GRILLE PROPOSE, des DEUX côtés : « aucune
          autre carte ne peut être posée après une Clôture », et un point n'est pas une exception. Annoncer la

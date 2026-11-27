@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { evenementsDuBien, friseDeLEvenement } from '../../../../../../lib/gestion/mongaEtapeRepo';
+import { ouvreursDesEvenements } from '../../../../../../lib/gestion/ouvreurEvenementRepo';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LES ÉVÉNEMENTS D'UN BIEN, POUR LA FICHE ══════════════════════════════════════════
@@ -29,6 +30,8 @@ export async function GET(request: Request): Promise<Response> {
   if (cle === '') return Response.json({ erreur: 'Bien attendu.' }, { status: 400 });
   try {
     const evenements = await evenementsDuBien(cle);
+    // 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert chaque événement (la règle commune)
+    const ouvreurs = await ouvreursDesEvenements(evenements.map((e) => e.id));
     /**
      * ⚠️ UNE LECTURE DE FRISE PAR ÉVÉNEMENT, ET C'EST BORNÉ PAR LE RÉEL : un bien porte un ou deux événements,
      * pas cinquante (mesuré le 06/10/2026 : le seul bien qui en a en porte **un**). Une requête unique à
@@ -48,6 +51,7 @@ export async function GET(request: Request): Promise<Response> {
          * maintenant des cartes de BORNE (`evenementsDuBien`), et il n'y a plus qu'une réponse.
          */
         clos: !e.ouvert,
+        ...(ouvreurs.has(e.id) ? { ouvreur: ouvreurs.get(e.id) } : {}),
         nbEtapes: etapes.length,
         derniereEtapeType: derniere?.type ?? null,
         /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — une dernière carte validée SANS date n'en donne aucune : `null`, et

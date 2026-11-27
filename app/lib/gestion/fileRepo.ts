@@ -11,6 +11,8 @@
  * L'ORDRE DEMANDÉ À L'ÉCRAN : ce qui attend une réponse depuis LE PLUS LONGTEMPS d'abord. Donc, dans les deux colonnes :
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
+import { ouvreursDesEvenements } from './ouvreurEvenementRepo';
+import type { OuvreurEvenement } from './ouvreurEvenement';
 import { lireConcernes } from './evenementConcerneRepo';
 import type { Concerne } from './locatairesEvenement';
 import { query } from '../db/client';
@@ -57,6 +59,8 @@ export interface CarteEvenement {
   adresseLibre: string | null;
   etat: 'a_traiter' | 'en_cours' | 'traite';
   ouvertLe: string;               // ISO
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui l'a ouvert : l'utilisateur de la session à la création (ouvreurEvenement). Absent : lecture d'avant. */
+  ouvreur?: OuvreurEvenement;
   dernierEchangeLe: string | null; // ISO — dernier message non exclu de ses fils, ou null s'il n'en a aucun
   nbFils: number;
   /** LOT 4d — des mails isolés, rattachés à cette carte sans leur échange. Comptés à part : ce ne sont pas des échanges. */
@@ -741,9 +745,12 @@ export async function lireEvenements(
        FROM gestion_evenement e`);
   /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — une lecture groupée pour la page ; vide sans la 343. */
   const concernes = await lireConcernes(rows.map((r) => Number(r.evenement_id)));
+  // 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert chaque événement : une lecture groupée, la règle commune (ouvreurEvenementRepo)
+  const ouvreurs = await ouvreursDesEvenements(rows.map((r) => Number(r.evenement_id)));
   return {
     cartes: rows.map((r) => ({
       ...(concernes.has(Number(r.evenement_id)) ? { concernes: concernes.get(Number(r.evenement_id)) } : {}),
+      ...(ouvreurs.has(Number(r.evenement_id)) ? { ouvreur: ouvreurs.get(Number(r.evenement_id)) } : {}),
       evenementId: r.evenement_id, reference: r.reference, objet: r.objet, demandeur: r.demandeur,
       adresseLibre: r.adresse_libre,
       /* 🔴 LOT ETAT-PAR-LA-FRISE — « Traité » vient de la frise, les deux autres de la colonne. Une seule

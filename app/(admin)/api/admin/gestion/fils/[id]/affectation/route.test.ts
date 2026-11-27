@@ -153,3 +153,11 @@ describe('le pré-remplissage (GET)', () => {
     expect(body.evenements).toBeUndefined();
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48) — « en se référant au propriétaire de la session qui a ouvert l'événement » : l'auteur est celui de la SESSION, jamais une valeur de la requête. */
+describe('qui ouvre l’événement : la session, pas la requête', () => {
+  it('un « ouvertPar » / « auteur » glissé dans la requête est ignoré : affecter reçoit l’utilisateur de la session', async () => {
+    await POST(req({ nouveau: { objet: 'Fuite', ouvertPar: 99, ouvertParLibelle: 'pirate@exemple.test' }, auteur: { id: 99, libelle: 'pirate' } }), ctx('5'));
+    expect(gestes.affecter.mock.calls[0][2]).toEqual({ id: 1, libelle: 'arno' });
+  });
+});

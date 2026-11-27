@@ -520,3 +520,22 @@ describe('les gestes d’ÉCHANGE ne touchent pas aux mails déplacés', () => {
     expect(sqls()[0]).not.toContain('message_id');
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48) — « taguer l'ouverture […] avec le nom de l'utilisateur qui l'a ouvert (le propriétaire de la session) ». */
+describe('la création écrit l’auteur reçu (la session) dans l’événement, jamais une valeur de la saisie', () => {
+  it('ouvert_par / ouvert_par_libelle = l’auteur ; un « ouvertPar » glissé dans « nouveau » est ignoré ; la création entre au journal', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 5, etat: 'a_classer' }] })
+      .mockResolvedValueOnce({ rows: [{ dernier: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 9 }] })
+      .mockResolvedValue({ rows: [{ id: 78 }] });
+    await affecter(5, { nouveau: { objet: 'Fuite', ouvertPar: 99, ouvertParLibelle: 'pirate' } as never }, ARNO);
+    const ins = queryMock.mock.calls.find((c) => typeof c[0] === 'string' && /INSERT INTO gestion_evenement \(/.test(c[0] as string))!;
+    expect(ins[0]).toMatch(/ouvert_par, ouvert_par_libelle/);
+    expect(ins[1]).toContain(1);
+    expect(ins[1]).toContain('arno');
+    expect((ins[1] as unknown[]).some((x) => x === 99 || x === 'pirate')).toBe(false);
+    const j = queryMock.mock.calls.find((c) => typeof c[0] === 'string' && (c[0] as string).includes('INSERT INTO gestion_journal') && (c[1] as unknown[])[2] === 'ouverture')!;
+    expect([(j[1] as unknown[])[6], (j[1] as unknown[])[7]]).toEqual([1, 'arno']);
+  });
+});
