@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 26/11/2026 (mise en production 1d4d8e87)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 27/11/2026 (bloc 3 « État des lieux de sortie », ced02fed et d53856e9)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1489,9 +1489,34 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   c'est le classement des mails Monga dans un événement. Requêtes : `.captures/controles-monga/monga-lecture-seule.sql`. Rien de corrigé : à
   décider par Arno.
 
+### 27/11/2026, 21h10 et 21h19 — bloc 3 « État des lieux de sortie » : la fenêtre de la pré-visite, trois états (`ced02fed`, `d53856e9`)
+- **Point 1 (`ced02fed`)** — « appliquer la même fenêtre que celle du RDV pré-visite sur le bloc 3, et ne pas allonger le bloc ».
+  - Le cadre de la fenêtre « RDV pré-visite » est sorti en `CadreFenetreRdv` + `EnteteFenetreRdv` (`PrevisiteAccueil.tsx`). Il est réutilisé, sans copie, par
+    « RDV état des lieux de sortie » et par « Confier à quelqu'un d'autre ».
+  - La fenêtre de l'état des lieux reprend la pré-visite : Date et Durée sur une ligne, puis Début et Fin ; Oui / Non obligatoire ; « Annuler » et « Voir le récapitulatif ».
+  - Elle garde « Confier à » (un seul collègue) et le commentaire. Le récapitulatif est celui des tâches, confirmé par « Planifier » (`libelleConfirmer` de `useRecapEnvois`).
+    Plein écran à 390 px. Ce que fait la planification ne change pas.
+- **Point 2 (`d53856e9`)** — trois états, la présentation du bloc 2 (`data-etat-edls`).
+  - **À programmer** : « Planifier l'état des lieux de sortie », pleine largeur.
+  - **RDV fixé** : cartouche « RDV fixé — le … de … à … · confié à Prénom NOM », et « Modifier le RDV » pleine largeur.
+  - **Effectué dès la FIN prévue + 1 h** (`edlsEffectue`, `frisePreavis.ts`) : étape 3 « faite » (case verte, ✓), cartouche « ✓ État des lieux effectué — … · par Prénom NOM ».
+    « Valider la sortie » inchangé ; « Modifier le RDV » reste proposé (le serveur juge).
+  - « Modifier le RDV » met à jour la MÊME tâche (jamais une seconde). Il est prérempli, commentaire compris (nouveau : modifiable, journalisé
+    `location_edls_commentaire`, note de la tâche réécrite). Si seul le commentaire change, la tâche n'est pas touchée et aucun mail ne part au collègue.
+- **Décision d'Arno (27/11/2026)** : la règle fin + 1 h vaut pour le SEUL bloc 3. La pré-visite reste effectuée par le geste du compte rendu (13/11/2026),
+  inchangée. Vérifié : elle n'avait aucune règle horaire d'effectuation (seul le DÉBUT du rendez-vous ouvre le compte rendu).
+- **« Modifier / déplacer la pré-visite » vérifié de bout en bout** dans Chrome (recette), ouvrir → heure changée → récapitulatif : il fonctionne, rien n'a été corrigé.
+  Même parcours pour « Modifier le RDV » de l'état des lieux. Rien n'a été planifié ni envoyé : seuls les aperçus passaient, toute autre requête était bloquée (0 bloquée).
+- Contrôles : `npm test` VERT (1 890 fichiers, 28 310 tests, 21 ignorés) ; `tsc` = 0 ; lint sans erreur nouvelle ; pages construites (`/admin/login` 200).
+  Chrome : ordinateur et 390 px, clair et sombre. Captures dans `.captures/edls-trois-etats/`. Aucune migration.
+- Libellés remplacés à la demande : « État des lieux programmé — … » → « RDV fixé — … · confié à … » ; « Modifier / déplacer l'état des lieux » → « Modifier le RDV » ;
+  dans la saisie, « Date de l'EDLS / Heure de début / Heure de fin » → « Date / Début / Fin ». Le bouton de saisie « Planifier » / « Déplacer le rendez-vous » →
+  « Voir le récapitulatif » ; « Planifier » passe au récapitulatif. Rien n'est retiré.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). Rien en
-attente de mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
+**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). En attente
+de mise en production (sans migration) : `ced02fed`, `d53856e9` et cette passation, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
+à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
