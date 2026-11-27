@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 27/11/2026 (« 20 % à restituer » : 87c58d69, 691d4b02, e7334caf)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (copropriété, libellés, lots vacants : 0e0c62a4 → e0af8a0d)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1534,9 +1534,38 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Restitution NON validée, rien envoyé : toute requête non GET était bloquée. Une seule a été tentée et bloquée : l'aperçu de classement de la fenêtre d'écriture, sur la fiche syndic.
   - Captures : `.captures/vingt-envoi-adresse-coordonnees/`. Aucune migration.
 
+### 27/11/2026, 23h30 — copropriété, libellés, lots vacants (`0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`, `e0af8a0d`)
+- Décisions d'Arno du 27/11 : les trois choix du lot « 20 % » validés ; les 19 dossiers Playwright du 15/11 restent dans le dossier temporaire.
+- **Point 1 (`0e0c62a4`)** — « Retirer cette adresse » devient une croix « × » discrète, à droite sur la ligne de l'adresse de chaque bloc (fiche copropriété,
+  le même composant en Gestion, en Location et depuis un bien ; le formulaire de création n'a pas ce bouton).
+  - La fenêtre dit ce qui part (digicodes, bâtiments / cages d'escalier), met à part le bien d'où l'on vient, liste les AUTRES biens (« aucun autre bien concerné »).
+  - Elle se valide par « Valider le retrait » ou « Annuler ». Même geste que aeb97ec7.
+- **Point 2 (`d1d6c2d3`)** — « Bâtiment / cage d'escalier » partout à l'écran ; une garde refuse tout « bâtiment / cage » sans « d'escalier ».
+- **Point 3 (`a2e7f196`)** — « pas de digicode » / « plus de digicode » au niveau du champ.
+  - Le compteur « 0/15 » est sorti du flux, et la ligne réserve sa place par une marge commune (CSS_CHAMP_CODE_DIGICODE).
+  - Mesuré au Chrome : bas du champ = bas de la case.
+- **Point 4 (`994eed68`)** — une seule base de copropriété.
+  - Recensement des 8 parcours dans le message de commit. Création, Modifier et compléments inscrivaient déjà bâtiments, cages et digicodes dans la copropriété (prouvé).
+  - Corrigé (`rattacherBienALaCoproprieteDeSonAdresse`) : un bien de l'application dont l'adresse est celle d'une copropriété pour la 520 (« 12bis » = « 12 bis »)
+    la rejoint (« Immeuble » aligné, journalisé) au lieu d'en créer une autre.
+  - Un changement d'adresse fait suivre l'« Immeuble », et les digicodes de « Modifier » s'écrivent après l'adresse.
+  - Preuve en recette par les vraies fonctions, en transaction ANNULÉE (comptes identiques, journal compris) : bâtiment C et cage C2 au 7 rue _TEST Deux Adresses,
+    visibles dans la fiche de la copropriété 271 et proposés au second bien.
+  - Pas de vraie création à l'écran : elle aurait laissé un bien et des lignes de journal indélébiles en recette. À faire par Arno s'il le souhaite.
+  - **Limite** : « 7 r. » ≠ « 7 rue » pour la 520 (clé de comparaison), comme avant.
+- **Point 5 (`24df9b60`)** — « Prélèvement du loyer », « Honoraires d'agence », « Paiement des charges de copropriété » : écrans, récapitulatif, résumé du bail, mail, messages.
+  - Le tri des changements du dossier lit la constante. Journaux d'avant inchangés.
+- **Point 6 (`e0af8a0d`)** — « Location (Nombre de lots vacants : N) », calcul serveur à chaque affichage.
+  - Règle : biens actifs (en gestion / location seule) sans locataire en place ; une annexe rattachée n'est pas comptée, une annexe seule l'est ; vacant le jour de la sortie.
+  - Recette : 88, égal au comptage direct. Le bouton « 20 % » ne bouge pas.
+- Contrôles : `npm test` VERT (1 895 fichiers, 28 349 tests) ; `tsc` = 0 ; pages construites (`/admin/login` 200).
+  - Chrome (recette, ordinateur et 390 px, clair et sombre), toute écriture bloquée ; captures `.captures/copro-bien-libelles-vacants/`. Aucune migration.
+- Un flake connu est réapparu une fois (PreavisAccueil, photo « page rechargée pendant la coupure », docs/FLAKES_CONNUS.md) ; vert en relance.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). En attente
-de mise en production (sans migration) : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf` et leurs passations, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
+de mise en production (sans migration) : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
+`e0af8a0d` et leurs passations, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
