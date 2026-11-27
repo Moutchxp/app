@@ -124,18 +124,19 @@ describe('🔴 le compositeur ouvert par le bouton de la fiche', () => {
 
 describe('🔴 le bouton dans la fiche : le MÊME compositeur que « Nouveau message »', () => {
   const code = vif(HDB);
-  it('le bouton porte les classes du gros bouton rouge de la colonne, et son mot', () => {
+  /* 🔴🔴 (Arno, 27/11/2026, 12h37) « Écrire un mail », pleine largeur, EN TÊTE de l'historique (avant : « Nouveau message » sur la ligne des pièces). */
+  it('le bouton porte les classes du gros bouton rouge, en pleine largeur, et son mot « Écrire un mail »', () => {
     expect(vif(BOITE)).toContain('className="svv-btn svv-btn-primary gst-btn"');
-    expect(code).toContain('className="svv-btn svv-btn-primary gst-btn hdb-nouveau"');
-    expect(code).toMatch(/hdb-nouveau"[\s\S]{0,300}\{MOT_NOUVEAU_MESSAGE\}/);
+    expect(code).toContain('className="svv-btn svv-btn-primary gst-btn hdb-nouveau hdb-nouveau--plein"');
+    expect(code).toMatch(/hdb-nouveau--plein"[\s\S]{0,300}\{MOT_ECRIRE_UN_MAIL\}/);
+    expect(code).toContain('.hdb-nouveau--plein{display:block;width:100%');
   });
-  it('il est sur la ligne « N pièces dans cette sélection », à gauche (avant le bouton des pièces et la légende)', () => {
+  it('il est EN TÊTE : avant la ligne « N pièces dans cette sélection » ; sans droit d’envoi, la mention à sa place', () => {
+    const bouton = code.indexOf('hdb-nouveau--plein"');
     const ligne = code.indexOf('<div className="hdb-resume-ligne">');
-    const bouton = code.indexOf('hdb-nouveau"', ligne);
-    expect(ligne).toBeGreaterThan(-1);
-    expect(bouton).toBeGreaterThan(ligne);
-    expect(bouton).toBeLessThan(code.indexOf('<BasculeResume', ligne));
-    expect(bouton).toBeLessThan(code.indexOf('hdb-legende-barres', ligne));
+    expect([bouton > -1, ligne > -1, bouton < ligne]).toEqual([true, true, true]);
+    expect(code).toMatch(/\{envoiRefuse && <p className="hdb-envoi-refuse"[^>]*>\{MENTION_ENVOI_NON_AUTORISE\}<\/p>\}/);
+    expect(code).toContain('const envoiRefuse = redaction !== null && redaction.schemaPret && !redaction.peutEnvoyer && (lotId !== null || personne !== null);');
   });
   it('🔴 c’est `Redaction`, monté tel quel, avec le brouillon de `preparerBrouillon(\'nouveau\')` — jamais une copie', () => {
     expect(code).toMatch(/<Redaction brouillon=\{nouveau\} contexte=\{redaction\} lotFiche=\{lotId\}/);
@@ -149,6 +150,6 @@ describe('🔴 le bouton dans la fiche : le MÊME compositeur que « Nouveau mes
   it('les mêmes conditions que « Répondre » (droit d’envoi, base à jour), plus le bien de la fiche', () => {
     // LOT HISTORIQUE-PERSONNE : le bien de la fiche, OU la fiche de personne (propriétaire, locataire).
     expect(code).toContain('const peutEcrireNouveau = peutRepondre && (lotId !== null || personne !== null);');
-    expect(code).toMatch(/\{peutEcrireNouveau && \(\s*<button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau"/);
+    expect(code).toMatch(/\{peutEcrireNouveau && \(\s*<button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau hdb-nouveau--plein"/);
   });
 });

@@ -4,7 +4,9 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
 /**
- * 🔴🔴 FICHE COMMUNE OUVERTE DEPUIS LA LOCATION (Arno, 17/10/2026) — « aucune écriture ni réponse de mail (Écrire /
+ * 🔴🔴 (Arno, 27/11/2026, 12h37) « impossible d'envoyer un mail depuis une page d'historique » : la règle du 17/10/2026 ci-dessous est LEVÉE —
+ * depuis la Location, la fiche a le même module d'écriture que la Gestion ; c'est le DROIT d'envoi du compte qui décide (administrateur : toujours).
+ * AVANT — 🔴🔴 FICHE COMMUNE OUVERTE DEPUIS LA LOCATION (Arno, 17/10/2026) — « aucune écriture ni réponse de mail (Écrire /
  * Répondre / Transférer et composition absents) ; vérifié côté serveur aussi : une requête d'envoi venant du contexte
  * Location est refusée. Dans la Gestion, rien ne change. »
  *   ① À L'ÉCRAN : la page de la Location monte la fiche de la Gestion SANS rédaction ; chaque appel porte l'en-tête
@@ -21,14 +23,15 @@ vi.mock('../../../../lib/admin/session', () => ({
   verifierJeton: vi.fn(async () => ({ sub: '7', role: 'administrateur' })),
   sessionDepuisPayload: () => ({ sub: 7, role: 'administrateur', perms: {} }),
 }));
+const droit = vi.hoisted(() => ({ envoi: true }));
 vi.mock('../../../../lib/admin/comptes', () => ({
   trouverCompteParId: vi.fn(async () => ({ id: 7, actif: true, role: 'administrateur' })),
-  capaciteEnvoiGestion: () => true,
+  capaciteEnvoiGestion: () => droit.envoi,
 }));
 
 import { FicheCommuneLocation } from './FicheCommune';
 import { peutEnvoyerAuNomDeGestion } from '../../../../lib/gestion/gardeEnvoi';
-import { requeteDepuisLaLocation, MOTIF_ENVOI_DEPUIS_LOCATION } from '../../../../lib/gestion/contexteLocation';
+import { requeteDepuisLaLocation } from '../../../../lib/gestion/contexteLocation';
 
 const reponse = (d: unknown) => new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json' } });
 const ficheLocataire = {
@@ -44,30 +47,44 @@ const ficheLocataire = {
 let container: HTMLDivElement;
 let root: Root;
 let appels: { url: string; contexte: string | null }[];
+let peutEnvoyer: boolean | null;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  appels = [];
+  appels = []; peutEnvoyer = null; droit.envoi = true;
   global.fetch = vi.fn(async (entree: RequestInfo | URL, init?: RequestInit) => {
     const url = String(entree);
     appels.push({ url, contexte: new Headers(init?.headers).get('x-svav-contexte') });
     if (url.includes('/api/admin/gestion/annuaire?locataire=')) return reponse({ etat: 'ok', data: ficheLocataire });
+    // 🔴 (27/11/2026) le contexte d'écriture de la Gestion, lu aussi depuis la Location
+    if (url.startsWith('/api/admin/gestion/redaction') && peutEnvoyer !== null) return reponse({ schemaPret: true, peutEnvoyer, jetonPresent: true, signature: '', adresseGestion: 'gestion@criterimmo.fr' });
     return reponse({ etat: 'inconnu' });
   }) as unknown as typeof fetch;
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
-describe('🔴 ① fiche commune ouverte depuis la Location : aucun bouton d’envoi de mail', () => {
-  it('chaque appel de la fiche porte « contexte Location » ; ni Écrire, ni Répondre, ni Transférer, ni Nouveau message', async () => {
+describe('🔴 ① fiche commune ouverte depuis la Location : le même module d’écriture que la Gestion (27/11/2026)', () => {
+  const ouvrirFiche = async () => {
     await act(async () => { root.render(createElement(FicheCommuneLocation, { fiche: { sorte: 'locataire', id: 92 } })); });
-    await act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
-    const fiche = appels.find((a) => a.url.includes('/api/admin/gestion/annuaire?locataire=92'));
-    expect(fiche?.contexte).toBe('location');
+    await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); });
+  };
+  it('chaque appel porte « contexte Location » ; avec le droit d’envoi : « Écrire un mail » en tête de l’historique ; le bandeau dit l’écriture ouverte', async () => {
+    peutEnvoyer = true;
+    await ouvrirFiche();
+    expect(appels.find((a) => a.url.includes('/api/admin/gestion/annuaire?locataire=92'))?.contexte).toBe('location');
     expect(appels.filter((a) => a.url.startsWith('/api/')).every((a) => a.contexte === 'location')).toBe(true);
-    const boutons = [...container.querySelectorAll('button, a')].map((b) => b.textContent?.trim() ?? '');
-    expect(boutons.filter((t) => /^(Écrire|Répondre|Répondre à tous|Transférer|Nouveau message)\b/.test(t))).toEqual([]);
+    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/redaction'))).toBe(true);
+    expect(container.querySelector('[data-hdb-ecrire]')?.textContent).toBe('Écrire un mail');
+    expect(container.querySelector('[data-hdb-envoi-refuse]')).toBeNull();
     expect(container.textContent).toContain('DURAND Léa');
-    expect(container.textContent).toContain('les mails sont en lecture');
+    expect(container.textContent).toContain('écrire, répondre ou transférer un mail se fait ici comme dans la Gestion');
+    expect(container.textContent).not.toContain('les mails sont en lecture');
     expect(container.querySelector('a[href="/admin/location"]')?.textContent).toBe('← Location');
+  });
+  it('sans le droit d’envoi : la mention « Envoi de mails non autorisé pour votre compte » à la place du bouton, jamais un vide', async () => {
+    peutEnvoyer = false;
+    await ouvrirFiche();
+    expect(container.querySelector('[data-hdb-ecrire]')).toBeNull();
+    expect(container.querySelector('[data-hdb-envoi-refuse]')?.textContent).toBe('Envoi de mails non autorisé pour votre compte');
   });
   it('au démontage, `fetch` redevient celui de la page (rien ne fuit vers la Gestion)', async () => {
     const avant = global.fetch;
@@ -79,7 +96,7 @@ describe('🔴 ① fiche commune ouverte depuis la Location : aucun bouton d’e
   });
 });
 
-describe('🔴 ② envoi refusé côté serveur en contexte Location ; la Gestion inchangée', () => {
+describe('🔴 ② au serveur : le DROIT d’envoi décide, depuis la Location comme depuis la Gestion (27/11/2026)', () => {
   const requete = (entetes: Record<string, string>) => new Request('http://localhost/api/admin/gestion/envois', {
     method: 'POST', headers: { cookie: 'svav_admin=jeton', ...entetes },
   });
@@ -91,24 +108,22 @@ describe('🔴 ② envoi refusé côté serveur en contexte Location ; la Gestio
     expect(requeteDepuisLaLocation(requete({ referer: 'http://localhost/admin/locationnaire' }))).toBe(false);
     expect(requeteDepuisLaLocation(requete({}))).toBe(false);
   });
-  it('la garde d’envoi : un administrateur peut envoyer depuis la Gestion, jamais depuis la Location', async () => {
+  it('la garde d’envoi : un administrateur envoie depuis la Gestion ET depuis la Location ; un compte sans droit d’envoi, nulle part', async () => {
     expect(await peutEnvoyerAuNomDeGestion(requete({ referer: 'http://localhost/admin/gestion' }))).toBe(true);
+    expect(await peutEnvoyerAuNomDeGestion(requete({ 'x-svav-contexte': 'location' }))).toBe(true);
+    expect(await peutEnvoyerAuNomDeGestion(requete({ referer: 'http://localhost/admin/location/bien/185' }))).toBe(true);
+    droit.envoi = false;
+    expect(await peutEnvoyerAuNomDeGestion(requete({ referer: 'http://localhost/admin/gestion' }))).toBe(false);
     expect(await peutEnvoyerAuNomDeGestion(requete({ 'x-svav-contexte': 'location' }))).toBe(false);
-    expect(await peutEnvoyerAuNomDeGestion(requete({ referer: 'http://localhost/admin/location/locataire/5' }))).toBe(false);
   });
-  it('la route d’envoi et les brouillons refusent en contexte Location, avec le motif (avant toute autre garde d’envoi)', async () => {
+  it('les routes d’envoi et de brouillons ne refusent plus « depuis la Location », mais gardent TOUTES le contrôle du droit d’envoi', () => {
     const lire = (f: string) => require('node:fs').readFileSync(f, 'utf8') as string;
-    for (const f of ['app/(admin)/api/admin/gestion/envois/route.ts', 'app/(admin)/api/admin/gestion/brouillons/route.ts']) {
-      const src = lire(f);
-      const n = (src.match(/if \(requeteDepuisLaLocation\(request\)\) return refusEnvoiDepuisLocation\(\);/g) ?? []).length;
-      const gardes = (src.match(/if \(!await peutEnvoyerAuNomDeGestion\(request\)\) return refusEnvoi\(\);/g) ?? []).length;
-      expect(n, f).toBe(gardes);
-      expect(n, f).toBeGreaterThan(0);
+    for (const f of ['app/(admin)/api/admin/gestion/envois/route.ts', 'app/(admin)/api/admin/gestion/brouillons/route.ts', 'app/(admin)/api/admin/gestion/brouillons/[id]/pieces/route.ts']) {
+      expect(lire(f), f).not.toMatch(/requeteDepuisLaLocation\(request\)/);
     }
-    expect((lire('app/(admin)/api/admin/gestion/brouillons/[id]/pieces/route.ts').match(/requeteDepuisLaLocation\(request\)/g) ?? []).length).toBe(3);
-    const { refusEnvoiDepuisLocation } = await import('../../../../lib/gestion/contexteLocation');
-    const r = refusEnvoiDepuisLocation();
-    expect(r.status).toBe(403);
-    expect((await r.json()).motif).toBe(MOTIF_ENVOI_DEPUIS_LOCATION);
+    for (const f of ['app/(admin)/api/admin/gestion/envois/route.ts', 'app/(admin)/api/admin/gestion/brouillons/route.ts']) {
+      expect((lire(f).match(/if \(!await peutEnvoyerAuNomDeGestion\(request\)\) return refusEnvoi\(\);/g) ?? []).length, f).toBeGreaterThan(0);
+    }
+    expect(lire('app/lib/gestion/gardeEnvoi.ts')).not.toMatch(/requeteDepuisLaLocation/);
   });
 });

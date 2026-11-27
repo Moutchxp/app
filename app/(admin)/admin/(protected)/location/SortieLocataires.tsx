@@ -413,7 +413,8 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
         <section className="arc-biens sor-historique" aria-label="Historique des échanges du logement" data-historique-logement>
           {!gestion ? <p className="svv-card" style={{ color: 'var(--color-svv-muted)', margin: 0 }} data-historique-refus>{REFUS_HISTORIQUE_GESTION}</p>
             : encart.etat.data.locataireCle === null || encart.etat.data.lotCle === '' ? <p className="loc-muet">Historique des échanges indisponible : ce locataire ou ce logement n’a pas de clé d’annuaire.</p>
-              : <HistoriqueEchangesDuLogementLecture locataireCle={encart.etat.data.locataireCle} lotCle={encart.etat.data.lotCle} nom={bail.locataires[0]?.nom ?? ''} />}
+              : <HistoriqueEchangesDuLogementLecture locataireCle={encart.etat.data.locataireCle} lotCle={encart.etat.data.lotCle} nom={bail.locataires[0]?.nom ?? ''}
+                lotId={encart.etat.data.lotId ?? null} adresse={encart.etat.data.adresse ?? null} />}
         </section>
       )}
     </>

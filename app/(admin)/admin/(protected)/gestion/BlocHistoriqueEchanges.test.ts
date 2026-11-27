@@ -112,7 +112,7 @@ describe('🔴🔴 PÉRIMÈTRE « BIEN » — les mails du logement, avec le blo
     expect(hote.querySelector('.hdb-legende-barres')).not.toBeNull();
     expect(hote.querySelector('[data-legende="classement"]')).not.toBeNull();
     expect(texte()).toMatch(/pièces? dans cette sélection/);
-    expect(parMot('Nouveau message')).toBeDefined();
+    expect(parMot('Écrire un mail')).toBeDefined();
     // Rien de propre à la fiche d'un bien, ni la ligne des logements (elle est en cartes sur la fiche).
     expect([...hote.querySelectorAll('legend')].map((l) => l.textContent)).not.toContain('Parties');
     expect(hote.querySelector('[data-occupations]')).toBeNull();
@@ -130,7 +130,7 @@ describe('🔴🔴 PÉRIMÈTRE « BIEN » — les mails du logement, avec le blo
   });
   it('🔴 « Nouveau message » : adressé au locataire (comme la fiche propriétaire) et RATTACHÉ au bien loué', async () => {
     await monter({ sorte: 'bien', cle: '353', bienNouveauMessage: BIEN });
-    await cliquer(parMot('Nouveau message'));
+    await cliquer(parMot('Écrire un mail'));
     expect(texte()).toContain('lea@exemple.test');
     // Le bien loué est déjà coché dans le composeur : la case verte « Rattaché » compte un logement.
     expect(texte()).toMatch(/Rattaché\s*1 logement/);
@@ -276,7 +276,7 @@ describe('🔴🔴 PÉRIMÈTRE « LOGEMENTS » — la fiche d’un ANCIEN locata
   });
   it('🔴 « Nouveau message » : adressé à lui, rattaché à son DERNIER logement', async () => {
     await monterAncien();
-    await cliquer(parMot('Nouveau message'));
+    await cliquer(parMot('Écrire un mail'));
     expect(texte()).toContain('lea@exemple.test');
     expect(texte()).toMatch(/Rattaché\s*1 logement/);
   });

@@ -20,6 +20,10 @@ import { civilitesDesSuggestions, type GroupeSuggestions } from './suggestionsBi
 
 /** Le mot du bouton : celui du gros bouton rouge de la colonne, au caractère près. */
 export const MOT_NOUVEAU_MESSAGE = 'Nouveau message';
+/** 🔴🔴 (Arno, 27/11/2026, 12h37) le bouton pleine largeur en tête de CHAQUE historique de bien (Gestion et Location). */
+export const MOT_ECRIRE_UN_MAIL = 'Écrire un mail';
+/** 🔴🔴 (Arno, 27/11/2026, 12h37) sans le droit d'envoi : une mention claire, au lieu d'un vide. */
+export const MENTION_ENVOI_NON_AUTORISE = 'Envoi de mails non autorisé pour votre compte';
 
 /** Le bien de la fiche : son identifiant interne (lecture des adresses), sa clé WIPPIMMO et son libellé (repli). */
 export interface BienDeLaFiche { lotId: number; cle: string; libelle: string }

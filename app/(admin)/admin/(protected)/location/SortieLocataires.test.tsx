@@ -341,17 +341,18 @@ describe('l’encart « Le logement » et l’historique des échanges (écran d
     ]);
   });
 
-  it('l’historique est LE composant partagé (périmètre « bien »), en LECTURE SEULE, sous les cartes', async () => {
+  /* 🔴🔴 (Arno, 27/11/2026, 12h37) l'écriture y est OUVERTE : le contexte d'écriture de la Gestion, et « Écrire un mail » classé sur CE logement */
+  it('l’historique est LE composant partagé (périmètre « bien »), avec le module d’écriture de la Gestion, sous les cartes', async () => {
     await rendre(true);
     expect(blocHistorique).toHaveBeenCalled();
     const p = blocHistorique.mock.calls.at(-1)![0] as Record<string, unknown>;
     expect(p.sorte).toBe('locataire');
     expect(p.cle).toBe('W-101');
-    expect(p.perimetre).toEqual({ sorte: 'bien', cle: '100', bienNouveauMessage: null });
-    expect(p.redaction).toBeNull();
+    expect(p.perimetre).toEqual({ sorte: 'bien', cle: '100', bienNouveauMessage: { lotId: 7, cle: '100', libelle: '4 rue Fictive, 92800 Puteaux' } });
+    expect('redaction' in p).toBe(true); // le contexte de la Gestion (null tant qu'il n'est pas lu)
     expect(p.onGesteMail).toBeUndefined();
     const bloc = container.querySelector('[data-historique-logement]')!;
-    expect(bloc.textContent).toContain('écrire, répondre ou transférer se fait depuis la Gestion');
+    expect(bloc.textContent).not.toContain('écrire, répondre ou transférer se fait depuis la Gestion');
     expect(container.querySelector('.arc-biens-liste')!.compareDocumentPosition(bloc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

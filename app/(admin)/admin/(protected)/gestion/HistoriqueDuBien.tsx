@@ -189,7 +189,7 @@ import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/r
 import { estBasculable } from '../../../../lib/gestion/changerVoie';
 import { classementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 /* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — le « Nouveau message » de la colonne, déjà rattaché au bien. */
-import { brouillonNouveauDepuisLeBien, MOT_NOUVEAU_MESSAGE } from '../../../../lib/gestion/nouveauMessageBien';
+import { brouillonNouveauDepuisLeBien, MENTION_ENVOI_NON_AUTORISE, MOT_ECRIRE_UN_MAIL } from '../../../../lib/gestion/nouveauMessageBien';
 /* 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — le plein écran de la colonne : son cadre et son titre, importés. */
 import { createPortal } from 'react-dom';
 import { CSS_FENETRES, titreFenetre } from './FenetresRedaction';
@@ -1396,6 +1396,8 @@ export function HistoriqueDuBien({
   const [nouveauEnCours, setNouveauEnCours] = useState(false);
   const ancreNouveau = useRef<HTMLDivElement | null>(null);
   const peutEcrireNouveau = peutRepondre && (lotId !== null || personne !== null);
+  /* 🔴🔴 (Arno, 27/11/2026, 12h37) le contexte est lu, l'écriture est prête, mais le compte n'a pas le droit d'envoi : on le DIT */
+  const envoiRefuse = redaction !== null && redaction.schemaPret && !redaction.peutEnvoyer && (lotId !== null || personne !== null);
   const ouvrirNouveau = useCallback(async (): Promise<void> => {
     if (redaction === null || (lotId === null && personne === null)) return;
     /* Déjà ouvert : on le montre, on n'en ouvre pas un second (ce serait perdre ce qu'on a commencé). */
@@ -3360,17 +3362,19 @@ export function HistoriqueDuBien({
       {/* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — la condition s'élargit au seul bouton : un bien
           sans mail doit pouvoir recevoir son premier message. Le bouton des pièces et la légende gardent chacun la
           leur, inchangée. */}
-      {(totalPieces > 0 || lignes.length > 0 || peutEcrireNouveau) && (
+      {/* 🔴🔴 (Arno, 27/11/2026, 12h37) « Écrire un mail », pleine largeur, EN TÊTE de l'historique — le même bouton dans la Gestion et la Location ;
+          sans le droit d'envoi, une mention claire à sa place */}
+      {peutEcrireNouveau && (
+        <button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau hdb-nouveau--plein"
+          disabled={nouveauEnCours} aria-expanded={nouveau !== null}
+          onClick={() => { void ouvrirNouveau(); }} data-hdb-ecrire>
+          {MOT_ECRIRE_UN_MAIL}
+        </button>
+      )}
+      {envoiRefuse && <p className="hdb-envoi-refuse" role="note" data-hdb-envoi-refuse>{MENTION_ENVOI_NON_AUTORISE}</p>}
+      {(totalPieces > 0 || lignes.length > 0) && (
         <div className="hdb-resume hdb-resume--haut" ref={ancreResumeHaut}>
           <div className="hdb-resume-ligne">
-            {/* 🔴 LE GROS BOUTON ROUGE DE LA COLONNE, mêmes classes (plein rouge, texte blanc), à gauche de la ligne. */}
-            {peutEcrireNouveau && (
-              <button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau"
-                disabled={nouveauEnCours} aria-expanded={nouveau !== null}
-                onClick={() => { void ouvrirNouveau(); }}>
-                {MOT_NOUVEAU_MESSAGE}
-              </button>
-            )}
             {totalPieces > 0 && (
               <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
             )}
@@ -5525,6 +5529,8 @@ ${CSS_PIECES}
    ligne : memes classes (svv-btn-primary, gst-btn), il ne prend que sa largeur et ne s'etire jamais. Le compositeur
    ouvert se pose sous la ligne, avant le premier mail. */
 .hdb-nouveau{flex:0 0 auto}
+.hdb-nouveau--plein{display:block;width:100%;min-height:44px;box-sizing:border-box;margin:0 0 .6rem}
+.hdb-envoi-refuse{margin:0 0 .6rem;padding:.55rem .75rem;border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:.88rem}
 .hdb-nouveau-composeur{margin:.4rem 0 .9rem;min-width:0}
 .hdb-legende-barres{display:flex;flex-wrap:wrap;gap:.2rem .8rem;margin:.4rem 0 .3rem;font-size:.7rem;
   color:var(--color-svv-muted);min-width:0;margin-left:auto}

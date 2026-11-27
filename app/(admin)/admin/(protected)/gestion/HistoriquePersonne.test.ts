@@ -113,7 +113,7 @@ describe('🔴🔴 fiche PROPRIÉTAIRE — même composant que l’historique d�
     }
     expect(hote.querySelectorAll('.hdb-barre').length).toBeGreaterThan(0);
     expect(hote.querySelector('.hdb-legende-barres')).not.toBeNull();
-    expect(parMot('Nouveau message')).toBeDefined();
+    expect(parMot('Écrire un mail')).toBeDefined();
     expect(texte()).toMatch(/pièce/);
   });
   it('ordre par défaut : plus récent en haut', async () => {
@@ -145,7 +145,7 @@ describe('🔴🔴 fiche PROPRIÉTAIRE — même composant que l’historique d�
   });
   it('« Nouveau message » s’adresse à la fiche', async () => {
     await monter('proprietaire', '79');
-    await cliquer(parMot('Nouveau message'));
+    await cliquer(parMot('Écrire un mail'));
     expect(texte()).toContain('c.jullien@exemple.test');
   });
 });

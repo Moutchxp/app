@@ -42,11 +42,13 @@ describe('🔴 aucune fiche propriétaire / locataire / bien en double sous /adm
     expect(page).toContain("import { FicheCommuneLocation } from '../../../gestion/FicheCommune';");
     expect(page).toContain('<FicheCommuneLocation fiche=');
   });
-  it('la fiche commune monte le composant `Annuaire` de la Gestion, sans rédaction ni « Écrire »', () => {
+  /* 🔴🔴 (Arno, 27/11/2026, 12h37) la rédaction n'est plus nulle : le MÊME contexte d'écriture que la Gestion (useContexteRedaction), pas une copie */
+  it('la fiche commune monte le composant `Annuaire` de la Gestion, avec le contexte d’écriture partagé de la Gestion', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/FicheCommune.tsx', 'utf8');
     expect(src).toContain("import { Annuaire } from './Annuaire';");
     // 🔴 Arno (20/11/2026) — + l'emplacement sous l'en-tête du locataire (« Conditions d'entrée et suivi commercial ») ; rédaction toujours nulle.
-    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{null\} sansEntete=\{sansBarreAnnuaire\} sousEnteteLocataire=\{sousEnteteLocataire\} \/>/);
+    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{redaction\} sansEntete=\{sansBarreAnnuaire\} sousEnteteLocataire=\{sousEnteteLocataire\} \/>/);
+    expect(src).toContain('const redaction = useContexteRedaction();');
     expect(src).not.toMatch(/onEcrire=|onOuvrirFil=|onGesteMail=/);
   });
 });

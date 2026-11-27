@@ -4,7 +4,6 @@ import { reprendrePiecesDuMessage } from '../../../../../lib/gestion/brouillonPi
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
-import { refusEnvoiDepuisLocation, requeteDepuisLaLocation } from '../../../../../lib/gestion/contexteLocation';
 import { decouperAdresses, type CibleBrouillon } from '../../../../../lib/gestion/redaction';
 import {
   suiteSuppressionBrouillon, type SortGmailBrouillon,
@@ -174,7 +173,7 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
-  if (requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation(); // fiche ouverte depuis la Location
+  // 🔴🔴 (Arno, 27/11/2026, 12h37) plus de refus « depuis la Location » : la garde du droit d'envoi décide, comme dans la Gestion
   if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
   if (!await redactionDisponible()) return sansSchema();
 
@@ -268,7 +267,7 @@ export async function POST(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
-  if (requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation(); // fiche ouverte depuis la Location
+  // 🔴🔴 (Arno, 27/11/2026, 12h37) plus de refus « depuis la Location » : la garde du droit d'envoi décide, comme dans la Gestion
   if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
   if (!await redactionDisponible()) return sansSchema();
 
@@ -288,7 +287,7 @@ export async function PATCH(request: Request): Promise<Response> {
 export async function DELETE(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
-  if (requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation(); // fiche ouverte depuis la Location
+  // 🔴🔴 (Arno, 27/11/2026, 12h37) plus de refus « depuis la Location » : la garde du droit d'envoi décide, comme dans la Gestion
   if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
   if (!await redactionDisponible()) return sansSchema();
 
