@@ -132,7 +132,9 @@ describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Lo
   });
   it('accueil Location : le bouton est dans la zone « actions » de la ligne de titre, rien d’autre ne change', () => {
     const page = readFileSync('app/(admin)/admin/(protected)/location/page.tsx', 'utf8');
-    expect(page).toContain('<EnTetePage titre="Location" intro={INTRO_LOCATION} {...(autorise ? { actions: <BoutonVingtPourcent /> } : {})} />');
+    // 🔴 (Arno, 27/11/2026, 23h30) le titre porte le nombre de lots vacants ; le bouton « 20 % à restituer » reste dans la zone « actions » (il ne bouge pas)
+    expect(page).toContain('intro={INTRO_LOCATION} {...(autorise ? { actions: <BoutonVingtPourcent /> } : {})} />');
+    expect(page).toContain('<EnTetePage titre={vacants === null ? titreLocation(null)');
     expect(page).toContain('<AccueilLocation gestion={gestion} />');
     expect(readFileSync('app/(admin)/admin/(protected)/location/vingt-pourcent/page.tsx', 'utf8')).toContain('<PageVingtPourcent />');
   });

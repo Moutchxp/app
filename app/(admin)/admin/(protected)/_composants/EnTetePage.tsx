@@ -16,7 +16,8 @@ import { LienRetour as LienRetourCommun } from './NavigationRetour';
  * `cpt-*`). La migration des pages est un chantier SÉPARÉ — ce composant est le socle seul.
  */
 type Props = {
-  titre: string;
+  /** 🔴 (Arno, 27/11/2026) un texte, ou un titre composé (« Location (Nombre de lots vacants : 3) ») */
+  titre: ReactNode;
   intro: string;
   actions?: ReactNode;
   children?: ReactNode;
