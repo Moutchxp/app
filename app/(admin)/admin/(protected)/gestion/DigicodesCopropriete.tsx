@@ -93,8 +93,16 @@ export function ChampCodeDigicode({ valeur, onCode, ...props }: { valeur: string
       <span className="ccd-compteur" data-ccd-compteur>{v.length}/{MAX_CODE_DIGICODE}</span></span>
   </>);
 }
+/* 🔴🔴 (Arno, 27/11/2026, 23h30) « bien aligner le bouton "pas de digicode" ou "plus de digicode" avec le champ à sa gauche, tout au même niveau, sur la même
+   ligne » : le compteur « 0/15 » (et « 15 caractères au maximum ») ne pousse plus rien — il est posé SOUS le champ, hors du flux ; la ligne qui le porte réserve
+   sa place par une même marge basse sur CHACUN de ses éléments (champ, case, « + », « − »), si bien que leurs bas restent alignés sur le bas du champ. */
 export const CSS_CHAMP_CODE_DIGICODE = `
-.ccd-pied{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;font-size:.75rem;font-weight:400;line-height:1.2;min-height:1em}
+.ccd-pied{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;font-size:.75rem;font-weight:400;line-height:1.2;min-height:1em;
+  position:absolute;top:100%;left:0;right:0;margin-top:2px;pointer-events:none}
+.ccd-pied .ccd-trop{pointer-events:auto}
+label:has(> .ccd-pied){position:relative}
+.dcp-code-groupe:has(.ccd-pied) > *,.dcp-ligne:has(> .dcp-champ > .ccd-pied) > *,.dcp-modifier-champs:has(.ccd-pied) > *{margin-bottom:1.25em}
+label:not(.dcp-champ):has(> .ccd-pied){padding-bottom:1.25em}
 .ccd-compteur{color:var(--color-svv-muted);font-variant-numeric:tabular-nums;margin-left:auto}
 .ccd-trop{color:var(--color-svv-red);font-weight:700}
 .dcp-champ-code .ccd-pied{width:calc(15ch + 20px);max-width:100%;flex-wrap:wrap}
