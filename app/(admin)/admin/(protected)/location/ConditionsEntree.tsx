@@ -7,7 +7,7 @@ import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
   ASSURANCES, CHOIX_GLI, choixGliDe, COMPTES, DEPOTS, estGarantme, formaterCentimes, LIBELLE_CHOIX_GLI, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
   LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, formuleProrata, montantDeuxDecimales, prorataEntree, totalCentimes,
-  totalLoyerCentimes, type SaisieConditions,
+  totalLoyerCentimes, LIBELLE_CHARGES_COPRO_LIGNE, LIBELLE_HONORAIRES_BLOC, LIBELLE_PRELEVEMENT, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import {
   eurosAffiches, LIBELLE_ZONE, lignesHonoraires, MENTION_SAISI_MAIN, montantHonorairesSaisi, montantPourChamp, tarifAffiche, lireDecimal,
@@ -222,8 +222,8 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, bare
       </div>
 
       <div className="loc-cond-bloc" data-cond="prelevement">
-        <h4>Prélèvement <span className="loc-oblig">*</span></h4>
-        <Pilules etiquette="Prélèvement" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(s.prelevement)}
+        <h4>{LIBELLE_PRELEVEMENT} <span className="loc-oblig">*</span></h4>
+        <Pilules etiquette={LIBELLE_PRELEVEMENT} options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(s.prelevement)}
           onChoix={(v) => maj({ prelevement: v === null ? null : v === 'oui', jour: v === 'oui' ? s.jour : null })} />
         {s.prelevement === true && (
           <div className="loc-cond-sous" data-cond-jour>
@@ -286,7 +286,7 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, bare
       </div>
 
       <div className="loc-cond-bloc" data-cond="honoraires">
-        <h4>Honoraires <span className="loc-oblig">*</span></h4>
+        <h4>{LIBELLE_HONORAIRES_BLOC} <span className="loc-oblig">*</span></h4>
         <div className="loc-cond-sous">
           <span className="loc-cond-mot">Locataire</span>
           <Pilules etiquette="Honoraires du locataire" options={COMPTES} libelle={LIBELLE_COMPTE} valeur={s.honorairesLocataire}
@@ -413,12 +413,12 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, bare
       </div>
       {charges !== undefined && (
         <div className="loc-cond-bloc" data-cond="charges">
-          <h4>Paiement des charges <span className="loc-oblig">*</span></h4>
+          <h4>{LIBELLE_CHARGES_COPRO_LIGNE} <span className="loc-oblig">*</span></h4>
           {charges.indisponible === true ? (
             <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-charges-sans-migration>Mise à jour de la base à appliquer (migration 400) : le paiement des charges ne sera pas enregistré.</p>
           ) : (
             <>
-              <Pilules etiquette="Paiement des charges" options={CHARGES_AFFICHEES} libelle={LIBELLE_PAYEES} valeur={s.chargesCopro ?? null}
+              <Pilules etiquette={LIBELLE_CHARGES_COPRO_LIGNE} options={CHARGES_AFFICHEES} libelle={LIBELLE_PAYEES} valeur={s.chargesCopro ?? null}
                 onChoix={(v) => { charges.onChoix?.(v); maj({ chargesCopro: v }); }} />
               <small className="loc-muet" data-charges-aide>Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).</small>
               {charges.signal ? <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-charges-signal>{charges.signal}</p> : null}

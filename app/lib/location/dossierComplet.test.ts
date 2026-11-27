@@ -58,7 +58,7 @@ describe('🔴 « Paiement des charges » obligatoire', () => {
   });
   it('le serveur l’exige même si la saisie ne le porte pas (base avec la 400) ; une valeur inconnue est refusée', () => {
     const { chargesCopro: _c, ...sans } = PLEIN;
-    expect(verifierConditions(versEnvoiConditions(sans), { complet: true, charges: true })).toEqual({ ok: false, motif: expect.stringContaining('Paiement des charges') });
+    expect(verifierConditions(versEnvoiConditions(sans), { complet: true, charges: true })).toEqual({ ok: false, motif: expect.stringContaining('Paiement des charges de copropriété') });
     expect(verifierConditions({ ...versEnvoiConditions(PLEIN), chargesCopro: 'syndic' }, COMPLET).ok).toBe(false);
   });
   it('l’indice exigé par le serveur quand la base a la 423, même absent de la saisie', () => {
@@ -106,8 +106,8 @@ describe('🔴 le mail ADHOC & MONGA : indice de révision et paiement des charg
   it('les deux lignes, au format demandé', () => {
     expect(lignesSousLoyer(INDICE, 'agence')).toEqual([
       { mot: 'Indice de révision', valeur: 'IRL T2 2026 — 146,68 · révision annuelle le 15/10' },
-      { mot: 'Paiement des charges', valeur: 'payées par l’agence' }]);
-    expect(lignesSousLoyer(null, 'proprietaire')).toEqual([{ mot: 'Paiement des charges', valeur: 'payées par le propriétaire' }]);
+      { mot: 'Paiement des charges de copropriété', valeur: 'payées par l’agence' }]);
+    expect(lignesSousLoyer(null, 'proprietaire')).toEqual([{ mot: 'Paiement des charges de copropriété', valeur: 'payées par le propriétaire' }]);
     expect(lignesSousLoyer(undefined, null)).toEqual([]);
   });
   it('HTML et texte : sous le total charges comprises, même mise en forme ; sans indice (423 absente) : aucune ligne, jamais une ligne vide', () => {
@@ -117,9 +117,9 @@ describe('🔴 le mail ADHOC & MONGA : indice de révision et paiement des charg
     expect(total).toBeGreaterThan(0);
     expect(html.indexOf('Indice de révision')).toBeGreaterThan(total);
     expect(html).toContain('IRL T2 2026 — 146,68 · révision annuelle le 15/10');
-    expect(html.indexOf('Paiement des charges')).toBeGreaterThan(html.indexOf('Indice de révision'));
+    expect(html.indexOf('Paiement des charges de copropriété')).toBeGreaterThan(html.indexOf('Indice de révision'));
     const texte = texteNouvelleLocation(d);
-    expect(texte).toContain('Total charges comprises : 1 270,00 €\nIndice de révision : IRL T2 2026 — 146,68 · révision annuelle le 15/10\nPaiement des charges : payées par l’agence');
+    expect(texte).toContain('Total charges comprises : 1 270,00 €\nIndice de révision : IRL T2 2026 — 146,68 · révision annuelle le 15/10\nPaiement des charges de copropriété : payées par l’agence');
     const sans = donnees(lignesSousLoyer(null, 'agence'));
     expect(htmlNouvelleLocation(sans)).not.toContain('Indice de révision');
     expect(texteNouvelleLocation(sans)).not.toMatch(/Indice de révision/);

@@ -7,6 +7,7 @@ import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import {
   formaterCentimes, formuleProrata, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR, prorataEntree,
   type JourPrelevement,
+  LIBELLE_PRELEVEMENT,
 } from '../../../../lib/location/conditionsEntree';
 import { eurosAffiches, lireDecimal, LIBELLE_ZONE, MENTION_SAISI_MAIN, tarifAffiche, totalDesHonoraires, ZERO } from '../../../../lib/location/honorairesProprietaire';
 import { libelleEntretien } from '../../../../lib/location/entretien';
@@ -164,7 +165,7 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                 <dt>Total charges comprises</dt><dd data-rb="total-cc">{total === null ? rien() : <strong>{formaterCentimes(total)} / mois</strong>}</dd>
                 <dt>Dépôt de garantie</dt>
                 <dd data-rb="depot">{c === null ? rien() : <>{c.sommes.depotGarantie === null ? rien('montant non renseigné') : formaterCentimes(c.sommes.depotGarantie)} — {LIBELLE_DEPOT[c.depot].toLowerCase()}</>}</dd>
-                <dt>Prélèvement</dt>
+                <dt>{LIBELLE_PRELEVEMENT}</dt>
                 <dd data-rb="prelevement">{c === null ? rien() : c.prelevement ? `oui, ${LIBELLE_JOUR[String(c.jour) as JourPrelevement] ?? `le ${c.jour}`}` : 'non'}</dd>
               </dl>
               </div>

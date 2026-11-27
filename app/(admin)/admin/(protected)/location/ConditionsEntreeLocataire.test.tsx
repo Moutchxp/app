@@ -105,7 +105,7 @@ const preparer = async () => {
 /** Tous les choix obligatoires du bloc 3 (l'entretien du bien compris). */
 const toutRepondre = async () => {
   await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
-  await clic(pilule('Prélèvement', 'Oui'));
+  await clic(pilule('Prélèvement du loyer', 'Oui'));
   await clic(pilule('Jour du prélèvement', 'au 10'));
   await clic(pilule('Garant personne physique', 'Non'));
   await clic(pilule('Assurance loyers impayés', 'Visale'));
@@ -123,7 +123,7 @@ const remplirMontants = async () => {
   if (champ('[data-loyer="provisions"] input')?.value === '' && !champ('[data-loyer="provisions"] input')?.disabled) await saisir(champ('[data-loyer="provisions"] input')!, '0');
   if (champ('[data-somme="depotGarantie"] input')?.value === '') await saisir(champ('[data-somme="depotGarantie"] input')!, '0');
   if (champ('[data-somme="honorairesAgence"] input')?.value === '') await saisir(champ('[data-somme="honorairesAgence"] input')!, '0');
-  const charges = pilule('Paiement des charges', 'Agence');
+  const charges = pilule('Paiement des charges de copropriété', 'Agence');
   if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
 };
 
@@ -241,10 +241,10 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
   it('sous-choix « au 1er / au 5 / au 10 / au 15 » : seulement après Oui, exigé ; Non le retire', async () => {
     await preparer();
     expect(container.querySelector('[data-cond-jour]')).toBeNull();
-    await clic(pilule('Prélèvement', 'Oui'));
+    await clic(pilule('Prélèvement du loyer', 'Oui'));
     expect([...container.querySelectorAll('[aria-label="Jour du prélèvement"] button')].map((b) => b.textContent)).toEqual(['au 1er', 'au 5', 'au 10', 'au 15']);
-    expect(barre()).toContain('Prélèvement : au 1er, au 5, au 10 ou au 15');
-    await clic(pilule('Prélèvement', 'Non'));
+    expect(barre()).toContain('Prélèvement du loyer : au 1er, au 5, au 10 ou au 15');
+    await clic(pilule('Prélèvement du loyer', 'Non'));
     expect(container.querySelector('[data-cond-jour]')).toBeNull();
     expect(barre()).not.toContain('au 10 ou au 15');
   });
@@ -256,9 +256,9 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
    */
   it('les 4 jours tiennent sur une ligne : la variante « jour », seulement sur ce choix', async () => {
     await preparer();
-    await clic(pilule('Prélèvement', 'Oui'));
+    await clic(pilule('Prélèvement du loyer', 'Oui'));
     expect(container.querySelector('[aria-label="Jour du prélèvement"]')?.className).toBe('loc-pilules loc-pilules--jour');
-    expect(container.querySelector('[aria-label="Prélèvement"]')?.className).toBe('loc-pilules');   // Oui / Non inchangés
+    expect(container.querySelector('[aria-label="Prélèvement du loyer"]')?.className).toBe('loc-pilules');   // Oui / Non inchangés
     expect(CSS_PILULES).toContain('.loc-pilules--jour{flex-wrap:nowrap;gap:4px;container-type:inline-size;width:100%}');
     expect(CSS_PILULES).toContain('.loc-pilules--jour button{flex:1 1 0;min-width:0;min-height:44px;padding:0 2px;white-space:nowrap;font-size:clamp(.72rem,4.2cqi,1.05rem)}');
     // la coche de sélection reste (avant le mot) ; seule la coche de fin, invisible, est retirée pour gagner la place
@@ -439,7 +439,7 @@ describe('🔴 fiche du locataire — les conditions d’entrée, dans l’encar
     expect((container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement).value).toBe('Assureur fictif');
     expect((container.querySelector('[data-somme="prorataLoyer"] input') as HTMLInputElement).value).toBe('412,26');
     expect(container.querySelector('[data-cond="entretien"]')).toBeNull();
-    await clic(pilule('Prélèvement', 'Non'));
+    await clic(pilule('Prélèvement du loyer', 'Non'));
     await clic(container.querySelector('[data-enregistrer-conditions]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'conditions-entree', occupationId: 11, conditions: { prelevement: false, jour: null, depot: 'agence' } });
   });
@@ -935,8 +935,8 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     await preparer();
     const paire = container.querySelector('[data-cond-paire="reglement-charges"]')!;
     expect([...paire.querySelectorAll(':scope > .loc-cond-bloc')].map((b) => b.getAttribute('data-cond'))).toEqual(['reglement', 'charges']);
-    expect(paire.querySelector('[data-cond="charges"] h4')?.innerHTML).toBe('Paiement des charges <span class="loc-oblig">*</span>');
-    const boutons = [...container.querySelectorAll('[aria-label="Paiement des charges"] button')];
+    expect(paire.querySelector('[data-cond="charges"] h4')?.innerHTML).toBe('Paiement des charges de copropriété <span class="loc-oblig">*</span>');
+    const boutons = [...container.querySelectorAll('[aria-label="Paiement des charges de copropriété"] button')];
     // 🔴 Arno (25/10/2026, suite) : la valeur de la fiche du bien (lue avec les lots) est présélectionnée ; la phrase d'aide reste, seule.
     expect(boutons.map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
     expect(container.querySelector('[data-charges-aide]')?.textContent).toBe('Qui règle les charges de copropriété au syndic : c’est la donnée du bien (sa fiche la montre aussi).');
@@ -950,7 +950,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     chargesDisponible = true;
     await preparer();
     for (const k of ['Loyer mensuel : le loyer principal', 'Loyer mensuel : la provision pour charges', 'Sommes dues à l’entrée : le dépôt de garantie',
-      'Paiement des charges']) expect(barre()).toContain(k);
+      'Paiement des charges de copropriété']) expect(barre()).toContain(k);
     // 🔴 Arno (25/10/2026) : les honoraires agence sont pré-remplis au barème — ils ne manquent plus ; vidés, ils manquent.
     expect(barre()).not.toContain('Sommes dues à l’entrée : les honoraires agence');
     await saisir(container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '');
@@ -960,7 +960,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
     expect([enregistrer.getAttribute('aria-disabled'), envoyer.getAttribute('aria-disabled')]).toEqual(['true', 'true']);
     await soumettre();
     expect(posts.filter((p) => p.action === 'apercu-lots' || p.action === 'creer-locataires')).toEqual([]);
-    expect(container.querySelector('[data-cond="charges"] .loc-manque')?.textContent).toBe('Paiement des charges : payées par l’agence ou par le propriétaire ?');
+    expect(container.querySelector('[data-cond="charges"] .loc-manque')?.textContent).toBe('Paiement des charges de copropriété : payées par l’agence ou par le propriétaire ?');
     await toutRepondre();
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     expect(enregistrer.getAttribute('aria-disabled')).toBeNull();
@@ -982,7 +982,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » et le dossier CO
 });
 
 describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONNÉ depuis la fiche du bien (Nouveau locataire)', () => {
-  const boutons = () => [...container.querySelectorAll('[aria-label="Paiement des charges"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const boutons = () => [...container.querySelectorAll('[aria-label="Paiement des charges de copropriété"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
   const signal = () => container.querySelector('[data-charges-signal]')?.textContent ?? null;
   const choisirBien = async (n: number) => {
     const changer = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Changer de bien');
@@ -997,11 +997,11 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONN�
     chargesLots = { 7: ['agence'] };
     await preparer();
     expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
-    expect(barre()).not.toContain('Paiement des charges');
+    expect(barre()).not.toContain('Paiement des charges de copropriété');
     expect(signal()).toBeNull();
     await choisirBien(9);
     expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
-    expect(barre()).toContain('Paiement des charges');
+    expect(barre()).toContain('Paiement des charges de copropriété');
   });
 
   it('SUIVI AU CHANGEMENT DE BIEN : la présélection suit le nouveau bien ; un choix À LA MAIN est gardé et signalé « différent de la fiche du bien »', async () => {
@@ -1015,7 +1015,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONN�
     await choisirBien(7);
     expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
     // À la main : gardé d'un bien à l'autre, et signalé là où il diffère de la fiche.
-    await clic(pilule('Paiement des charges', 'Propriétaire'));
+    await clic(pilule('Paiement des charges de copropriété', 'Propriétaire'));
     expect(signal()).toBe('Différent de la fiche du bien (Agence) : la fiche sera mise à jour à l’enregistrement.');
     await choisirBien(9);
     expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
@@ -1034,7 +1034,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONN�
     await preparer();
     expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
     expect(signal()).toBe('Valeurs différentes selon les lots : aucune présélection, choisissez.');
-    expect(barre()).toContain('Paiement des charges');
+    expect(barre()).toContain('Paiement des charges de copropriété');
     await clic(container.querySelector('[data-coche-lot="70"]')!);
     await calmer();
     expect(boutons()).toEqual([['Agence', 'true'], ['Propriétaire', 'false']]);
@@ -1052,7 +1052,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » PRÉSÉLECTIONN�
     await choisirBien(7);
     expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
     // Modifiée ici : envoyée avec le bail (le serveur l'écrit sur la fiche du bien et à son Historique).
-    await clic(pilule('Paiement des charges', 'Agence'));
+    await clic(pilule('Paiement des charges de copropriété', 'Agence'));
     await toutRepondre();
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     await soumettre();

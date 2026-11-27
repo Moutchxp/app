@@ -36,6 +36,7 @@ import { ModaleArchivage } from '../location/ModaleArchivage';
 import { BlocConditionsEntree, CSS_CONDITIONS } from '../location/ConditionsEntree';
 import {
   manquesConditions, versEnvoiConditions, versSaisieConditions, type ConditionsEntreeLues, type SaisieConditions,
+  LIBELLE_CHARGES_COPRO_LIGNE,
 } from '../../../../lib/location/conditionsEntree';
 import { QuestionOrigine } from '../location/QuestionOrigine';
 import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from '../location/Preavis';
@@ -996,7 +997,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
               ...syndics.map((x) => [String(x.id), x.nom] as const)])}
             {avecCopropriete && choix('copropriete', 'Copropriété', [['oui', 'Oui'], ['non', 'Non']])}
-            {avecCharges && choix('chargesCopro', 'Paiement des charges', CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
+            {avecCharges && choix('chargesCopro', LIBELLE_CHARGES_COPRO_LIGNE, CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
             {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
             {!parking && choix('dpeClasse', 'Classe DPE', [...CLASSES_DPE.map((x) => [x, x] as const), [DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS] as const])}

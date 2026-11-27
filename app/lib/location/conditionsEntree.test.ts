@@ -18,7 +18,7 @@ describe('🔴 conditions d’entrée — choix obligatoires', () => {
   });
 
   it('prélèvement Oui : « au 1er », « au 5 », « au 10 » ou « au 15 » exigé ; Non : le jour est vidé à l’envoi', () => {
-    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, prelevement: true }))).toEqual({ jour: 'Prélèvement : au 1er, au 5, au 10 ou au 15 ?' });
+    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, prelevement: true }))).toEqual({ jour: 'Prélèvement du loyer : au 1er, au 5, au 10 ou au 15 ?' });
     for (const j of ['1', '5', '10', '15'] as const) {
       const v = verifierConditions(versEnvoiConditions({ ...COMPLET, prelevement: true, jour: j }));
       expect(v.ok && v.valeurs.jour).toBe(Number(j));
@@ -114,7 +114,7 @@ describe('🔴 relecture : encart et « Modifier »', () => {
       sommes: { prorataLoyer: '412,26', prorataCharges: '', depotGarantie: '1 180', honorairesAgence: '' }, commentaire: 'clés remises' }));
     if (!v.ok) throw new Error(v.motif);
     expect(lignesConditions(v.valeurs).map((l) => `${l.mot} : ${l.valeur}`.replace(/\s/g, ' '))).toEqual([
-      'Dépôt de garantie : Conservé par l’agence', 'Prélèvement : Oui, au 10', 'Garant personne physique : Oui',
+      'Dépôt de garantie : Conservé par l’agence', 'Prélèvement du loyer : Oui, au 10', 'Garant personne physique : Oui',
       'Assurance loyers impayés : GLI — Assureur X', 'Honoraires du locataire : Compte bancaire transaction',
       'Honoraires du propriétaire : Compte bancaire gestion', 'Prorata loyer : 412,26 €', 'Dépôt de garantie : 1 180,00 €',
       'Total dû à l’entrée : 1 592,26 €', 'Mode de règlement : Virement', 'Commentaires : clés remises',
@@ -180,5 +180,36 @@ describe('🔴 Arno (21/10/2026) — « Compte bancaire transaction » : le libe
     expect(m.COMPTES).toEqual(['agence', 'gestion']);
     expect(m.LIBELLE_COMPTE).toEqual({ agence: 'Compte bancaire transaction', gestion: 'Compte bancaire gestion' });
     expect(m.LIBELLE_COMPTE_MAIL.agence).toBe('Compte bancaire agence');
+  });
+});
+
+describe('🔴🔴 Arno (27/11/2026, 23h30) — les libellés des conditions d’entrée, partout où ils s’affichent (données inchangées)', () => {
+  it('« Prélèvement du loyer », « Honoraires d’agence », « Paiement des charges de copropriété »', async () => {
+    const m = await import('./conditionsEntree');
+    expect([m.LIBELLE_PRELEVEMENT, m.LIBELLE_HONORAIRES_BLOC, m.LIBELLE_CHARGES_COPRO_LIGNE]).toEqual(['Prélèvement du loyer', 'Honoraires d’agence', 'Paiement des charges de copropriété']);
+    expect(m.MOT_CHARGES_COPRO).toBe('Paiement des charges de copropriété : payées par l’agence ou par le propriétaire ?');
+  });
+  it('le récapitulatif (fiche du locataire, dossier) : la ligne du prélèvement et celle des charges ; la DONNÉE envoyée ne change pas', () => {
+    const v = verifierConditions(versEnvoiConditions({ ...COMPLET, prelevement: true, jour: '10', chargesCopro: 'agence' }), { charges: true });
+    if (!v.ok) throw new Error(v.motif);
+    const mots = lignesConditions(v.valeurs).map((l) => l.mot);
+    expect(mots).toContain('Prélèvement du loyer');
+    expect(mots).toContain('Paiement des charges de copropriété');
+    expect(mots).not.toContain('Prélèvement');
+    expect(mots).not.toContain('Paiement des charges');
+    expect([v.valeurs.prelevement, v.valeurs.jour, v.valeurs.chargesCopro]).toEqual([true, 10, 'agence']); // les données : inchangées
+  });
+  it('les écrans et les mails lisent les MÊMES libellés (aucun en dur)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const ecran = readFileSync('app/(admin)/admin/(protected)/location/ConditionsEntree.tsx', 'utf8');
+    expect(ecran).toContain('<h4>{LIBELLE_PRELEVEMENT} <span className="loc-oblig">*</span></h4>');
+    expect(ecran).toContain('<h4>{LIBELLE_HONORAIRES_BLOC} <span className="loc-oblig">*</span></h4>');
+    expect(ecran).toContain('<h4>{LIBELLE_CHARGES_COPRO_LIGNE} <span className="loc-oblig">*</span></h4>');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/ResumeBail.tsx', 'utf8')).toContain('<dt>{LIBELLE_PRELEVEMENT}</dt>');
+    const mail = readFileSync('app/lib/location/mailNouvelleLocation.ts', 'utf8');
+    expect(mail).toContain('mot: LIBELLE_PRELEVEMENT');
+    expect(mail).toContain('mot: LIBELLE_CHARGES_COPRO_LIGNE');
+    // le tri des changements du dossier suit le libellé partagé (aucun libellé en double)
+    expect(readFileSync('app/lib/location/dossierLocationRepo.ts', 'utf8')).not.toContain("'Paiement des charges'");
   });
 });

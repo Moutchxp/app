@@ -89,7 +89,7 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
     await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-01');
     await calmer();
     await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
-    await clic(pilule('Prélèvement', 'Non'));
+    await clic(pilule('Prélèvement du loyer', 'Non'));
     await clic(pilule('Garant personne physique', 'Non'));
     await clic(pilule('Assurance loyers impayés', 'Visale'));
     await clic(container.querySelector('[data-entretien-reponse="non"]')!);
@@ -101,7 +101,7 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
         const c = container.querySelector(sel) as HTMLInputElement | null;
         if (c !== null && c.value === '' && !c.disabled) await saisir(c, '0');
       }
-      const charges = pilule('Paiement des charges', 'Agence');
+      const charges = pilule('Paiement des charges de copropriété', 'Agence');
       if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
     }
   };

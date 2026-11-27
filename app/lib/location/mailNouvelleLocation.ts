@@ -12,7 +12,7 @@
  *    nulle part. Les données viennent de la base (`mailNouvelleLocationRepo.ts`) : rien n'est saisi en plus.
  */
 import { majusculesDigicode } from './digicodeImmeuble';
-import { estGarantme, GLI_GARANTME, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
+import { estGarantme, GLI_GARANTME, LIBELLE_CHARGES_COPRO_LIGNE, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_PRELEVEMENT, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
 import { PAYEES_PAR } from './bienComplet';
@@ -378,7 +378,7 @@ export function lignesSousLoyer(indice: { type: TypeIndice; annee: number; trime
     const jm = /^\d{4}-(\d{2})-(\d{2})$/.exec(indice.revision);
     l.push({ mot: 'Indice de révision', valeur: `${SIGLE_INDICE[indice.type]} ${libelleTrimestre(indice.annee, indice.trimestre)}${indice.valeur === null || indice.valeur === undefined ? '' : ` — ${valeurIndiceTexte(indice.valeur)}`}${jm === null ? '' : ` · révision annuelle le ${jm[2]}/${jm[1]}`}` });
   }
-  if (chargesCopro === 'agence' || chargesCopro === 'proprietaire') l.push({ mot: 'Paiement des charges', valeur: PAYEES_PAR[chargesCopro] });
+  if (chargesCopro === 'agence' || chargesCopro === 'proprietaire') l.push({ mot: LIBELLE_CHARGES_COPRO_LIGNE, valeur: PAYEES_PAR[chargesCopro] });
   return l;
 }
 
@@ -393,7 +393,7 @@ export function lignesBailMail(entree: string, c: ConditionsEntree | null, h: Ca
   const l: LigneMail[] = [];
   if (dateEnLettres(entree) !== '') l.push({ mot: 'Entrée', valeur: dateEnLettres(entree) });
   if (c === null) return l;
-  l.push({ mot: 'Prélèvement', valeur: c.prelevement && c.jour !== null ? `Le ${c.jour === 1 ? '1er' : c.jour} de chaque mois` : 'Pas de prélèvement' });
+  l.push({ mot: LIBELLE_PRELEVEMENT, valeur: c.prelevement && c.jour !== null ? `Le ${c.jour === 1 ? '1er' : c.jour} de chaque mois` : 'Pas de prélèvement' });
   l.push({ mot: 'Mode de règlement', valeur: c.reglement === 'autre' && present(c.reglementPrecision) ? `Autre : ${c.reglementPrecision.trim()}` : LIBELLE_REGLEMENT[c.reglement] });
   const s = c.sommes;
   const proratas = [s.prorataLoyer === null ? null : `Loyer ${euros(s.prorataLoyer)}`, s.prorataCharges === null ? null : `charges ${euros(s.prorataCharges)}`].filter((x): x is string => x !== null);

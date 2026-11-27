@@ -135,7 +135,7 @@ describe('🔴 Arno (25/10/2026) — un dossier ANCIEN incomplet : il s’ouvre 
     await act(async () => { enregistrer().click(); });
     await calmer();
     expect(document.body.textContent).toContain('Loyer mensuel : le loyer principal (0 si aucun)');
-    expect(document.body.textContent).toContain('Paiement des charges : payées par l’agence ou par le propriétaire');
+    expect(document.body.textContent).toContain('Paiement des charges de copropriété : payées par l’agence ou par le propriétaire');
     expect(posts).toEqual([]);
   });
 });
@@ -150,7 +150,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » présélectionn�
       return { ok: true, status: 200, json: async () => ({ etat: 'inconnu' }) } as unknown as Response;
     }) as unknown as typeof fetch;
   };
-  const boutons = () => [...document.querySelectorAll('[aria-label="Paiement des charges"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const boutons = () => [...document.querySelectorAll('[aria-label="Paiement des charges de copropriété"] button')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
   const signal = () => document.querySelector('[data-charges-signal]')?.textContent ?? null;
 
   it('la valeur de la fiche est choisie ; mêmes boutons, même ordre (Agence, Propriétaire) ; modifiée ici : « différent de la fiche du bien », dans le récapitulatif', async () => {
@@ -160,7 +160,7 @@ describe('🔴 Arno (25/10/2026) — « Paiement des charges » présélectionn�
     expect(boutons()).toEqual([['Agence', 'false'], ['Propriétaire', 'true']]);
     expect(signal()).toBeNull();
     expect(document.querySelector('[data-cond="charges"]')?.textContent).not.toContain('Fiche du bien aujourd’hui');
-    await act(async () => { ([...document.querySelectorAll('[aria-label="Paiement des charges"] button')].find((b) => b.textContent === 'Agence') as HTMLButtonElement).click(); });
+    await act(async () => { ([...document.querySelectorAll('[aria-label="Paiement des charges de copropriété"] button')].find((b) => b.textContent === 'Agence') as HTMLButtonElement).click(); });
     expect(signal()).toBe('Différent de la fiche du bien (Propriétaire) : la fiche sera mise à jour à l’enregistrement.');
     expect(document.querySelector('[data-etat-dossier]')?.textContent).not.toBe('Aucune modification.');
   });

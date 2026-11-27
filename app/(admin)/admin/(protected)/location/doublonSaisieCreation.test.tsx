@@ -71,7 +71,7 @@ const preparer = async (entree: string) => {
 };
 const toutRepondre = async () => {
   await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
-  await clic(pilule('Prélèvement', 'Non'));
+  await clic(pilule('Prélèvement du loyer', 'Non'));
   await clic(pilule('Garant personne physique', 'Non'));
   await clic(pilule('Assurance loyers impayés', 'Visale'));
   await clic(container.querySelector('[data-entretien-reponse="non"]')!);
@@ -82,7 +82,7 @@ const toutRepondre = async () => {
     const c = container.querySelector(sel) as HTMLInputElement | null;
     if (c !== null && c.value === '' && !c.disabled) await saisir(c, '0');
   }
-  const charges = pilule('Paiement des charges', 'Agence');
+  const charges = pilule('Paiement des charges de copropriété', 'Agence');
   if (charges !== undefined && charges.getAttribute('aria-pressed') !== 'true') await clic(charges);
 };
 const soumettre = async () => { await clic(container.querySelector('[data-collant] button[type="submit"]')!); await calmer(); };

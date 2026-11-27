@@ -319,7 +319,7 @@ describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de «
   const barre = () => document.querySelector('.mfl-pied')?.textContent ?? '';
   const toutRepondre = async () => {
     await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
-    await clic(pilule('Prélèvement', 'Oui'));
+    await clic(pilule('Prélèvement du loyer', 'Oui'));
     await clic(pilule('Jour du prélèvement', 'au 10'));
     await clic(pilule('Garant personne physique', 'Non'));
     await clic(pilule('Assurance loyers impayés', 'Visale'));
@@ -327,7 +327,7 @@ describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de «
     await clic(pilule('Honoraires du locataire', 'Compte bancaire transaction'));
     await clic(pilule('Honoraires du propriétaire', 'Compte bancaire gestion'));
     await clic(pilule('Mode de règlement', 'Chèque'));
-    await clic(pilule('Paiement des charges', 'Agence'));
+    await clic(pilule('Paiement des charges de copropriété', 'Agence'));
     await saisir(bloc3().querySelector('[data-somme="depotGarantie"] input') as HTMLInputElement, '950');
     await saisir(bloc3().querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '0');
     await calmer();
@@ -351,7 +351,7 @@ describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de «
     expect([...document.querySelectorAll('[data-caracteristiques-bien]')].map((b) => b.getAttribute('data-caracteristiques-bien'))).toEqual(['fiche-locataire-bien']);
     // Les obligatoires (*) dans « Reste à renseigner » ; rien à enregistrer tant qu'on n'y a pas touché.
     expect(barre()).toContain('Dépôt de garantie');
-    expect(barre()).toContain('Paiement des charges');
+    expect(barre()).toContain('Paiement des charges de copropriété');
     expect(barre()).toMatch(/Entretien à prévoir/);
     expect(enregistrer().disabled).toBe(true);
   });
@@ -360,11 +360,11 @@ describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de «
     await monterSans();
     await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
     expect(barre()).not.toContain('Dépôt de garantie : conservé');
-    expect(barre()).toContain('Prélèvement');
+    expect(barre()).toContain('Prélèvement du loyer');
     expect(enregistrer().disabled).toBe(false);
     await clic(enregistrer());
     expect(document.querySelector('[data-motif-fiche]')?.textContent).toContain('Conditions d’entrée — reste à renseigner');
-    expect(document.querySelector('[data-motif-fiche]')?.textContent).toContain('Prélèvement : répondez Oui ou Non.');
+    expect(document.querySelector('[data-motif-fiche]')?.textContent).toContain('Prélèvement du loyer : répondez Oui ou Non.');
     expect(posts).toEqual([]);
     await clic([...document.querySelectorAll('.mfl-boite button')].find((b) => b.textContent === 'Fermer')!);
     expect(bloc3().querySelector('.loc-manque')).not.toBeNull();

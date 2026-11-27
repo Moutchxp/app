@@ -62,8 +62,8 @@ describe('🔴 « Paiement des charges » — l’encadré de « Nouveau bien »
       const e = encadre();
       expect(e, f).not.toBeNull();
       expect(e?.closest('section')?.querySelector('h3')?.textContent).toMatch(/Caractéristiques complémentaires$/);
-      expect(e?.querySelector('h4')?.textContent).toBe('Paiement des charges');
-      expect([...(e?.querySelectorAll('[aria-label="Paiement des charges"] button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')]))
+      expect(e?.querySelector('h4')?.textContent).toBe('Paiement des charges de copropriété');
+      expect([...(e?.querySelectorAll('[aria-label="Paiement des charges de copropriété"] button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')]))
         .toEqual([['Agence', 'false'], ['Propriétaire', 'false']]);
       expect(e?.querySelector('.loc-charges-mention')?.textContent).toBe('Qui règle les charges de copropriété au syndic');
     }
@@ -162,7 +162,7 @@ describe('🔴 « Paiement des charges » — la fiche du bien (modifiable) (l�
     expect(mots.indexOf('Charges de copropriété')).toBe(mots.indexOf('Syndic') + 1);
     expect(ligne(comp, 'Charges de copropriété')).toBe('payées par le propriétaire');
     await act(async () => { ([...comp.querySelectorAll('button')].find((b) => b.textContent === 'Modifier') as HTMLButtonElement).click(); });
-    const select = [...comp.querySelectorAll('label')].find((l) => l.firstChild?.textContent === 'Paiement des charges')?.querySelector('select') as HTMLSelectElement;
+    const select = [...comp.querySelectorAll('label')].find((l) => l.firstChild?.textContent === 'Paiement des charges de copropriété')?.querySelector('select') as HTMLSelectElement;
     expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([['', '— non renseigné —'], ['proprietaire', 'Propriétaire'], ['agence', 'Agence']]);
     expect(select.value).toBe('proprietaire');
     await act(async () => { select.value = 'agence'; select.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -183,7 +183,7 @@ describe('🔴 « Paiement des charges » — la fiche du bien (modifiable) (l�
     const comp = container.querySelector('[data-complements]') as HTMLElement;
     expect(ligne(comp, 'Charges de copropriété')).toBeNull();
     await act(async () => { ([...comp.querySelectorAll('button')].find((b) => b.textContent === 'Modifier') as HTMLButtonElement).click(); });
-    expect([...comp.querySelectorAll('label')].some((l) => l.firstChild?.textContent === 'Paiement des charges')).toBe(false);
+    expect([...comp.querySelectorAll('label')].some((l) => l.firstChild?.textContent === 'Paiement des charges de copropriété')).toBe(false);
     await act(async () => { ([...comp.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer') as HTMLButtonElement).click(); });
     await calmer();
     expect(Object.prototype.hasOwnProperty.call((posts.at(-1) as { champs: object }).champs, 'chargesCopro')).toBe(false);

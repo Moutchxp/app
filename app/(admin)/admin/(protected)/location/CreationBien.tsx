@@ -1,6 +1,7 @@
 'use client';
 
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
+import { LIBELLE_CHARGES_COPRO_LIGNE } from '../../../../lib/location/conditionsEntree';
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -1279,8 +1280,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
               </div>}
               {montre('avecCharges') && <div className="loc-charges-bloc" data-charges-copro>
-                <h4>Paiement des charges</h4>
-                <Pilules etiquette="Paiement des charges" options={ORDRE_BOUTONS_CHARGES} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
+                <h4>{LIBELLE_CHARGES_COPRO_LIGNE}</h4>
+                <Pilules etiquette={LIBELLE_CHARGES_COPRO_LIGNE} options={ORDRE_BOUTONS_CHARGES} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
                 <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
               </div>}
             </div>

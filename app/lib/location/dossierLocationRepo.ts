@@ -16,7 +16,7 @@ import { complementsDuBien } from './creationBienRepo';
 import { conditionsEntreeDisponible, conditionsParOccupation, enregistrerConditionsEntreeDans, honorairesSaisisDisponible, modifierConditionsEntree, MOTIF_SANS_402 } from './conditionsEntreeRepo';
 import { ecrireLoyerDans, loyerDesOccupations } from './loyerEntreeRepo';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
-import { verifierConditions, versEnvoiConditions } from './conditionsEntree';
+import { LIBELLE_CHARGES_COPRO_LIGNE, verifierConditions, versEnvoiConditions } from './conditionsEntree';
 import { honorairesAEnregistrer, lignesHonoraires, type CalculHonoraires } from './honorairesProprietaire';
 import { entretiensEnTexte } from './encartBien';
 import { modifierEncartBien } from './encartBienRepo';
@@ -316,7 +316,7 @@ export async function modifierDossierLocation(cible: number | { bailId: number }
     faits.push(...siens.map((c) => c.champ));
   }
   // ③ LES CONDITIONS D'ENTRÉE (une nouvelle version pour le bail) ; l'ENTRETIEN du bien (sa fiche).
-  const cond = changements.filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens' && c.champ !== 'Paiement des charges');
+  const cond = changements.filter((c) => c.bloc === 3 && c.champ !== 'Entretien à prévoir' && c.champ !== 'Entretiens' && c.champ !== LIBELLE_CHARGES_COPRO_LIGNE);
   if (cond.length > 0 && lu.conditions !== null && s.conditions !== null) {
     const r = await modifierConditionsEntree(lu.conditions.occupationId, { ...versEnvoiConditions(s.conditions), loyer: { ...s.conditions.loyer } }, auteur);
     if (r.etat !== 'ok') return partiel('motif' in r && typeof r.motif === 'string' ? r.motif : 'Les conditions d’entrée n’ont pas pu être modifiées.');
@@ -351,7 +351,7 @@ export async function modifierDossierLocation(cible: number | { bailId: number }
     faits.push(...cond.map((c) => c.champ));
   }
   // 🔴 Arno (25/10/2026) — le paiement des charges : sur le BIEN (sa colonne, son Historique), et au journal du bail comme le reste.
-  const ch3 = changements.filter((c) => c.bloc === 3 && c.champ === 'Paiement des charges');
+  const ch3 = changements.filter((c) => c.bloc === 3 && c.champ === LIBELLE_CHARGES_COPRO_LIGNE); // 🔴 (27/11/2026) le libellé de la ligne, partagé
   const nouvelles = s.conditions?.chargesCopro;
   if (ch3.length > 0 && (nouvelles === 'agence' || nouvelles === 'proprietaire')) {
     const ok = await withTransaction((q) => ecrireChargesCoproDans(q, lu.lotId, nouvelles, auteur, 'Dossier de location'));

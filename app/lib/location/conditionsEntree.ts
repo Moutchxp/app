@@ -311,15 +311,23 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
  * saisie ne les porte pas (le serveur, quand la base a la migration 423 / 400). Sans option : la règle d'avant (montants facultatifs).
  */
 export interface ExigencesConditions { complet?: boolean; indice?: boolean; charges?: boolean }
-export const MOT_CHARGES_COPRO = 'Paiement des charges : payées par l’agence ou par le propriétaire ?';
+/**
+ * 🔴🔴 (Arno, 27/11/2026, 23h30) les libellés des conditions d'entrée, partout où ils s'affichent (fiche « Nouveau locataire », fiche du locataire, récapitulatif,
+ * mails) : « Prélèvement » → « Prélèvement du loyer » ; « Honoraires » → « Honoraires d'agence » ; « Paiement des charges » → « Paiement des charges de
+ * copropriété ». Les données ne changent pas ; les journaux déjà écrits gardent leur texte d'origine.
+ */
+export const LIBELLE_PRELEVEMENT = 'Prélèvement du loyer';
+export const LIBELLE_HONORAIRES_BLOC = 'Honoraires d’agence';
+export const LIBELLE_CHARGES_COPRO_LIGNE = 'Paiement des charges de copropriété';
+export const MOT_CHARGES_COPRO = `${LIBELLE_CHARGES_COPRO_LIGNE} : payées par l’agence ou par le propriétaire ?`;
 
 export function manquesConditions(b: Record<string, unknown>, o: ExigencesConditions = {}): Record<string, string> {
   const m: Record<string, string> = {};
   if (dans(DEPOTS, b.depot) === null) m.depot = 'Dépôt de garantie : conservé par l’agence ou reversé au bailleur ?';
   const prel = ouiNon(b.prelevement);
-  if (prel === null) m.prelevement = 'Prélèvement : répondez Oui ou Non.';
+  if (prel === null) m.prelevement = `${LIBELLE_PRELEVEMENT} : répondez Oui ou Non.`;
   else if (prel && dans(JOURS_PRELEVEMENT, b.jour === null || b.jour === undefined ? b.jour : String(b.jour)) === null) {
-    m.jour = 'Prélèvement : au 1er, au 5, au 10 ou au 15 ?';
+    m.jour = `${LIBELLE_PRELEVEMENT} : au 1er, au 5, au 10 ou au 15 ?`;
   }
   if (ouiNon(b.garant) === null) m.garant = 'Garant personne physique : répondez Oui ou Non.';
   const assurance = dans(ASSURANCES, b.assurance);
@@ -387,7 +395,7 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
   const total = saisies.length === 0 ? null : saisies.reduce((t, x) => t + x, 0);
   return [
     { mot: 'Dépôt de garantie', valeur: LIBELLE_DEPOT[c.depot] },
-    { mot: 'Prélèvement', valeur: c.prelevement ? `Oui, ${LIBELLE_JOUR[String(c.jour) as JourPrelevement]}` : 'Non' },
+    { mot: LIBELLE_PRELEVEMENT, valeur: c.prelevement ? `Oui, ${LIBELLE_JOUR[String(c.jour) as JourPrelevement]}` : 'Non' },
     { mot: 'Garant personne physique', valeur: c.garant ? 'Oui' : 'Non' },
     { mot: 'Assurance loyers impayés', valeur: `${LIBELLE_ASSURANCE[c.assurance]}${c.assurancePrecision
       ? ` — ${c.assurance === 'gli' && estGarantme(c.assurancePrecision) ? GLI_GARANTME : c.assurancePrecision}` : ''}` },
@@ -410,7 +418,7 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
       return t === null ? [] : [{ mot: 'Total des honoraires', valeur: eurosAffiches(t) }];
     })(),
     { mot: 'Mode de règlement', valeur: `${LIBELLE_REGLEMENT[c.reglement]}${c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}` },
-    ...(c.chargesCopro ? [{ mot: 'Paiement des charges', valeur: PAYEES_PAR[c.chargesCopro] }] : []),
+    ...(c.chargesCopro ? [{ mot: LIBELLE_CHARGES_COPRO_LIGNE, valeur: PAYEES_PAR[c.chargesCopro] }] : []),
     ...(c.commentaire === null ? [] : [{ mot: 'Commentaires', valeur: c.commentaire }]),
   ];
 }

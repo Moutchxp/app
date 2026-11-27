@@ -61,7 +61,7 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant', 'Garanties', 'Entretiens']);
     expect(container.querySelector('[data-rb="bien"]')).toBeNull();
     expect(container.querySelector('[data-rb="proprietaires"]')).toBeNull();
-    expect(colonne('paie')).toEqual(['Loyer principal', 'Provision pour charges', 'Total charges comprises', 'Dépôt de garantie', 'Prélèvement']);
+    expect(colonne('paie')).toEqual(['Loyer principal', 'Provision pour charges', 'Total charges comprises', 'Dépôt de garantie', 'Prélèvement du loyer']);
     expect([dd('entree'), dd('colocataires'), dd('garants')])
       .toEqual(['01/11/2026', 'ESSAI RATTACHEMENT Locataire Deux', 'ESSAI Garant — garantit Un, Deux']);
     expect([dd('loyer-principal'), dd('provisions'), dd('total-cc'), dd('depot'), dd('prelevement')])
