@@ -1,5 +1,6 @@
 'use client';
 
+import { texteOuvertPar, type OuvreurEvenement } from '../../../../lib/gestion/ouvreurEvenement';
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴 MODULE PUR UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026). */
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
@@ -57,6 +58,8 @@ interface EvenementDuBien {
   objet: string;
   etat: string;
   ouvertLe: string;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement ; absent : réponse d'avant. */
+  ouvreur?: OuvreurEvenement;
   /** 🔴 Arno (23/10/2026) — la date de début de rattachement des mails (absente sans la migration 410). */
   rattacheDepuis?: string | null;
   traiteLe: string | null;
@@ -355,6 +358,8 @@ export function EvenementsDuBien({
                   {/* ⚠️ LES DATES SE DÉCOUPENT, elles ne passent pas par `Date` : le fuseau du lecteur ne doit
                       pas décaler le jour d'ouverture d'un dossier. Même règle que dans `frise.ts`. */}
                   <span>ouvert le {jourFr(e.ouvertLe)}</span>
+                  {/* 🔴🔴 (Arno, 27/11/2026, 09h48) « ouvert par Prénom NOM » dans l'en-tête de l'événement */}
+                  {e.ouvreur !== undefined && <><span aria-hidden="true"> · </span><span data-evb-ouvert-par>{texteOuvertPar(e.ouvreur)}</span></>}
                   {e.closLe !== null && <>
                     <span aria-hidden="true"> · </span>
                     <span>clos le {jourFr(e.closLe)}</span>
@@ -494,6 +499,8 @@ export function EvenementsDuBien({
                         <span data-periodes>{periodes.length === 0 ? `ouvert le ${jourFr(e.ouvertLe)}${e.closLe ? ` · clos le ${jourFr(e.closLe)}` : ''}` : periodes.map(motPeriode).join(' · ')}</span>
                         <span aria-hidden="true"> · </span>
                         <span data-reouvertures>{motReouvertures(nbReouvertures(periodes))}</span>
+                        {/* 🔴🔴 (Arno, 27/11/2026, 09h48) « ouvert par Prénom NOM » — aussi dans l'en-tête d'un événement clos */}
+                        {e.ouvreur !== undefined && <><span aria-hidden="true"> · </span><span data-evb-ouvert-par>{texteOuvertPar(e.ouvreur)}</span></>}
                       </span>
                     </button>
                     {deplie && (

@@ -1,5 +1,6 @@
 'use client';
 
+import { texteOuvertPar } from '../../../../lib/gestion/ouvreurEvenement';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle';
 import { adresseDuChoix } from '../../../../components/adresse/adresseOfficielle';
@@ -945,10 +946,12 @@ function LignesDuDossier({ carte, maintenant }: { carte: CarteEvenement; mainten
 
   return (
     <>
-      {(ouvertDepuis !== null || dernier !== null) && (
+      {(ouvertDepuis !== null || dernier !== null || carte.ouvreur !== undefined) && (
         <span className="gst-carte-ligne">
           {ouvertDepuis !== null && <>Ouvert depuis {motJours(ouvertDepuis)}</>}
-          {ouvertDepuis !== null && dernier !== null && <span aria-hidden="true"> · </span>}
+          {/* 🔴🔴 (Arno, 27/11/2026, 09h48) « ouvert par Prénom NOM » sur chaque ligne de la liste */}
+          {carte.ouvreur !== undefined && <>{ouvertDepuis !== null && <span aria-hidden="true"> · </span>}<span data-carte-ouvert-par>{texteOuvertPar(carte.ouvreur)}</span></>}
+          {(ouvertDepuis !== null || carte.ouvreur !== undefined) && dernier !== null && <span aria-hidden="true"> · </span>}
           {dernier !== null && <>dernier échange il y a {motJours(dernier)}</>}
         </span>
       )}

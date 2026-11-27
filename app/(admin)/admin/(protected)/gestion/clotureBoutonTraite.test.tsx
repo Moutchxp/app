@@ -67,3 +67,18 @@ describe('🔴 « Traité » : la modale de clôture, puis la carte Clôture', (
     expect(onGeste).toHaveBeenCalledWith('Événement GES-2026-000007 : clôturé.');
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48) — « ouvert par Prénom NOM » sur chaque ligne de la liste des événements. */
+describe('la ligne de la liste : « Ouvert depuis N jours · ouvert par … »', () => {
+  it('le nom après « Ouvert depuis », puis le dernier échange ; sans le champ (réponse d’avant), rien de plus', async () => {
+    const ligne = async (c: unknown) => {
+      await act(async () => { root.render(createElement(CarteVive, { carte: c as CarteEvenement, maintenant: new Date('2026-10-30T18:00:00Z'), onGeste: vi.fn() })); });
+      await attendre();
+      return [...document.querySelectorAll('.gst-carte-ligne')].map((x) => x.textContent)[0];
+    };
+    expect(await ligne({ ...CARTE, dernierEchangeLe: '2026-10-28T10:00:00Z', ouvreur: { sorte: 'utilisateur', cle: 'u2', nom: 'Arnaud JOREL' } }))
+      .toBe('Ouvert depuis 7 jours · ouvert par Arnaud JOREL · dernier échange il y a 2 jours');
+    expect(await ligne({ ...CARTE, ouvreur: { sorte: 'automatique', cle: 'auto' } })).toBe('Ouvert depuis 7 jours · ouvert automatiquement');
+    expect(await ligne(CARTE)).toBe('Ouvert depuis 7 jours');
+  });
+});

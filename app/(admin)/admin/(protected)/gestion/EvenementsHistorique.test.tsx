@@ -133,3 +133,21 @@ describe('🔴 la fiche : un événement clos quitte la liste et vit dans l’Hi
     expect(q('[data-historique-evenements]')).toBeNull();
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48) — « ouvert par Prénom NOM » dans l'en-tête de l'événement (« GES-2026-… · en cours · ouvert le … »). */
+describe('l’en-tête de l’événement : « ouvert par … »', () => {
+  it('après « ouvert le … » : le nom, « ouvert automatiquement », « non renseigné » ; une réponse d’avant n’affiche rien de plus', async () => {
+    evenements = [{ ...OUVERT, ouvreur: { sorte: 'utilisateur', cle: 'u2', nom: 'Arnaud JOREL' } },
+      { ...CLOS, ouvreur: { sorte: 'automatique', cle: 'auto' } }];
+    await rendreBloc();
+    await clic(q('.evb-histo-tete')); // l'historique (événements clos) se déplie
+    const lus = [...document.querySelectorAll('[data-evb-ouvert-par]')].map((x) => x.textContent);
+    expect(lus).toEqual(['ouvert par Arnaud JOREL', 'ouvert automatiquement']);
+    expect(document.querySelector('[data-evb-ouvert-par]')!.parentElement!.textContent).toMatch(/GES-2026-000001 · en cours · ouvert le 23\/09\/2026 · ouvert par Arnaud JOREL/);
+  });
+  it('« non renseigné » et réponse d’avant', async () => {
+    evenements = [{ ...OUVERT, ouvreur: { sorte: 'non_renseigne', cle: 'nr' } }, CLOS];
+    await rendreBloc();
+    expect([...document.querySelectorAll('[data-evb-ouvert-par]')].map((x) => x.textContent)).toEqual(['ouvert par : non renseigné']);
+  });
+});

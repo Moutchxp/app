@@ -80,3 +80,29 @@ describe('🔴 le formulaire de création : plus de champ de date d’ouverture,
     });
   }
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48) — « le nom de celui ou celle qui a ouvert l'événement doit être écrit sous le bloc d'ouverture avec la date d'ouverture ». */
+describe('sous la carte Ouverture : « Ouvert par Prénom NOM le JJ/MM/AAAA »', () => {
+  const avec = (ouvreur: unknown) => {
+    global.fetch = vi.fn(async (url: string) => (String(url).includes('/frise')
+      ? json({ etat: 'ok', ouvert: true, ouvertLe: '2026-10-23T09:12:00+02:00', ouvreur, etapes: [] }) : json({ etat: 'ok' }))) as unknown as typeof fetch;
+  };
+  it('un utilisateur, automatique, non renseigné ; le lien « Ajouter une carte RDV intervention » reste en place', async () => {
+    avec({ sorte: 'utilisateur', cle: 'u2', nom: 'Arnaud JOREL' });
+    await rendre();
+    expect(q('[data-ouvert-par]')?.textContent).toBe('Ouvert par Arnaud JOREL le 23/10/2026');
+    expect(q('[data-lien-rdv]')?.textContent).toBe(MOT_LIEN_RDV);
+    act(() => root.unmount()); root = createRoot(container);
+    avec({ sorte: 'automatique', cle: 'auto' });
+    await rendre();
+    expect(q('[data-ouvert-par]')?.textContent).toBe('Ouvert automatiquement le 23/10/2026');
+    act(() => root.unmount()); root = createRoot(container);
+    avec(null);
+    await rendre();
+    expect(q('[data-ouvert-par]')?.textContent).toBe('Ouvert le 23/10/2026 — par : non renseigné');
+  });
+  it('une réponse d’avant (sans le champ) : aucune ligne inventée', async () => {
+    await rendre();
+    expect(q('[data-ouvert-par]')).toBeNull();
+  });
+});

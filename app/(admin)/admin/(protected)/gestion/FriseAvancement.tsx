@@ -1,5 +1,6 @@
 'use client';
 
+import { texteOuvertureFrise, type OuvreurEvenement } from '../../../../lib/gestion/ouvreurEvenement';
 import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ModaleIssue } from '../location/ModaleIssue';
@@ -141,6 +142,8 @@ interface Reponse {
   ouvertLe?: string;
   /** 🔴 LOT GES-16/21 — l'instant de création de l'événement, lu au journal ; `null`/absent : inconnu. */
   ouvertureCreeeLe?: string | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement (ouvreurEvenement) ; absent : réponse d'avant. */
+  ouvreur?: OuvreurEvenement | null;
   /** 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — les interventions de cet événement suivies dans un autre ; absent = aucune. */
   suiviesAilleurs?: { reference: string; evenementReference: string }[];
   /** 🔴 LOT FRISE-CORRECTION-MANUELLE — les éléments retirés, les interventions déliées, la 429, la référence GES. */
@@ -784,7 +787,7 @@ export function FriseAvancement({
           {ligne.map((el) => (
             <ElementDeLaFrise
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe} onOuvrirTache={setTacheOuverte}
-              ouvertureCreeeLe={vue.d.ouvertureCreeeLe ?? null}
+              ouvertureCreeeLe={vue.d.ouvertureCreeeLe ?? null} ouvreur={vue.d.ouvreur}
               cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
               ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
               /* 🔴 POINT 2 — « Le ✎ de la carte en cours d'édition reste visiblement “enfoncé” (état actif)
@@ -1134,6 +1137,8 @@ function ElementDeLaFrise(p: {
   onRdvIntervention?: () => void;
   /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal), pour la carte d'ouverture dérivée. */
   ouvertureCreeeLe?: string | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement : « Ouvert par … le … » sous la carte Ouverture. */
+  ouvreur?: OuvreurEvenement | null;
   /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ce qui ne concerne que les carrés traverse sans être lu ici. */
   horsChronologie?: boolean;
   saisie?: number | null;
@@ -1266,7 +1271,7 @@ function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onRdvIntervention,
   horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
-  enEdition = null, ouvertureCreeeLe = null,
+  enEdition = null, ouvertureCreeeLe = null, ouvreur,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -1278,6 +1283,8 @@ function Carre({
   onRdvIntervention?: () => void;
   /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal) ; `null` : la carte dérivée dit « inconnue ». */
   ouvertureCreeeLe?: string | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48) qui a ouvert l'événement ; `undefined` : réponse d'avant (rien n'est écrit). */
+  ouvreur?: OuvreurEvenement | null;
   /** 🔴 POINT 10 — cette carte n'est plus à sa place chronologique : sa ligne « créée le » passe à l'orange. */
   horsChronologie?: boolean;
   /** L'identifiant de la carte actuellement saisie au clic maintenu, ou `null`. */
@@ -1365,6 +1372,11 @@ function Carre({
           * « date de création inconnue », en gris : rien n'est inventé.
           */}
         <LigneCreation creation={mentionCreation(ouvertureCreeeLe)} />
+        {/* 🔴🔴 (Arno, 27/11/2026, 09h48) « le nom de celui ou celle qui a ouvert l'événement doit être écrit sous le bloc d'ouverture avec la date
+            d'ouverture » — « Ouvert par Prénom NOM le JJ/MM/AAAA » ; le lien « Ajouter une carte RDV intervention » reste au-dessus, inchangé */}
+        {ouvreur !== undefined && (
+          <p className="fav-ouvert-par" data-ouvert-par={ouvreur?.sorte ?? 'non_renseigne'}>
+            {texteOuvertureFrise(ouvreur, c.survenuLe.slice(0, 10).split('-').reverse().join('/'))}</p>)}
         {/**
           * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 8 — ET POURQUOI CETTE CARTE-CI N'A PAS LA RANGÉE
           *
@@ -2534,6 +2546,7 @@ function AjouterEtape({
 const CSS_FRISE_AVANCEMENT = `
 .fav-aide-ouverture{margin:4px 0 0;max-width:150px;font-size:.72rem;line-height:1.35;color:var(--color-svv-muted);text-align:center;overflow-wrap:anywhere}
 .fav-aide-ouverture .fav-lien{font-size:.72rem;min-height:32px}
+.fav-ouvert-par{margin:4px 0 0;max-width:150px;font-size:.72rem;line-height:1.35;font-weight:700;color:var(--color-svv-ink);text-align:center;overflow-wrap:anywhere}
 .fav{margin:0}
 
 /* Le cadre porte les fleches ; la piste defile sous elles. */
