@@ -1475,9 +1475,23 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Écrans d'historique de bien : Gestion › Annuaire (fiche bien, propriétaire, locataire) — avait déjà l'écriture ; Location › bien / propriétaire /
   locataire (même composant) — ne l'avait PAS, l'a ; Location › sortie des locataires (historique du logement) — ne l'avait PAS, l'a.
 
+### ✅ 27/11/2026, 20h37-20h53 — MISE EN PRODUCTION TERMINÉE (lancée par Arno)
+- Sauvegarde : `/home/ubuntu/sauvegardes/2026-11-27_2037`. `3-essai.sh` : ESSAI RÉUSSI. `4-appliquer.sh` : « MISE À JOUR RÉUSSIE — 568344f0 en
+  service », 0 migration (attendu 0). `5-verifier.sh` : « ÉTAPE E RÉUSSIE » — services actifs, aucune erreur, verrou 520 en place, « Écrire un
+  mail » et « Ouvert par » dans les fichiers servis.
+- Partis avec elle : les lots du 27/11/2026 (`4cddd862` → `568344f0` : « ouvert par » des événements, retrait du lien RDV intervention, plus
+  d'événement sans auteur, fenêtre des collègues, « Écrire un mail » depuis chaque historique de bien en Gestion et en Location).
+- Scripts `.captures/maj/1` à `6` calés sur `568344f0` (anciens dans `.captures/maj/avant-568344f0/`) : à recaler avant la prochaine mise en production.
+
+### 27/11/2026 — contrôle Monga en production (lecture seule, `0-controles-monga-lecture-seule.sh`)
+- **32 événements, dont 5 seulement reliés à une référence Monga** ; **42 références MNG- reçues sans aucun événement**, leurs mails restés
+  « À classer » (ni lien Monga, ni rattachement à un événement). Monga EST utilisé (constat Gmail : ~17 références sur 60 jours) : ce qui manque,
+  c'est le classement des mails Monga dans un événement. Requêtes : `.captures/controles-monga/monga-lecture-seule.sql`. Rien de corrigé : à
+  décider par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `1c40ed6c`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; 519 inutilisé, la 361 prendra la 521). En attente
-de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759`, `44c08532`, `93cef884`, `7b5715a6` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
+**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). Rien en
+attente de mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
