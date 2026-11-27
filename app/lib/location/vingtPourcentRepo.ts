@@ -176,22 +176,27 @@ async function contactsDesSorties(sorties: readonly { sortieId: number; lotId: n
         AND c.sorte IN ('telephone', 'email') AND c.absent_le IS NULL${vivante} ORDER BY c.rang, c.id`,
     [[...new Set(locs.map((x) => Number(x.id)))], [...new Set(pros.map((x) => Number(x.id)))]]);
   const premier = (sujet: string, id: string, sorte: string) => co.find((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === sorte && ((c.brute ?? c.valeur ?? '').trim() !== ''));
-  const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string, civilite: string | null = null, famille: string | null = null, adresse: string | null = null): PersonneContact => {
+  const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string, civilite: string | null = null, famille: string | null = null, adresse: string | null = null,
+    separes: { prenom: string | null; nom: string | null } = { prenom: null, nom: null }): PersonneContact => {
     const e = premier(sujet, id, 'email'); const t = premier(sujet, id, 'telephone');
+    // 🔴🔴 (Arno, 27/11/2026, 22h17) « le ou les téléphones » : TOUS, dans l'ordre de la fiche
+    const telephones = co.filter((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === 'telephone' && (c.brute ?? c.valeur ?? '').trim() !== '')
+      .map((c) => ({ affiche: formaterTelephone(c.valeur, c.brute), lien: `tel:${(c.valeur ?? c.brute ?? '').replace(/[^\d+]/g, '')}` })).filter((x) => x.affiche !== '');
     const affiche = t === undefined ? '' : formaterTelephone(t.valeur, t.brute);
     // 🔴 (Arno, 25/11/2026) « Envoyer un mail » : TOUTES les adresses encore valables (le contrôle « un mail par locataire » les reconnaît toutes)
     const emails = [...new Set(co.filter((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === 'email').map((c) => (c.brute ?? c.valeur ?? '').trim()).filter((x) => x !== ''))];
     // 🔴 (Arno, 25/11/2026) « civilité Prénom NOM » pour le mail au syndic : seulement une civilité de PERSONNE (M., Mme, Mlle, M. et Mme)
     const civ = civilite !== null && /^(M\.|Mme|Mlle|M\. et Mme|Mme et M\.)$/.test(civilite) ? civilite : null;
     return { nom, ...(sujet === 'proprietaire' ? { nomCivil: civ !== null && nom !== '—' ? `${civ} ${nom}` : nom } : {}), civilite: civ, nomFamille: famille, adresse, emails, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
-      telephone: t === undefined || affiche === '' ? null : { affiche, lien: `tel:${(t.valeur ?? t.brute ?? '').replace(/[^\d+]/g, '')}` } };
+      telephone: t === undefined || affiche === '' ? null : { affiche, lien: `tel:${(t.valeur ?? t.brute ?? '').replace(/[^\d+]/g, '')}` },
+      prenom: separes.prenom, nomSepare: (separes.nom ?? '').trim() || null, telephones };
   };
   const nomDe = (prenom: string | null, nom: string | null, complet?: string | null): string =>
     (prenom !== null && (nom ?? '').trim() !== '' ? `${prenom} ${(nom ?? '').trim()}` : (complet ?? nom ?? '').trim()) || '—';
   for (const s of sorties) {
     out.set(s.sortieId, {
-      locataires: locs.filter((l) => Number(l.sortie) === s.sortieId).map((l) => personne('locataire', l.id, nomDe(l.prenom, l.nom), l.civilite, nomDeFamille(l.prenom, l.nom), l.adresse)),
-      proprietaires: pros.filter((p) => Number(p.lot) === s.lotId).map((p) => personne('proprietaire', p.id, nomDe(p.prenom, p.nom, p.complet), p.civilite, nomDeFamille(p.prenom, p.nom), p.adresse)),
+      locataires: locs.filter((l) => Number(l.sortie) === s.sortieId).map((l) => personne('locataire', l.id, nomDe(l.prenom, l.nom), l.civilite, nomDeFamille(l.prenom, l.nom), l.adresse, { prenom: l.prenom, nom: l.nom })),
+      proprietaires: pros.filter((p) => Number(p.lot) === s.lotId).map((p) => personne('proprietaire', p.id, nomDe(p.prenom, p.nom, p.complet), p.civilite, nomDeFamille(p.prenom, p.nom), p.adresse, { prenom: p.prenom, nom: p.nom })),
     });
   }
   return out;

@@ -424,3 +424,29 @@ describe('🔴🔴 verifierMontantVingt', () => {
     expect(estMotifMontantVingt('Autre refus.')).toBe(false);
   });
 });
+
+// ══ 🔴🔴 Arno (27/11/2026, 22h17) — « le nom (en majuscules) et le prénom (première lettre en majuscule, les autres en minuscules) » ══
+describe('🔴 22h17 — les coordonnées de la ligne dépliée : « NOM Prénom », tous les téléphones, tous les mails', async () => {
+  const { coordonneesDuContact, nomContactAffiche, nomEnMajuscules, prenomCapitalise } = await import('./vingtPourcent');
+  it('NOM en majuscules (accents gardés), Prénom capitalisé (composés et doubles prénoms respectés)', () => {
+    expect(nomEnMajuscules(' benoît  de la tour ')).toBe('BENOÎT DE LA TOUR');
+    expect(prenomCapitalise('JEAN-BAPTISTE')).toBe('Jean-Baptiste');
+    expect(prenomCapitalise('marie claire')).toBe('Marie Claire');
+    expect(prenomCapitalise('éLODIE')).toBe('Élodie');
+    expect(prenomCapitalise('anne-marie josé')).toBe('Anne-Marie José');
+  });
+  it('champs nom ET prénom séparés → « NOM Prénom » ; sinon le nom TEL QU’IL EST ENREGISTRÉ (société, représentant, fiche sans prénom : aucune devinette)', () => {
+    expect(nomContactAffiche({ nom: 'Sarah Benoît', prenom: 'sarah', nomSepare: 'Benoît' })).toBe('BENOÎT Sarah');
+    expect(nomContactAffiche({ nom: 'Jean-Baptiste PONS', prenom: 'JEAN-BAPTISTE', nomSepare: 'pons' })).toBe('PONS Jean-Baptiste');
+    expect(nomContactAffiche({ nom: 'SCI Les Tilleuls', prenom: null, nomSepare: 'SCI Les Tilleuls' })).toBe('SCI Les Tilleuls');
+    expect(nomContactAffiche({ nom: 'M. et Mme Martin', prenom: '', nomSepare: 'Martin' })).toBe('M. et Mme Martin');
+    expect(nomContactAffiche({ nom: 'DUPONT Alice' })).toBe('DUPONT Alice');
+  });
+  it('TOUS les téléphones et TOUS les mails, sans doublon, dans l’ordre de la fiche ; un ancien appel sans la liste : le premier seul', () => {
+    const t1 = { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' }; const t2 = { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' };
+    expect(coordonneesDuContact({ email: 'a@exemple.test', emails: ['a@exemple.test', 'B@exemple.test', 'b@exemple.test'], telephone: t1, telephones: [t1, t2, { ...t1 }] }))
+      .toEqual({ telephones: [t1, t2], emails: ['a@exemple.test', 'B@exemple.test'] });
+    expect(coordonneesDuContact({ email: null, telephone: t1 })).toEqual({ telephones: [t1], emails: [] });
+    expect(coordonneesDuContact({ email: null, telephone: null })).toEqual({ telephones: [], emails: [] });
+  });
+});

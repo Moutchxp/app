@@ -10,7 +10,7 @@ import { CSS_FENETRE_RESTITUTION, FenetreRestitutionVingt } from './FenetreResti
 import type { BrouillonEcran } from '../gestion/Redaction';
 import {
   agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, compteAReboursVingt, locatairesDeLaLigne, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
-  type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
+  coordonneesDuContact, nomContactAffiche, type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
 /**
@@ -236,20 +236,28 @@ export const dejaDit = (texte: string | null | undefined, sur: string | null | u
 function Coordonnees({ c, unSeulLocataire = false, action }: { c: ContactsSortie | undefined; unSeulLocataire?: boolean; action?: ReactNode }) {
   // 🔴 (Arno, 25/11/2026) « Envoyer un mail », aligné à droite sur la ligne « LOCATAIRE / PROPRIÉTAIRE »
   if (c === undefined) return action === undefined ? null : <div className="vgp-coords-ligne"><div className="vgp-coords" />{action}</div>;
-  // 🔴 (Arno, 25/11/2026) « pas de doublon » : un bloc qui ne concerne qu'UN locataire → sa ligne dit seulement « e-mail · téléphone » (son nom est
-  //    déjà sur la ligne repliée) ; plusieurs locataires → « Prénom NOM · e-mail · téléphone » ; les propriétaires, toujours avec leur nom
-  const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires'], sansNom = false) => (
+  // 🔴🔴 (Arno, 27/11/2026, 22h17) « il faut aussi avoir le nom (en majuscules) et le prénom […], avec le ou les téléphones et le ou les mails ; un seul
+  //    locataire ou propriétaire par ligne, on ne mélange pas deux contacts sur une même ligne ; un contact long […] peut occuper plusieurs lignes ; on
+  //    garde la partie gauche locataire et droite propriétaire. » UN BLOC PAR CONTACT : « NOM Prénom » (nomContactAffiche ; sinon le nom tel qu'il est
+  //    enregistré), puis TOUS ses téléphones et TOUS ses mails, cliquables, chacun sur sa ligne. Le nom est toujours dit (remplace la règle du 25/11 qui
+  //    l'omettait pour un locataire seul). Locataires à gauche, propriétaires à droite ; empilés au téléphone.
+  void unSeulLocataire;
+  const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires']) => (
     <div className="vgp-coord" data-vgp-coordonnees={cle}>
       <p className="vgp-coord-titre">{titre}</p>
-      {gens.length === 0 ? <p className="vgp-coord-ligne loc-muet">—</p> : gens.map((g, i) => (
-        <p key={i} className="vgp-coord-ligne" data-vgp-personne>
-          {!sansNom && <><span className="vgp-coord-nom">{g.nom}</span>{' · '}</>}
-          {g.email !== null ? <a href={`mailto:${g.email}`} data-vgp-email>{g.email}</a> : <span className="loc-muet">—</span>}{' · '}
-          {g.telephone !== null ? <a href={g.telephone.lien} data-vgp-telephone>{g.telephone.affiche}</a> : <span className="loc-muet">—</span>}
-        </p>))}
+      {gens.length === 0 ? <p className="vgp-coord-ligne loc-muet">—</p> : gens.map((g, i) => {
+        const k = coordonneesDuContact(g);
+        return (
+          <div key={i} className="vgp-contact" data-vgp-personne>
+            <p className="vgp-coord-ligne vgp-coord-nom" data-vgp-nom>{nomContactAffiche(g)}</p>
+            {k.telephones.map((t) => <p key={t.lien} className="vgp-coord-ligne"><a href={t.lien} data-vgp-telephone>{t.affiche}</a></p>)}
+            {k.emails.map((e) => <p key={e} className="vgp-coord-ligne"><a href={`mailto:${e}`} data-vgp-email>{e}</a></p>)}
+            {k.telephones.length === 0 && k.emails.length === 0 && <p className="vgp-coord-ligne loc-muet" data-vgp-sans-coordonnees>aucun téléphone ni e-mail</p>}
+          </div>);
+      })}
     </div>
   );
-  const coords = <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires, unSeulLocataire && c.locataires.length === 1)}
+  const coords = <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires)}
     {rubrique(c.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire', 'proprietaires', c.proprietaires)}</div>;
   return action === undefined ? coords : <div className="vgp-coords-ligne">{coords}{action}</div>;
 }
@@ -813,6 +821,8 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-coord-ligne{margin:0;font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere;line-height:1.35}
 .vgp-coord-ligne a{color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px}
 .vgp-coord-nom{font-weight:700}
+.vgp-coord .vgp-contact{display:flex;flex-direction:column;gap:1px;min-width:0;padding:3px 0}
+.vgp-coord .vgp-contact + .vgp-contact{border-top:1px solid var(--color-svv-line);margin-top:3px;padding-top:6px}
 .vgp-concerne-texte{min-width:0;overflow-wrap:anywhere;font-size:.88rem;color:var(--color-svv-ink)}
 .vgp-concerne .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}

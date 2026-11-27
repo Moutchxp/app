@@ -163,8 +163,37 @@ export interface PersonneContact { nom: string; email: string | null; telephone:
   nomCivil?: string;
   /** 🔴 (Arno, 25/11/2026, 22h06, mails de restitution) la civilité de personne (« M. », « Mme »…), le NOM de famille, l'adresse postale de la fiche ;
    *  `null` : non renseignés */
-  civilite?: string | null; nomFamille?: string | null; adresse?: string | null }
+  civilite?: string | null; nomFamille?: string | null; adresse?: string | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 22h17) les champs SÉPARÉS de la fiche (prénom, nom) ; absents ou l'un vide : le nom s'affiche TEL QU'IL EST ENREGISTRÉ */
+  prenom?: string | null; nomSepare?: string | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 22h17) TOUS ses téléphones (le premier = `telephone`) ; absent : le seul `telephone` */
+  telephones?: { affiche: string; lien: string }[] }
 export interface ContactsSortie { locataires: PersonneContact[]; proprietaires: PersonneContact[] }
+
+/**
+ * 🔴🔴 Arno (27/11/2026, 22h17) — « le nom (en majuscules) et le prénom (première lettre en majuscule, les autres en minuscules) ». « NOM Prénom » quand
+ * la fiche a ses champs nom ET prénom séparés (accents gardés : « BENOÎT » ; prénoms composés : « Jean-Baptiste », « Marie Claire ») ; sinon le nom
+ * TEL QU'IL EST ENREGISTRÉ (une société, un représentant, une fiche sans prénom : aucune devinette). PUR.
+ */
+export const nomEnMajuscules = (nom: string): string => nom.replace(/\s+/g, ' ').trim().toLocaleUpperCase('fr-FR');
+export function prenomCapitalise(prenom: string): string {
+  return prenom.replace(/\s+/g, ' ').trim().toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s-])(\p{L})/gu, (_t, sep: string, l: string) => `${sep}${l.toLocaleUpperCase('fr-FR')}`);
+}
+export function nomContactAffiche(p: Pick<PersonneContact, 'nom' | 'prenom' | 'nomSepare'>): string {
+  const prenom = (p.prenom ?? '').trim(); const nom = (p.nomSepare ?? '').trim();
+  return prenom !== '' && nom !== '' ? `${nomEnMajuscules(nom)} ${prenomCapitalise(prenom)}` : p.nom;
+}
+/** Tous les téléphones et tous les mails d'un contact, sans doublon, dans l'ordre de la fiche. PUR. */
+export function coordonneesDuContact(p: Pick<PersonneContact, 'email' | 'emails' | 'telephone' | 'telephones'>): { telephones: { affiche: string; lien: string }[]; emails: string[] } {
+  const tels = p.telephones ?? (p.telephone !== null ? [p.telephone] : []);
+  const vus = new Set<string>();
+  const telephones = tels.filter((t) => { const k = t.lien.replace(/[^\d+]/g, ''); if (vus.has(k)) return false; vus.add(k); return true; });
+  const vusE = new Set<string>();
+  const emails = [...(p.email !== null ? [p.email] : []), ...(p.emails ?? [])].map((e) => e.trim())
+    .filter((e) => { const k = e.toLocaleLowerCase('fr-FR'); if (k === '' || vusE.has(k)) return false; vusE.add(k); return true; });
+  return { telephones, emails };
+}
 export interface SuiviVingtLu {
   aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];
   /** 🔴 Arno (24/11/2026) — les restitutions faites (en cours, non annulées) ; absent : base sans la 513 */

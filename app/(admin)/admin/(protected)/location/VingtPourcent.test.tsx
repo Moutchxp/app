@@ -511,6 +511,8 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — aucun doublon', () => {
   });
 });
 
+/** 🔴🔴 (Arno, 27/11/2026, 22h17) un bloc par contact : ses lignes (nom, puis chaque téléphone, puis chaque e-mail). */
+const blocsContacts = (el: Element | null): string[][] => [...(el?.querySelectorAll('[data-vgp-personne]') ?? [])].map((p) => [...p.querySelectorAll('.vgp-coord-ligne')].map((x) => x.textContent ?? ''));
 /** 🔴🔴 Arno (24/11/2026, 23h53) — dans le détail déplié, « Locataire(s) » et « Propriétaire(s) » : « Prénom NOM · e-mail · téléphone », compact, cliquable. */
 describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail', () => {
   const CONTACTS = { locataires: [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
@@ -521,9 +523,8 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail
     const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
     expect(d.querySelector('[data-vgp-coordonnees="locataires"] .vgp-coord-titre')?.textContent).toBe('Locataire');
     expect(d.querySelector('[data-vgp-coordonnees="proprietaires"] .vgp-coord-titre')?.textContent).toBe('Propriétaires');
-    // 🔴 (Arno, 25/11/2026) un seul locataire : son nom est déjà sur la ligne repliée → « e-mail · téléphone » ; les propriétaires gardent leur nom
-    expect([...d.querySelectorAll('[data-vgp-personne]')].map((p) => p.textContent)).toEqual([
-      'alice@exemple.test · 06 12 34 56 78', 'Jean DURAND · — · —', 'SCI Les Tilleuls · sci@exemple.test · —']);
+    // 🔴🔴 (Arno, 27/11/2026, 22h17) un bloc par contact, le nom TOUJOURS (fiche sans champs séparés : tel qu'enregistré), téléphones puis e-mails
+    expect(blocsContacts(d)).toEqual([['Alice DUPONT', '06 12 34 56 78', 'alice@exemple.test'], ['Jean DURAND', 'aucun téléphone ni e-mail'], ['SCI Les Tilleuls', 'sci@exemple.test']]);
     expect(d.querySelector('[data-vgp-email]')?.getAttribute('href')).toBe('mailto:alice@exemple.test');
     expect(d.querySelector('[data-vgp-telephone]')?.getAttribute('href')).toBe('tel:+33612345678');
     // pas de doublon avec la ligne repliée : ni l'adresse, ni l'AG, ni la date limite
@@ -534,8 +535,28 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const r = container.querySelector('[data-vgp-concerne="6"]')!;
     // la sortie 6 a deux colocataires (MARTIN Paul, MARTIN Léa) : le nom reste
-    expect(r.querySelector('[data-vgp-personne]')?.textContent).toBe('Paul MARTIN · — · 06 00 00 00 00');
+    expect(blocsContacts(r)).toEqual([['Paul MARTIN', '06 00 00 00 00']]); // 🔴 (27/11/2026, 22h17) un bloc par contact
     expect(r.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toBe('Propriétaire—');
+  });
+});
+
+describe('🔴🔴 Arno (27/11/2026, 22h17) — un bloc par contact : « NOM Prénom », tous ses téléphones, tous ses mails ; gauche locataires, droite propriétaires', () => {
+  const t = (n: string) => ({ affiche: n, lien: `tel:${n.replace(/\s/g, '')}` });
+  it('deux locataires (champs séparés), un propriétaire société : jamais deux contacts sur une ligne ; chaque téléphone et chaque mail sur sa ligne, cliquables', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], locataires: ['BENOÎT Sarah', 'PONS Jean-Baptiste'], contacts: {
+      locataires: [
+        { nom: 'Sarah BENOÎT', prenom: 'SARAH', nomSepare: 'benoît', email: 's1@exemple.test', emails: ['s1@exemple.test', 's2@exemple.test'], telephone: t('06 11 11 11 11'), telephones: [t('06 11 11 11 11'), t('01 22 22 22 22')] },
+        { nom: 'Jean-Baptiste PONS', prenom: 'jean-baptiste', nomSepare: 'Pons', email: null, emails: [], telephone: t('07 33 33 33 33'), telephones: [t('07 33 33 33 33')] }],
+      proprietaires: [{ nom: 'SCI LES TILLEULS (représentée par M. Durand)', prenom: null, nomSepare: 'SCI LES TILLEULS', email: 'sci@exemple.test', emails: ['sci@exemple.test'], telephone: null, telephones: [] }] } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
+    expect(blocsContacts(d.querySelector('[data-vgp-coordonnees="locataires"]'))).toEqual([
+      ['BENOÎT Sarah', '06 11 11 11 11', '01 22 22 22 22', 's1@exemple.test', 's2@exemple.test'], ['PONS Jean-Baptiste', '07 33 33 33 33']]);
+    expect(blocsContacts(d.querySelector('[data-vgp-coordonnees="proprietaires"]'))).toEqual([['SCI LES TILLEULS (représentée par M. Durand)', 'sci@exemple.test']]);
+    expect([...d.querySelectorAll('[data-vgp-coordonnees="locataires"] [data-vgp-email]')].map((a) => a.getAttribute('href'))).toEqual(['mailto:s1@exemple.test', 'mailto:s2@exemple.test']);
+    expect([...d.querySelectorAll('[data-vgp-coordonnees="locataires"] [data-vgp-telephone]')].map((a) => a.getAttribute('href'))).toEqual(['tel:0611111111', 'tel:0122222222', 'tel:0733333333']);
+    // gauche : locataires, droite : propriétaires (dans cet ordre dans la grille, empilés au téléphone)
+    expect([...d.querySelectorAll('.vgp-coords > [data-vgp-coordonnees]')].map((x) => x.getAttribute('data-vgp-coordonnees'))).toEqual(['locataires', 'proprietaires']);
   });
 });
 
@@ -572,29 +593,30 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
   });
 });
 
-/** 🔴 Arno (25/11/2026) — « pas de doublon » : UN locataire → « e-mail · téléphone » ; plusieurs → « Prénom NOM · e-mail · téléphone » ; propriétaires inchangés. */
-describe('🔴 Arno (25/11/2026) — le nom du locataire seulement s’ils sont plusieurs', () => {
+/** 🔴🔴 Arno (27/11/2026, 22h17) — « il faut aussi avoir le nom » : il est TOUJOURS dit, un seul locataire compris (remplace la règle du 25/11/2026, qui
+ *  l'omettait pour un locataire seul) ; un contact par bloc, jamais deux sur une ligne. */
+describe('🔴 Arno (27/11/2026, 22h17) — le nom de chaque contact, toujours, un bloc chacun', () => {
   const P = (nom: string) => ({ nom, email: `${nom.split(' ')[0].toLowerCase()}@exemple.test`, telephone: null });
-  it('ligne datée : un locataire sans nom ; deux colocataires avec leurs noms ; le propriétaire toujours nommé', async () => {
+  it('ligne datée : un locataire avec son nom ; deux colocataires, deux blocs ; le propriétaire nommé', async () => {
     donnees = { ...LU, lignes: [
       { ...LU.lignes[0], contacts: { locataires: [P('Alice DUPONT')], proprietaires: [P('Jean DURAND')] } },
       { ...LU.lignes[0], sortieId: 15, locataires: ['MARTIN Paul', 'MARTIN Léa'], contacts: { locataires: [P('Paul MARTIN'), P('Léa MARTIN')], proprietaires: [] } }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    const lignes = (id: number) => [...container.querySelectorAll(`[data-vgp-sortie="${id}"] [data-vgp-personne]`)].map((p) => p.textContent);
-    expect(lignes(5)).toEqual(['alice@exemple.test · —', 'Jean DURAND · jean@exemple.test · —']);
-    expect(lignes(15)).toEqual(['Paul MARTIN · paul@exemple.test · —', 'Léa MARTIN · léa@exemple.test · —']);
+    const lignes = (id: number) => blocsContacts(container.querySelector(`[data-vgp-sortie="${id}"]`));
+    expect(lignes(5)).toEqual([['Alice DUPONT', 'alice@exemple.test'], ['Jean DURAND', 'jean@exemple.test']]);
+    expect(lignes(15)).toEqual([['Paul MARTIN', 'paul@exemple.test'], ['Léa MARTIN', 'léa@exemple.test']]);
   });
-  it('« Dates / copropriétés manquantes » : bloc d’un seul locataire → sans nom ; plusieurs locataires dans le bloc → avec leur nom', async () => {
+  it('« Dates / copropriétés manquantes » : un seul locataire comme plusieurs → chacun son bloc, avec son nom', async () => {
     const MANQ = { cle: 'copro-40', coproprieteId: 40, libelle: '4 rue D', immeuble: '4 rue d', lotId: 40, manque: ['arrete' as const], locataires: ['UN Seul'] };
     const L = (id: number, noms: string[]) => ({ ...LU.lignes[2], sortieId: id, lotId: id, locataires: noms, logement: '4 rue D', cleCopro: 'copro-40',
       copropriete: { id: 40, libelle: '4 rue D', aRattacher: false }, contacts: { locataires: noms.map((n) => P(n)), proprietaires: [] } });
     donnees = { ...LU, manquantes: [MANQ], lignes: [L(41, ['UN Seul'])] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(container.querySelector('[data-vgp-concerne="41"] [data-vgp-personne]')?.textContent).toBe('un@exemple.test · —');
+    expect(blocsContacts(container.querySelector('[data-vgp-concerne="41"]'))).toEqual([['UN Seul', 'un@exemple.test']]);
     act(() => root.unmount()); root = createRoot(container);
     donnees = { ...LU, manquantes: [{ ...MANQ, locataires: ['UN Seul', 'DEUX Autre'] }], lignes: [L(41, ['UN Seul']), L(42, ['DEUX Autre'])] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(container.querySelector('[data-vgp-concerne="42"] [data-vgp-personne]')?.textContent).toBe('DEUX Autre · deux@exemple.test · —');
+    expect(blocsContacts(container.querySelector('[data-vgp-concerne="42"]'))).toEqual([['DEUX Autre', 'deux@exemple.test']]);
   });
 });
 
@@ -2139,8 +2161,8 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » au for
     expect(sortie.className).toBe('vgp-dl vgp-dl-sortie');
     expect(rubriques(sortie)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Dernière AGO', '20 % retenus à la sortie']);
     expect([...sortie.querySelectorAll('dd')].map((x) => x.textContent)).toEqual(['Résidence Les Acacias', '31/03/2026', 'Exercice clos le 30/06/2026', '05/10/2026', '280,00 €']);
-    // un seul locataire : « e-mail · téléphone » (son nom est déjà sur la ligne) ; le propriétaire avec son nom
-    expect(detail.querySelector('[data-vgp-coordonnees="locataires"] [data-vgp-personne]')?.textContent).toBe('a.jorel+locataire-lacroix@sansvisavis.com · —');
+    // 🔴🔴 (Arno, 27/11/2026, 22h17) « Restitutions faites » : le même affichage — un bloc par contact, son nom, ses coordonnées
+    expect(blocsContacts(detail.querySelector('[data-vgp-coordonnees="locataires"]'))).toEqual([['Manon LACROIX', 'a.jorel+locataire-lacroix@sansvisavis.com']]);
     expect(detail.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toContain('François LEFÈVRE');
     const restitution = detail.querySelector('[data-vgp-encadre-restitution]')!;
     expect(restitution.querySelector('.vgp-coord-titre')?.textContent).toBe('Restitution');

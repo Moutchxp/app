@@ -106,11 +106,15 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
     // 🔴 (25/11/2026, 22h06) + civilité, NOM de famille, adresse (mails de restitution)
     expect(a.contacts).toEqual({
       // 🔴 (Arno, 25/11/2026) + `emails` : toutes les adresses valables (« Envoyer un mail »), la première restant `email`
-      locataires: [{ nom: 'Alice DUPONT', civilite: null, nomFamille: 'DUPONT', adresse: null, emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
+      // 🔴🔴 (Arno, 27/11/2026, 22h17) + `prenom` / `nomSepare` (les champs séparés de la fiche) et `telephones` (tous)
+      locataires: [{ nom: 'Alice DUPONT', civilite: null, nomFamille: 'DUPONT', adresse: null, emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' },
+        prenom: 'Alice', nomSepare: 'DUPONT', telephones: [{ affiche: '06 12 34 56 78', lien: 'tel:+33612345678' }] }],
       // 🔴 (Arno, 25/11/2026) + `nomCivil` : la civilité de PERSONNE devant le nom (« M. Jean DURAND ») ; une société garde son nom seul
-      proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', civilite: 'M.', nomFamille: 'DURAND', adresse: null, emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', nomCivil: 'SCI Les Tilleuls', civilite: null, nomFamille: 'SCI', adresse: null, emails: [], email: null, telephone: null }],
+      proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', civilite: 'M.', nomFamille: 'DURAND', adresse: null, emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' },
+        prenom: 'Jean', nomSepare: 'DURAND', telephones: [{ affiche: '01 45 67 89 01', lien: 'tel:+33145678901' }] },
+        { nom: 'SCI Les Tilleuls', nomCivil: 'SCI Les Tilleuls', civilite: null, nomFamille: 'SCI', adresse: null, emails: [], email: null, telephone: null, prenom: null, nomSepare: 'SCI', telephones: [] }],
     });
-    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', civilite: null, nomFamille: 'MARTIN', adresse: null, emails: [], email: null, telephone: null }], proprietaires: [] });
+    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', civilite: null, nomFamille: 'MARTIN', adresse: null, emails: [], email: null, telephone: null, prenom: null, nomSepare: 'MARTIN', telephones: [] }], proprietaires: [] });
     expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
   });
 });
