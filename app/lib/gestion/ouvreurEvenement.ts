@@ -56,17 +56,15 @@ export const OUVREUR_TOUS = 'ouvert-tous';
 export const cleFiltreOuvreur = (o: Pick<OuvreurEvenement, 'cle'>): string => `ouvert:${o.cle}`;
 export const estCleOuvreur = (cle: string): boolean => cle.startsWith('ouvert:');
 
-/** Les boutons : un par utilisateur ayant ouvert au moins un événement (par nom), puis « Automatique » et « Non renseigné ». PUR. */
+/** Les boutons : un par utilisateur ayant ouvert au moins un événement (par nom). 🔴🔴 (Arno, 27/11/2026, 11h01) « Automatique » et « Non
+ *  renseigné » ne sont plus des choix du filtre : aucun événement ne peut s'ouvrir sans utilisateur (point 0). PUR. */
 export function boutonsOuvreurs(ouvreurs: readonly (OuvreurEvenement | null | undefined)[]): { cle: string; mot: string; n: number }[] {
   const parCle = new Map<string, { cle: string; mot: string; n: number }>();
-  let auto = 0; let nr = 0;
   for (const o of ouvreurs) {
-    if (o === null || o === undefined || o.sorte === 'non_renseigne') { nr += 1; continue; }
-    if (o.sorte === 'automatique') { auto += 1; continue; }
+    if (o === null || o === undefined || o.sorte !== 'utilisateur') continue;
     const k = cleFiltreOuvreur(o);
     const b = parCle.get(k) ?? { cle: k, mot: o.nom, n: 0 };
     b.n += 1; parCle.set(k, b);
   }
-  return [...[...parCle.values()].sort((a, b) => a.mot.localeCompare(b.mot, 'fr', { sensitivity: 'base' })),
-    { cle: 'ouvert:auto', mot: 'Automatique', n: auto }, { cle: 'ouvert:nr', mot: 'Non renseigné', n: nr }];
+  return [...parCle.values()].sort((a, b) => a.mot.localeCompare(b.mot, 'fr', { sensitivity: 'base' }));
 }

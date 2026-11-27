@@ -400,12 +400,11 @@ describe('⚠️ les gardes du lot', () => {
 
 /** 🔴🔴 Arno (27/11/2026, 09h48, point 3) — « trier par événement ouvert par tel ou tel utilisateur » : un ensemble et un bouton par auteur. */
 describe('« OUVERT PAR » : un ensemble par auteur, le chiffre = la longueur de son ensemble', () => {
-  it('utilisateurs (par nom), Automatique, Non renseigné (absent compris)', () => {
+  it('utilisateurs (par nom) — 🔴 (27/11, 11h01) plus d’Automatique ni de Non renseigné', () => {
     const a = { sorte: 'utilisateur' as const, cle: 'u2', nom: 'Arnaud JOREL' };
     const c = { sorte: 'utilisateur' as const, cle: 'u7', nom: 'Claire TEST' };
     const tb = tableauBordEvenements([vide(1, { ouvreur: a }), vide(2, { ouvreur: c }), vide(3, { ouvreur: a }), vide(4, { ouvreur: { sorte: 'automatique', cle: 'auto' } }), vide(5)], [], MAINTENANT);
-    expect(tb.ouvreurs).toEqual([{ cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 }, { cle: 'ouvert:u7', mot: 'Claire TEST', n: 1 },
-      { cle: 'ouvert:auto', mot: 'Automatique', n: 1 }, { cle: 'ouvert:nr', mot: 'Non renseigné', n: 1 }]);
-    expect([tb.idsParFiltre['ouvert:u2'], tb.idsParFiltre['ouvert:u7'], tb.idsParFiltre['ouvert:auto'], tb.idsParFiltre['ouvert:nr']]).toEqual([[1, 3], [2], [4], [5]]);
+    expect(tb.ouvreurs).toEqual([{ cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 }, { cle: 'ouvert:u7', mot: 'Claire TEST', n: 1 }]);
+    expect([tb.idsParFiltre['ouvert:u2'], tb.idsParFiltre['ouvert:u7'], tb.idsParFiltre['ouvert:auto'], tb.idsParFiltre['ouvert:nr']]).toEqual([[1, 3], [2], undefined, undefined]);
   });
 });

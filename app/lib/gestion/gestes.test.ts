@@ -23,8 +23,7 @@ vi.mock('./schema', () => ({
 
 import {
   affecter, changerEtatEvenement, classerSansSuite, deplacerMessage, detacher, estEtat, listerEvenementsOuverts,
-  modifierEvenement, preremplir, remettreMessage, rouvrir, suivreLeMailDeplace, texte,
-} from './gestes';
+  modifierEvenement, preremplir, remettreMessage, rouvrir, suivreLeMailDeplace, texte, deplacerMessageVersNouveau, MOTIF_OUVERTURE_SANS_AUTEUR } from './gestes';
 /* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit la règle et le refus AU MÊME ENDROIT que le dépôt : les recopier
    ici en ferait une seconde vérité, et c'est précisément ce que le lot supprime. */
 import { MOTIF_CLOTURE_PAR_LA_FRISE, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
@@ -537,5 +536,18 @@ describe('la création écrit l’auteur reçu (la session) dans l’événement
     expect((ins[1] as unknown[]).some((x) => x === 99 || x === 'pirate')).toBe(false);
     const j = queryMock.mock.calls.find((c) => typeof c[0] === 'string' && (c[0] as string).includes('INSERT INTO gestion_journal') && (c[1] as unknown[])[2] === 'ouverture')!;
     expect([(j[1] as unknown[])[6], (j[1] as unknown[])[7]]).toEqual([1, 'arno']);
+  });
+});
+
+/** 🔴🔴 Arno (27/11/2026, 11h01) — « si l'anonymat d'un événement n'est plus possible, le supprimer » : jamais un événement sans auteur. */
+describe('ouvrir un événement sans auteur : REFUS clair côté serveur, rien n’est écrit', () => {
+  it('affecter vers un NOUVEL événement et deplacerMessageVersNouveau : refus, aucune requête ; rattacher à un événement EXISTANT reste possible', async () => {
+    queryMock.mockReset(); queryMock.mockResolvedValue({ rows: [] });
+    for (const a of [{ id: null, libelle: 'accès de secours' }, { id: null, libelle: 'inconnu' }, { id: 0, libelle: 'x' }]) {
+      expect(await affecter(5, { nouveau: { objet: 'Fuite' } }, a as never)).toEqual({ ok: false, motif: MOTIF_OUVERTURE_SANS_AUTEUR });
+      expect(await deplacerMessageVersNouveau(61, { objet: 'Fuite' }, a as never)).toEqual({ ok: false, motif: MOTIF_OUVERTURE_SANS_AUTEUR });
+    }
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(MOTIF_OUVERTURE_SANS_AUTEUR).toBe('Un événement ne peut pas être ouvert sans utilisateur connecté : reconnectez-vous, puis recommencez. Rien n’est enregistré.');
   });
 });

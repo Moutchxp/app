@@ -27,11 +27,10 @@ describe('qui a ouvert l’événement : la règle commune', () => {
     expect([texteOuvertureFrise(u, '23/09/2026'), texteOuvertureFrise({ sorte: 'automatique', cle: 'auto' }, '23/09/2026'), texteOuvertureFrise(null, '23/09/2026')])
       .toEqual(['Ouvert par Arnaud JOREL le 23/09/2026', 'Ouvert automatiquement le 23/09/2026', 'Ouvert le 23/09/2026 — par : non renseigné']);
   });
-  it('les boutons du filtre : un par utilisateur (par nom, avec son nombre), puis Automatique et Non renseigné', () => {
+  it('les boutons du filtre : un par utilisateur (par nom, avec son nombre) — 🔴 (27/11, 11h01) plus d’Automatique ni de Non renseigné', () => {
     const a = { sorte: 'utilisateur' as const, cle: 'u2', nom: 'Arnaud JOREL' };
     const c = { sorte: 'utilisateur' as const, cle: 'u7', nom: 'Claire TEST' };
     expect(boutonsOuvreurs([c, a, a, { sorte: 'automatique', cle: 'auto' }, null])).toEqual([
-      { cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 }, { cle: 'ouvert:u7', mot: 'Claire TEST', n: 1 },
-      { cle: 'ouvert:auto', mot: 'Automatique', n: 1 }, { cle: 'ouvert:nr', mot: 'Non renseigné', n: 1 }]);
+      { cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 }, { cle: 'ouvert:u7', mot: 'Claire TEST', n: 1 }]);
   });
 });

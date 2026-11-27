@@ -201,6 +201,8 @@ async function creerEvenementDansTransaction(
    */
   /* 🔴 Arno (23/10/2026, option A) — l'ouverture EST la création : toute date d'ouverture fournie est IGNORÉE, et une date de
      clôture se juge contre le jour de la création. Voir `ouvertureEvenement.ts`. */
+  // 🔴🔴 (Arno, 27/11/2026, 11h01) jamais un événement sans auteur, quelle que soit la porte
+  if (sansAuteur(auteur)) throw new Error(MOTIF_OUVERTURE_SANS_AUTEUR);
   const bornes = bornesEvenement(jourDeCreation(), n.closLe);
   if (bornes.refus !== null) throw new Error(bornes.refus);
   const reference = await prochaineReference(q, anneeParis(new Date())); // année de PARIS, quel que soit le fuseau de la machine
@@ -289,10 +291,19 @@ async function creerEvenementDansTransaction(
   return { id, reference };
 }
 
+/**
+ * 🔴🔴 (Arno, 27/11/2026, 11h01) « si l'anonymat d'un événement n'est plus possible, le supprimer » : un événement ne s'ouvre JAMAIS sans
+ * utilisateur. Les trois portes de création (échange, mail, Monga) passent par une session à compte (exigerCompteActif refuse toute session sans
+ * compte depuis le 15/10/2026) ; ce refus est le verrou de dernier recours, côté serveur.
+ */
+export const MOTIF_OUVERTURE_SANS_AUTEUR = 'Un événement ne peut pas être ouvert sans utilisateur connecté : reconnectez-vous, puis recommencez. Rien n’est enregistré.';
+const sansAuteur = (auteur: Auteur): boolean => auteur.id === null || !Number.isSafeInteger(Number(auteur.id)) || Number(auteur.id) <= 0;
+
 export async function affecter(
   filId: number, cible: { evenementId?: number; nouveau?: NouvelEvenement }, auteur: Auteur, motif?: string | null,
   options?: OptionsGeste,
 ): Promise<Issue> {
+  if (cible.evenementId === undefined && cible.nouveau !== undefined && sansAuteur(auteur)) return { ok: false, motif: MOTIF_OUVERTURE_SANS_AUTEUR };
   // LOT 4c — le titre d'une carte NEUVE naît nettoyé de sa cascade de « Re: / TR: / Fwd: », quelle que soit la voie
   //   d'entrée (panneau, ou appel direct de la route). Les cartes DÉJÀ enregistrées gardent le leur : on ne réécrit
   //   aucune donnée posée, un titre est ce qu'un humain a validé ce jour-là.
@@ -485,6 +496,7 @@ export async function deplacerMessageVersNouveau(
   motif?: string,
   options?: OptionsGeste,
 ): Promise<Issue> {
+  if (sansAuteur(auteur)) return { ok: false, motif: MOTIF_OUVERTURE_SANS_AUTEUR }; // 🔴🔴 (Arno, 27/11/2026, 11h01)
   if (texte(nouveau.objet) === null) {
     return { ok: false, motif: 'Donnez un objet au nouvel événement.' };
   }
