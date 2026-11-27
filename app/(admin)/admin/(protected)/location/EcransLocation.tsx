@@ -8,6 +8,8 @@ import { TableauBordSuivi } from './TableauBordSuivi';
 import { PAGE_PARAMETRES } from './parametresAdresse';
 import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi';
 import { useEffect, useState } from 'react';
+import { useContexteRedaction } from '../gestion/useContexteRedaction';
+import { useEcrireFlottant } from '../gestion/EcrireFlottant';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -195,9 +197,15 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
 /* « Supprimer » = sortir du portefeuille : `BlocSortie` vit désormais dans la FICHE COMMUNE (`gestion/SectionsLocationFiche`),
    section repliable « Location » — règle d'Arno du 17/10/2026, une seule fiche dans l'application. */
 
-/** La fiche d'un syndic dans la Location : les données de la Gestion, en lecture (aucune copie). */
+/** La fiche d'un syndic dans la Location : les données de la Gestion, en lecture (aucune copie).
+ *  🔴🔴 (Arno, 27/11/2026, 22h17) ses e-mails ne sont plus en lecture seule : « Écrire depuis gestion@ » (le module de la boîte Gestion, fenêtre
+ *  flottante) quand le compte a le DROIT D'ENVOI — la règle de 7b5715a6 ; sans lui, l'adresse reste telle quelle. */
 export function FicheSyndicLocationVue({ id }: { id: number }) {
   const { etat } = useLecture<FicheSyndic>(`syndic=${id}`);
+  const ecrire = useEcrireFlottant(useContexteRedaction());
+  const boutonEcrire = (email: string | null | undefined) => (ecrire.onEcrire === undefined || !email || !email.includes('@') ? null
+    : <> <button type="button" className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic" onClick={() => ecrire.onEcrire?.(email.trim(), { syndicId: id, lotId: null })}
+        data-ecrire-syndic={email}>Écrire depuis gestion@</button></>);
   if (etat.etat !== 'ok') {
     return <div className="loc-page"><style>{CSS_LOCATION_ECRANS}</style><EnTeteLocation titre="Syndic" /><EtatLecture etat={etat} /></div>;
   }
@@ -206,13 +214,14 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style>
       <EnTeteLocation titre={s.nom} sous={<span className="loc-pastille">Syndic</span>} />
+      {ecrire.fenetres}
       <section className="loc-bloc">
         <h3>Coordonnées</h3>
         <dl className="loc-grille" style={{ margin: 0 }}>
           {[['Adresse', [s.adresse, [s.codePostal, s.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null],
             ['Téléphone', [s.telephone, s.telephone2].filter((x) => x).join(' · ') || null], ['E-mail', s.email], ['Note', s.note]]
             .map(([mot, val]) => (
-              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
+              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}{mot === 'E-mail' ? boutonEcrire(val) : null}</dd></div>
             ))}
         </dl>
       </section>
@@ -224,6 +233,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
               <li key={c.id}>
                 <span><strong>{[c.civilite, c.prenom, c.nom].filter((x) => x).join(' ') || 'Contact'}</strong>{c.titre ? <span className="loc-muet"> · {c.titre}</span> : null}</span>
                 <span className="loc-muet">{liste(c.coordonnees).map((k) => k.valeur).join(' · ')}</span>
+                {liste(c.coordonnees).filter((k) => k.sorte === 'email').map((k) => <span key={k.id}>{boutonEcrire(k.valeur)}</span>)}
               </li>
             ))}
           </ul>

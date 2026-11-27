@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { ChampNombre } from './ChampNombre';
-import type { MailVingt } from './MailVingtPourcent';
+import { MENTION_ENVOI_NON_AUTORISE, type MailVingt } from './MailVingtPourcent';
 import { brouillonMailSyndic, lignesVersHtml } from '../../../../lib/gestion/mailSyndic';
 import { differenceRestitution, donneesRestitutionDeLaLigne, mailRestitutionLocataire, mailRestitutionPartenaire, verifierDifference } from '../../../../lib/location/mailRestitutionVingt';
 import type { CleRestitutionVingt } from '../../../../lib/location/mailVingtPourcent';
@@ -19,8 +19,10 @@ import { montantEuros, montantFr, origineDite, texteConfirmationRestitution, TIT
  *  d) la VALIDATION : « Vous allez valider la restitution de X € et envoyer N mails à : … », puis confirmation. La restitution est enregistrée D'ABORD ;
  *     chaque mail part ensuite par LA porte d'envoi de la Gestion (gestion@, classement verrouillé sur le bien, marque de la sortie : il rejoint les
  *     échanges de la ligne et l'historique du bien) ; un envoi refusé ou en échec n'annule rien, il est dit, avec « Renvoyer ».
- * Sans droit d'écrire au nom de la Gestion (écran de la Location) : la restitution s'enregistre, les mails ne partent pas (et on le dit).
+ * 🔴🔴 (Arno, 27/11/2026, 22h17) Depuis la Location comme depuis la Gestion, c'est le DROIT D'ENVOI qui décide (7b5715a6). Sans lui : la restitution
+ * s'enregistre, les cases sont désactivées, aucun mail ne part, et on le dit (`MENTION_RESTITUTION_SANS_ENVOI`) ; le serveur refuse aussi.
  */
+export const MENTION_RESTITUTION_SANS_ENVOI = `${MENTION_ENVOI_NON_AUTORISE} : la restitution s’enregistrera sans mail.`;
 
 const API_LOCATION = '/api/admin/location';
 /** 🔴 (Arno, 25/11/2026, 23h42) l'aide sous la note interne de la restitution. */
@@ -45,7 +47,7 @@ function corpsDuMail(m: MailPrevu, texte: string, signature: { texte?: string | 
 
 export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
   l: LigneVingtPourcent; aujourdhui: string;
-  /** le droit d'écrire au nom de la Gestion (absent / `null` : la restitution s'enregistre, aucun mail ne part) */
+  /** le droit d'envoi au nom de gestion@ (absent / `null` : la restitution s'enregistre, aucun mail ne part) — Gestion ET Location */
   mail?: MailVingt | null;
   onFermer: (fait: boolean) => void;
 }) {
@@ -209,7 +211,7 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
                 <span>{x.libelle ? `${x.libelle} — ` : ''}{x.adresse}</span>
               </label>))}
           </fieldset>
-          {!ecrire && <p className="vgp-orange" data-restitution-sans-envoi>Les mails partent depuis l’écran Gestion › « 20 % à restituer » : ici, la restitution s’enregistre sans mail.</p>}
+          {!ecrire && <p className="vgp-orange" role="note" data-restitution-sans-envoi>{MENTION_RESTITUTION_SANS_ENVOI}</p>}
           {aEnvoyer.length > 0 && (
             <div className="vgp-apercus" data-restitution-apercus>
               <p className="vgp-coord-titre">Mails ({aEnvoyer.length}) — texte modifiable avant l’envoi</p>

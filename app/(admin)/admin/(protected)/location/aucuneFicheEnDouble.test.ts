@@ -47,8 +47,10 @@ describe('🔴 aucune fiche propriétaire / locataire / bien en double sous /adm
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/FicheCommune.tsx', 'utf8');
     expect(src).toContain("import { Annuaire } from './Annuaire';");
     // 🔴 Arno (20/11/2026) — + l'emplacement sous l'en-tête du locataire (« Conditions d'entrée et suivi commercial ») ; rédaction toujours nulle.
-    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{redaction\} sansEntete=\{sansBarreAnnuaire\} sousEnteteLocataire=\{sousEnteteLocataire\} \/>/);
+    // 🔴🔴 (Arno, 27/11/2026, 22h17) + les « Écrire » des contacts : le module de gestion@ (useEcrireFlottant), plus le mailto — le droit d'envoi décide
+    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{redaction\} onEcrire=\{ecrire\.onEcrire\} sansEntete=\{sansBarreAnnuaire\} sousEnteteLocataire=\{sousEnteteLocataire\} \/>/);
+    expect(src).toContain('const ecrire = useEcrireFlottant(redaction);');
     expect(src).toContain('const redaction = useContexteRedaction();');
-    expect(src).not.toMatch(/onEcrire=|onOuvrirFil=|onGesteMail=/);
+    expect(src).not.toMatch(/onOuvrirFil=|onGesteMail=/);
   });
 });

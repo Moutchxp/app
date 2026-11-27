@@ -1382,7 +1382,7 @@ describe('🔴🔴 Arno (25/11/2026) — « Envoyer un mail » dans la ligne dé
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: null }));
     const b = ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
-    expect(b.title).toContain('Envoi indisponible');
+    expect(b.title).toContain('Envoi de mails non autorisé pour votre compte'); // 🔴 (Arno, 27/11/2026, 22h17)
   });
   it('arrivée depuis la Location (?vingtMail=5) : la catégorie et la ligne s’ouvrent, module déplié', async () => {
     window.history.replaceState(null, '', '/admin/gestion?ecran=vingt_pourcent&vingtMail=5');
@@ -1396,10 +1396,13 @@ describe('🔴🔴 Arno (25/11/2026) — « Envoyer un mail » dans la ligne dé
   });
   it('la Gestion passe son module d’envoi à l’écran ; le module part avec la marque de la sortie', () => {
     const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
-    expect(g).toContain('mail={redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction,');
+    // 🔴🔴 (Arno, 27/11/2026, 22h17) la Gestion ET la Location passent le module par LA même règle (mailVingtDuContexte) : le droit d'envoi décide
+    expect(g).toContain('mail={mailVingtDuContexte(redaction, (m, o) => {');
     const r = readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8');
     expect(r).toContain('vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId, modele: b.vingtPourcent.modele ?? null } : undefined,');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcentPage.tsx', 'utf8')).not.toContain('mail=');
+    const page = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcentPage.tsx', 'utf8');
+    expect(page).toContain('const redaction = useContexteRedaction();');
+    expect(page).toContain('mail={mailVingtDuContexte(redaction, onGeste)}');
   });
 });
 
@@ -1739,12 +1742,13 @@ describe('🔴 Arno (25/11/2026, 22h06) — la ligne de détail encadrée', () =
 describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montants, mails aux locataires et aux partenaires', () => {
   const envois: Record<string, unknown>[] = []; const gestes: Record<string, unknown>[] = [];
   let echecPartenaire = 0;
+  let droitEnvoi = true;
   const LIGNE_R = { ...LU.lignes[0], lotCle: 'W1', montantVingt: { montant: 400, origine: 'calcule' as const, depot: 2000 }, numLots: ['58'], batiment: 'D', etage: '6', syndic: 'Agence Rivière Copropriétés',
     contacts: { locataires: [{ nom: 'BENOÎT Sarah', email: 'a.jorel+locataire-benoit@sansvisavis.com', telephone: null, civilite: 'Mme', nomFamille: 'BENOÎT', adresse: null },
       { nom: 'SANS Mail', email: null, telephone: null, civilite: null, nomFamille: 'SANS', adresse: null }],
       proprietaires: [{ nom: 'Didier PERRIN', nomCivil: 'M. Didier PERRIN', email: 'a.jorel+proprio-perrin@sansvisavis.com', telephone: null, civilite: 'M.', nomFamille: 'PERRIN', adresse: null }] } };
   beforeEach(() => {
-    envois.length = 0; gestes.length = 0; echecPartenaire = 0;
+    envois.length = 0; gestes.length = 0; echecPartenaire = 0; droitEnvoi = true;
     donnees = { ...LU, restitutionDisponible: true, lignes: [LIGNE_R] };
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       const url = String(u);
@@ -1758,6 +1762,8 @@ describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montan
         gestes.push(b);
         return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response;
       }
+      // 🔴 (Arno, 27/11/2026, 22h17) le contexte d'écriture de la boîte Gestion, lu par la page de la Location (droit d'envoi simulé)
+      if (url.includes('/api/admin/gestion/redaction')) return { ok: true, status: 200, json: async () => ({ ...(CONTEXTE_E as object), peutEnvoyer: droitEnvoi }) } as Response;
       lectures.push(url);
       if (url.includes('partenairesRestitution=1')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { liste: [{ adresse: 'partenaire@exemple.test', libelle: 'ADHOC' }] } }) } as Response;
       return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
@@ -1839,10 +1845,48 @@ describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montan
     expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
     expect(lectures.length).toBeGreaterThan(avant);
   });
-  it('écran de la Location (sans droit d’écrire au nom de la Gestion) : cases grisées, la restitution s’enregistre sans mail, et on le dit', async () => {
+  // ══ 🔴🔴 Arno (27/11/2026, 22h17) — « pourquoi je ne peux pas envoyer de mail ici ? » : depuis la LOCATION, le droit d'envoi décide ══
+  const ouvrirDepuisLaLocation = async () => {
+    const { PageVingtPourcent } = await import('./VingtPourcentPage');
+    await rendre(createElement(PageVingtPourcent));
+    await calmer();
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    await calmer();
+    return container.querySelector('[data-fenetre-restitution="5"]')!;
+  };
+  it('🔴 22h17 — LOCATION avec le droit d’envoi : cases actives, aperçus, puis la restitution (route Location) et UN mail par destinataire par la porte d’envoi de la Gestion', async () => {
+    const f = await ouvrirDepuisLaLocation();
+    expect(f.querySelector('[data-restitution-sans-envoi]')).toBeNull();
+    expect((f.querySelector('[data-restitution-locataire="0"] input') as HTMLInputElement).disabled).toBe(false);
+    expect((f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).disabled).toBe(false);
+    await act(async () => { (f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).click(); });
+    expect(f.querySelectorAll('[data-restitution-apercu]')).toHaveLength(2);
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(gestes.map((g) => g.action)).toEqual(['restitution-20-faite']);
+    expect((global.fetch as unknown as { mock: { calls: [string, RequestInit | undefined][] } }).mock.calls
+      .filter(([, i]) => i?.method === 'POST').map(([u]) => String(u))).toEqual(['/api/admin/location', '/api/admin/gestion/envois', '/api/admin/gestion/envois']);
+    expect(envois.map((e) => [e.a, (e.vingtPourcent as { sortieId: number }).sortieId])).toEqual([[['a.jorel+locataire-benoit@sansvisavis.com'], 5], [['partenaire@exemple.test'], 5]]);
+    // le bouton de la ligne : le module ici même (plus un lien vers la Gestion)
+    expect(container.querySelector('[data-vgp-envoyer-mail]')?.tagName).toBe('BUTTON');
+  });
+  it('🔴 22h17 — LOCATION sans droit d’envoi : la mention, cases désactivées, la restitution s’enregistre, AUCUN envoi', async () => {
+    droitEnvoi = false;
+    const f = await ouvrirDepuisLaLocation();
+    expect(f.querySelector('[data-restitution-sans-envoi]')?.textContent).toBe('Envoi de mails non autorisé pour votre compte : la restitution s’enregistrera sans mail.');
+    expect((f.querySelector('[data-restitution-locataire="0"] input') as HTMLInputElement).disabled).toBe(true);
+    expect((f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).disabled).toBe(true);
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(gestes.map((g) => g.action)).toEqual(['restitution-20-faite']);
+    expect(envois).toEqual([]);
+    const b = container.querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement;
+    expect([b.tagName, b.disabled, b.title.startsWith('Envoi de mails non autorisé pour votre compte')]).toEqual(['BUTTON', true, true]);
+  });
+  it('sans droit d’envoi (Gestion ou Location) : cases grisées, la restitution s’enregistre sans mail, et on le dit (🔴 Arno, 27/11/2026, 22h17)', async () => {
     const f = await ouvrirFenetre(false);
     expect((f.querySelector('[data-restitution-locataire="0"] input') as HTMLInputElement).disabled).toBe(true);
-    expect(f.querySelector('[data-restitution-sans-envoi]')?.textContent).toContain('Les mails partent depuis l’écran Gestion');
+    expect(f.querySelector('[data-restitution-sans-envoi]')?.textContent).toBe('Envoi de mails non autorisé pour votre compte : la restitution s’enregistrera sans mail.');
     expect(f.querySelector('[data-restitution-apercus]')).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useContexteRedaction } from './useContexteRedaction';
+import { useEcrireFlottant } from './EcrireFlottant';
 import { LienRetour, retourVersOrigine } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -77,6 +78,8 @@ export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBa
 }) {
   useContexteLocation();
   const redaction = useContexteRedaction();
+  // 🔴🔴 (Arno, 27/11/2026, 22h17) les « Écrire » des contacts (annuaire, syndic) : le module de gestion@, comme dans la Gestion (avant : mailto)
+  const ecrire = useEcrireFlottant(redaction);
   const router = useRouter();
   const onFiche = useCallback((f: FicheUrl | null) => {
     if (ouvrir !== undefined) { ouvrir(f); return; }
@@ -97,7 +100,8 @@ export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBa
       {/* 🔴🔴 (Arno, 27/11/2026, 12h37) « impossible d'envoyer un mail depuis une page d'historique » : la fiche ouverte depuis la Location a désormais
           le MÊME module d'écriture que la Gestion (avant : redaction={null} et « les mails sont en lecture », décision du 17/10/2026, levée). */}
       <p className="fco-note" role="note">Fiche commune avec la Gestion : écrire, répondre ou transférer un mail se fait ici comme dans la Gestion (depuis gestion@criterimmo.fr).</p>
-      <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={redaction} sansEntete={sansBarreAnnuaire} sousEnteteLocataire={sousEnteteLocataire} />
+      <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={redaction} onEcrire={ecrire.onEcrire} sansEntete={sansBarreAnnuaire} sousEnteteLocataire={sousEnteteLocataire} />
+      {ecrire.fenetres}
     </div>
   );
 }

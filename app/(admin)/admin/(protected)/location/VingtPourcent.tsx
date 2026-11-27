@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useId, useState, type ReactNode }
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
-import { brouillonReponseDeLaLigne, ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
+import { brouillonReponseDeLaLigne, MENTION_ENVOI_NON_AUTORISE, ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
 import { EchangesLigne } from './EchangesVingt';
 import { CSS_FENETRE_RESTITUTION, FenetreRestitutionVingt } from './FenetreRestitutionVingt';
 import type { BrouillonEcran } from '../gestion/Redaction';
@@ -439,7 +439,7 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
     ? <a className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" href={lienMailGestion(l.sortieId)} data-vgp-envoyer-mail={l.sortieId}
       title="Ouvre cette ligne sur l’écran Gestion › « 20 % à restituer », module d’envoi déplié">Envoyer un mail</a>
     : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" data-vgp-envoyer-mail={l.sortieId} aria-expanded={mailOuvert}
-      disabled={mail === null} title={mail === null ? 'Envoi indisponible : droit d’envoi au nom de la Gestion ou mise à jour de la base manquant' : undefined}
+      disabled={mail === null} title={mail === null ? `${MENTION_ENVOI_NON_AUTORISE} (ou mise à jour de la base manquante).` : undefined}
       onClick={() => { if (mailOuvert) setFermetureMail((n) => n + 1); else { setReponse(null); setMailOuvert(true); } }}>Envoyer un mail</button>;
   const detailId = useId();
   const s = l.suivi;

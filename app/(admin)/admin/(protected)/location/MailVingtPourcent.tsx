@@ -17,13 +17,24 @@ import { ListeChoix } from './ListeChoix';
  * ligne dépliée ». C'est `Redaction`, monté comme le « Nouveau message » de l'historique d'un bien sur sa fiche (Gestion) : brouillon neuf
  * (`preparerBrouillon`), le bien pré-coché et ses adresses proposées en couleurs (`brouillonNouveauDepuisLeBien` : clients du bien, contacts du syndic
  * de la copropriété, contacts de l'immeuble — mêmes pastilles qu'ailleurs), la saisie libre d'une adresse comme partout.
- * Décisions d'Arno du 25/11/2026 : seulement côté Gestion (1A : la Location n'envoie pas, garde-fou inchangé) ; un module par locataire, contrôle à
+ * Décisions d'Arno du 25/11/2026 : un module par locataire, contrôle à
  * l'écran (l'avertissement ci-dessous) ET au serveur (la marque `vingtPourcent`, relue par la route d'envoi).
  */
 
 export type GesteMail = (message: string, options?: { rechargerTout?: boolean }) => void;
 /** Ce que la Gestion passe à l'écran pour que l'on puisse écrire (absent : la Location ; `null` : la Gestion sans droit d'envoi). */
 export interface MailVingt { contexte: ContexteRedactionEcran; onGeste?: GesteMail }
+
+/**
+ * 🔴🔴 (Arno, 27/11/2026, 22h17) — LA RÈGLE DE 7b5715a6 : c'est le DROIT D'ENVOI qui décide, pas la tuile. Le même calcul pour la Gestion et la Location :
+ * contexte d'écriture lu, base à jour, droit d'envoi au nom de gestion@ (administrateur : toujours ; collègue : accès Gestion + droit d'envoi) → on
+ * écrit ; sinon `null` (« Envoi de mails non autorisé pour votre compte »). Le serveur relit ce droit à chaque envoi. PUR.
+ */
+export function mailVingtDuContexte(redaction: ContexteRedactionEcran | null, onGeste?: GesteMail): MailVingt | null {
+  return redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction, ...(onGeste ? { onGeste } : {}) } : null;
+}
+/** La mention, sans droit d'envoi (fenêtre de restitution, bouton de la ligne). */
+export const MENTION_ENVOI_NON_AUTORISE = 'Envoi de mails non autorisé pour votre compte';
 
 /** Les adresses de chaque locataire de la ligne (toutes, sinon la première). PUR. */
 export const adressesDesLocataires = (l: Pick<LigneVingtPourcent, 'contacts'>): string[][] =>

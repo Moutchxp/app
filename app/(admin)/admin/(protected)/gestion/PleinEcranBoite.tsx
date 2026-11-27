@@ -12,6 +12,7 @@ import { Brouillons } from './Brouillons';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 // LOT REDACTION-GMAIL — les fenêtres flottantes qui encadrent CE MÊME éditeur (jamais un second).
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
+import { brouillonAdresse } from './EcrireFlottant';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { preremplirDemande, type DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
 import { detailAPreparer, pastilleVingt } from '../../../../lib/location/vingtPourcent';
@@ -439,11 +440,8 @@ export function PleinEcranBoite({
     const email = typeof ecrireA === 'string' ? ecrireA : ecrireA.email;
     if (email === '') return;
     if (!(redaction?.schemaPret && redaction.peutEnvoyer)) { onEcrireAConsomme?.(); return; }
-    const adresse: BrouillonEcran = {
-      ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
-      a: [email],
-      id: null,
-    };
+    // 🔴 (Arno, 27/11/2026, 22h17) le « Nouveau message » pré-adressé, partagé avec les fiches de la Location (EcrireFlottant)
+    const adresse: BrouillonEcran = brouillonAdresse(email, redaction);
     onEcrireAConsomme?.();
     if (typeof ecrireA === 'string') { ouvrirRedaction(`nouveau:${email}`, adresse); return; }
     /**

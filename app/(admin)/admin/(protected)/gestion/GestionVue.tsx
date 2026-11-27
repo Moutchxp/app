@@ -35,6 +35,7 @@ import { TableauBordEvenements } from './TableauBordEvenements';
 import { TableauTaches } from './TableauTaches';
 import { BlocPreavisAccueil } from '../location/PreavisAccueil';
 import { EcranVingtPourcent } from '../location/VingtPourcent';
+import { mailVingtDuContexte } from '../location/MailVingtPourcent';
 import { API_PREAVIS_GESTION, usePreavisEnAlerte } from '../location/preavisSynchro';
 import { usePastillesVingt } from '../location/BoutonVingtPourcent';
 /* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
@@ -1509,7 +1510,7 @@ export function GestionVue({ intro, location = false }: {
         <div className="pe pe-vingt-pourcent" data-ecran-gestion-vingt-pourcent>
           {/* 🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module d'envoi de la Gestion (absent tant que le contexte n'est pas lu ou sans droit d'envoi) */}
           <EcranVingtPourcent api={API_PREAVIS_GESTION}
-            mail={redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction, onGeste: (m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); } } : null}
+            mail={mailVingtDuContexte(redaction, (m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); })}
             retour={<p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button></p>} />
         </div>
       ) : ecran === 'syndics' ? (
