@@ -181,3 +181,33 @@ export function donneesRestitutionDeLaLigne(l: LigneVingtPourcent, s: { montantV
     montantVingt: s.montantVingt, montantRestitue: s.montantRestitue, motif: s.motif, dateValidation: s.dateValidation,
   };
 }
+
+// ══ 🔴🔴 Arno (27/11/2026, 22h17) — « je veux aussi pouvoir ajouter une adresse mail libre si je veux » ═══════════════════════════════════════════════
+/**
+ * L'ADRESSE LIBRE de la fenêtre « Restitution faite » (sous PARTENAIRES, plusieurs possibles) : une adresse au format vérifié, jamais en double (ni
+ * avec une autre adresse libre, ni avec un partenaire ou un locataire de la fenêtre : un seul mail par adresse), un nom facultatif. Chacune reçoit SON
+ * mail (un destinataire par mail), modèle « Partenaire » par défaut, ou « Locataire ». Elle n'entre PAS dans la liste des Paramètres. PUR.
+ */
+export type ModeleAdresseLibre = 'partenaire' | 'locataire';
+export const MAX_ADRESSES_LIBRES = 10;
+export const MOTIF_ADRESSE_LIBRE_VIDE = 'Indiquez l’adresse e-mail (ou retirez la ligne).';
+export const MOTIF_ADRESSE_LIBRE_FORMAT = 'Adresse e-mail invalide (exemple : nom@domaine.fr).';
+export const MOTIF_ADRESSE_LIBRE_DOUBLON = 'Cette adresse est déjà dans la fenêtre : un seul mail par adresse.';
+const cleAdresse = (a: string): string => a.trim().toLocaleLowerCase('fr-FR');
+const FORMAT_ADRESSE = /^[^\s@<>(),;:"[\]]+@[^\s@<>(),;:"[\]]+\.[^\s@<>(),;:"[\].]{2,}$/;
+
+/** L'adresse libre jugée : vide, mal formée, ou déjà présente (`autres` : les autres adresses de la fenêtre). PUR. */
+export function verifierAdresseLibre(adresse: string, autres: readonly (string | null | undefined)[]): { ok: true; adresse: string } | { ok: false; motif: string } {
+  const a = (adresse ?? '').trim();
+  if (a === '') return { ok: false, motif: MOTIF_ADRESSE_LIBRE_VIDE };
+  if (a.length > 254 || !FORMAT_ADRESSE.test(a)) return { ok: false, motif: MOTIF_ADRESSE_LIBRE_FORMAT };
+  if (autres.some((x) => typeof x === 'string' && cleAdresse(x) === cleAdresse(a))) return { ok: false, motif: MOTIF_ADRESSE_LIBRE_DOUBLON };
+  return { ok: true, adresse: a };
+}
+
+/** Le mail d'une adresse libre : celui du partenaire, ou celui d'un locataire (salutation « Madame, Monsieur » : rien n'est deviné). PUR. */
+export function mailAdresseLibre(d: DonneesRestitution, x: { adresse: string; nom: string | null; modele: ModeleAdresseLibre }): { objet: string; texte: string; html: string | null } {
+  if (x.modele === 'partenaire') return mailRestitutionPartenaire(d);
+  const m = mailRestitutionLocataire(d, { civilite: null, nom: present(x.nom) ? x.nom.trim() : x.adresse, nomFamille: null, telephone: null, email: x.adresse, adresse: null });
+  return { ...m, html: null };
+}

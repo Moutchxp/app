@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appellation, differenceRestitution, mailRestitutionLocataire, mailRestitutionPartenaire, nouvelleAdresse, rubriquesPartenaire, verifierDifference, type DonneesRestitution } from './mailRestitutionVingt';
+import { appellation, differenceRestitution, mailAdresseLibre, MOTIF_ADRESSE_LIBRE_DOUBLON, MOTIF_ADRESSE_LIBRE_FORMAT, MOTIF_ADRESSE_LIBRE_VIDE, verifierAdresseLibre, mailRestitutionLocataire, mailRestitutionPartenaire, nouvelleAdresse, rubriquesPartenaire, verifierDifference, type DonneesRestitution } from './mailRestitutionVingt';
 
 /** 🔴🔴 Arno (25/11/2026, 22h06) — les deux modèles de la restitution des 20 % : remplis avec les vraies données, ligne absente si la donnée manque, sans répétition. */
 const SARAH = { civilite: 'Mme', nom: 'BENOÎT Sarah', nomFamille: 'BENOÎT', telephone: '06 12 34 56 78', email: 'a.jorel+locataire-benoit@sansvisavis.com', adresse: '8 rue des Lilas, 92150 Suresnes' };
@@ -80,5 +80,28 @@ describe('les règles', () => {
     expect([appellation('Mme'), appellation('M.'), appellation('Mlle'), appellation(null), appellation('SCI')]).toEqual(['Madame', 'Monsieur', 'Mademoiselle', null, null]);
     expect(nouvelleAdresse({ adresse: '63 rue de la Convention' }, '63 rue de la Convention, 75015 Paris')).toBeNull();
     expect(nouvelleAdresse({ adresse: '8 rue des Lilas, 92150 Suresnes' }, '63 rue de la Convention, 75015 Paris')).toBe('8 rue des Lilas, 92150 Suresnes');
+  });
+});
+
+describe('🔴🔴 Arno (27/11/2026, 22h17) — l’adresse libre de « Restitution faite »', () => {
+  it('format vérifié : vide, sans @, sans domaine, avec espace, deux adresses collées → refusées ; une adresse ordinaire → gardée, sans espaces autour', () => {
+    expect(verifierAdresseLibre('  ', [])).toEqual({ ok: false, motif: MOTIF_ADRESSE_LIBRE_VIDE });
+    for (const x of ['pas-une-adresse', 'nom@', 'nom@domaine', 'nom @domaine.fr', 'a@b.fr, c@d.fr', 'a@b.fr;c@d.fr', '<a@b.fr>', 'nom@domaine.f']) {
+      expect(verifierAdresseLibre(x, []), x).toEqual({ ok: false, motif: MOTIF_ADRESSE_LIBRE_FORMAT });
+    }
+    expect(verifierAdresseLibre('  Jean.Dupont+agence@cabinet-test.fr ', [])).toEqual({ ok: true, adresse: 'Jean.Dupont+agence@cabinet-test.fr' });
+  });
+  it('doublon refusé, sans tenir compte de la casse ni des espaces : avec un partenaire, un locataire ou une autre adresse ajoutée', () => {
+    const connues = ['partenaire@exemple.test', 'Locataire@Exemple.test', null];
+    expect(verifierAdresseLibre('PARTENAIRE@exemple.test', connues)).toEqual({ ok: false, motif: MOTIF_ADRESSE_LIBRE_DOUBLON });
+    expect(verifierAdresseLibre(' locataire@exemple.test', connues)).toEqual({ ok: false, motif: MOTIF_ADRESSE_LIBRE_DOUBLON });
+    expect(verifierAdresseLibre('autre@exemple.test', connues)).toEqual({ ok: true, adresse: 'autre@exemple.test' });
+  });
+  it('modèle « Partenaire » : le mail du partenaire, mot pour mot ; « Locataire » : celui du locataire, « Madame, Monsieur » (rien n’est deviné du nom saisi)', () => {
+    expect(mailAdresseLibre(D, { adresse: 'cabinet@exemple.test', nom: 'Cabinet _TEST', modele: 'partenaire' })).toEqual(mailRestitutionPartenaire(D));
+    const l = mailAdresseLibre(D, { adresse: 'x@exemple.test', nom: 'Jean DUPONT', modele: 'locataire' });
+    expect(l.html).toBeNull();
+    expect(l.texte.startsWith('Bonjour Madame, Monsieur,')).toBe(true);
+    expect(l.objet).toBe(mailRestitutionLocataire(D, D.locataires[0]).objet);
   });
 });

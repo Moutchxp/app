@@ -4,7 +4,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ChampNombre } from './ChampNombre';
 import { MENTION_ENVOI_NON_AUTORISE, type MailVingt } from './MailVingtPourcent';
 import { brouillonMailSyndic, lignesVersHtml } from '../../../../lib/gestion/mailSyndic';
-import { differenceRestitution, donneesRestitutionDeLaLigne, mailRestitutionLocataire, mailRestitutionPartenaire, verifierDifference } from '../../../../lib/location/mailRestitutionVingt';
+import { differenceRestitution, donneesRestitutionDeLaLigne, mailAdresseLibre, mailRestitutionLocataire, mailRestitutionPartenaire, MAX_ADRESSES_LIBRES, MOTIF_ADRESSE_LIBRE_DOUBLON, verifierAdresseLibre,
+  verifierDifference, type ModeleAdresseLibre } from '../../../../lib/location/mailRestitutionVingt';
 import type { CleRestitutionVingt } from '../../../../lib/location/mailVingtPourcent';
 import { montantEuros, montantFr, origineDite, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type LigneVingtPourcent } from '../../../../lib/location/vingtPourcent';
 
@@ -36,6 +37,8 @@ const cleDEnvoi = (sortieId: number, cle: string): string => `vingt-restitution-
 
 interface MailPrevu { cle: string; libelle: string; a: string; objet: string; texte: string; html: string | null; modele: CleRestitutionVingt }
 interface Resultat { cle: string; libelle: string; etat: 'ok' | 'echec'; motif?: string }
+/** 🔴 (Arno, 27/11/2026, 22h17) une adresse libre de la fenêtre : `touche` = le refus de format / doublon peut s'afficher (après saisie). */
+interface AdresseLibre { cle: string; adresse: string; nom: string; coche: boolean; modele: ModeleAdresseLibre; touche: boolean }
 
 /** Le corps d'un mail (texte + HTML) avec la signature du compte ; un texte modifié à la main repart en texte simple. PUR. */
 function corpsDuMail(m: MailPrevu, texte: string, signature: { texte?: string | null; html?: string | null }): { corps: string; corpsHtml: string } {
@@ -78,6 +81,13 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
   const [locCoches, setLocCoches] = useState<Set<number>>(() => new Set(locataires.flatMap((p, i) => (p.email !== null ? [i] : []))));
   const [partCoches, setPartCoches] = useState<Set<string>>(new Set());
   const [textes, setTextes] = useState<Record<string, string>>({});
+  // 🔴🔴 (Arno, 27/11/2026, 22h17) « + Ajouter une adresse » : des adresses libres, chacune son mail ; jamais ajoutées aux Paramètres
+  const [libres, setLibres] = useState<AdresseLibre[]>([]);
+  const numeroLibre = useRef(0);
+  const ajouterLibre = (): void => { numeroLibre.current += 1; const cle = `a${numeroLibre.current}`;
+    setLibres((xs) => (xs.length >= MAX_ADRESSES_LIBRES ? xs : [...xs, { cle, adresse: '', nom: '', coche: true, modele: 'partenaire', touche: false }])); };
+  const changerLibre = (cle: string, m: Partial<AdresseLibre>): void => { setLibres((xs) => xs.map((x) => (x.cle === cle ? { ...x, ...m } : x))); setRefus(null); };
+  const retirerLibre = (cle: string): void => { setLibres((xs) => xs.filter((x) => x.cle !== cle)); setRefus(null); };
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || envoi) return;
@@ -104,7 +114,17 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
       return [{ cle: `par-${x.adresse}`, libelle: `${x.libelle ? `${x.libelle} — ` : ''}${x.adresse} (partenaire)`, a: x.adresse, objet: m.objet, texte: m.texte, html: m.html, modele: 'restitution_partenaire' as const }];
     }),
   ];
-  const aEnvoyer = ecrire ? prevus : [];
+  // les autres adresses de la fenêtre, pour refuser un doublon (un seul mail par adresse)
+  const adressesConnues = [...locataires.flatMap((p) => [p.email, ...(p.emails ?? [])]), ...(partenaires ?? []).map((x) => x.adresse)];
+  const verdictLibre = (x: AdresseLibre) => verifierAdresseLibre(x.adresse, [...adressesConnues, ...libres.filter((y) => y.cle !== x.cle && y.adresse.trim() !== '' && libres.indexOf(y) < libres.indexOf(x)).map((y) => y.adresse)]);
+  const prevusLibres: MailPrevu[] = donnees === null ? [] : libres.flatMap((x) => {
+    const v = verdictLibre(x);
+    if (!x.coche || !v.ok) return [];
+    const m = mailAdresseLibre(donnees, { adresse: v.adresse, nom: x.nom.trim() || null, modele: x.modele });
+    return [{ cle: `libre-${x.cle}-${x.modele}`, libelle: `${x.nom.trim() ? `${x.nom.trim()} — ` : ''}${v.adresse} (adresse ajoutée, modèle ${x.modele === 'partenaire' ? 'Partenaire' : 'Locataire'})`,
+      a: v.adresse, objet: m.objet, texte: m.texte, html: m.html, modele: x.modele === 'partenaire' ? 'restitution_partenaire' as const : 'restitution_locataire' as const }];
+  });
+  const aEnvoyer = ecrire ? [...prevus, ...prevusLibres] : [];
   const texteDe = (m: MailPrevu): string => textes[m.cle] ?? m.texte;
 
   const verifier = (): void => {
@@ -114,6 +134,13 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
     const d = verifierDifference(vN, v.valeur.montantRestitue, motif);
     if (!d.ok) { setRefus(d.motif); return; }
     if (aEnvoyer.some((m) => texteDe(m).trim() === '')) { setRefus('Un mail coché a un texte vide : complétez-le ou décochez-le.'); return; }
+    // 🔴 (Arno, 27/11/2026, 22h17) une adresse ajoutée et cochée doit être valable (format, doublon) : sinon on le dit, rien ne part
+    const iLibre = ecrire ? libres.findIndex((x) => x.coche && !verdictLibre(x).ok) : -1;
+    if (iLibre >= 0) {
+      const v = verdictLibre(libres[iLibre]);
+      setLibres((xs) => xs.map((x) => ({ ...x, touche: true })));
+      setRefus(`Adresse ajoutée n° ${iLibre + 1} : ${v.ok ? '' : v.motif}`); return;
+    }
     setRefus(null);
     setEtape('confirmer');
   };
@@ -210,6 +237,36 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
                 <input type="checkbox" checked={partCoches.has(x.adresse)} disabled={envoi || !ecrire} onChange={() => basculerPart(x.adresse)} />
                 <span>{x.libelle ? `${x.libelle} — ` : ''}{x.adresse}</span>
               </label>))}
+            {/* 🔴🔴 (Arno, 27/11/2026, 22h17) « + Ajouter une adresse » : une adresse libre (format vérifié, doublon refusé), un nom facultatif, cochée, « × »
+                pour la retirer ; son mail : modèle « Partenaire » (par défaut) ou « Locataire », texte modifiable ci-dessous. Elle n'entre pas dans les Paramètres. */}
+            {libres.map((x, i) => {
+              const v = verdictLibre(x);
+              // le doublon se dit tout de suite ; le format et l'adresse vide, une fois la saisie quittée (ou à la validation)
+              const motif = !v.ok && (x.touche || v.motif === MOTIF_ADRESSE_LIBRE_DOUBLON) ? v.motif : null;
+              return (
+                <div key={x.cle} className="vgp-libre" data-restitution-libre={x.cle}>
+                  <div className="vgp-libre-ligne">
+                    <input type="checkbox" checked={x.coche} disabled={envoi || !ecrire} onChange={() => changerLibre(x.cle, { coche: !x.coche })}
+                      aria-label={`Envoyer le mail à l’adresse ajoutée n° ${i + 1}`} data-restitution-libre-coche />
+                    <input type="email" inputMode="email" autoComplete="off" value={x.adresse} placeholder="ex. nom@domaine.fr" disabled={envoi || !ecrire}
+                      aria-label={`Adresse e-mail ajoutée n° ${i + 1}`} aria-invalid={motif !== null}
+                      onChange={(e) => changerLibre(x.cle, { adresse: e.target.value })} onBlur={() => changerLibre(x.cle, { touche: true })} data-restitution-libre-adresse />
+                    <button type="button" className="vgp-libre-retirer" onClick={() => retirerLibre(x.cle)} disabled={envoi}
+                      aria-label={`Retirer l’adresse ajoutée n° ${i + 1}`} title="Retirer cette adresse" data-restitution-libre-retirer>×</button>
+                  </div>
+                  <input type="text" value={x.nom} placeholder="ex. Cabinet Martin — nom facultatif" disabled={envoi || !ecrire} aria-label={`Nom (facultatif) du destinataire ajouté n° ${i + 1}`}
+                    onChange={(e) => changerLibre(x.cle, { nom: e.target.value })} data-restitution-libre-nom />
+                  <div className="vgp-libre-modele" role="group" aria-label="Modèle du mail" data-restitution-libre-modele>
+                    <span className="loc-muet">Modèle :</span>
+                    {(['partenaire', 'locataire'] as const).map((mo) => (
+                      <button key={mo} type="button" className={`vgp-libre-choix${x.modele === mo ? ' vgp-libre-choix--actif' : ''}`} aria-pressed={x.modele === mo}
+                        disabled={envoi || !ecrire} onClick={() => changerLibre(x.cle, { modele: mo })} data-restitution-libre-choix={mo}>{mo === 'partenaire' ? 'Partenaire' : 'Locataire'}</button>))}
+                  </div>
+                  {motif !== null && <p className="cp-refus vgp-libre-refus" role="status" data-restitution-libre-refus>{motif}</p>}
+                </div>);
+            })}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-ajouter-adresse" onClick={ajouterLibre}
+              disabled={envoi || !ecrire || libres.length >= MAX_ADRESSES_LIBRES} data-restitution-ajouter-adresse>+ Ajouter une adresse</button>
           </fieldset>
           {!ecrire && <p className="vgp-orange" role="note" data-restitution-sans-envoi>{MENTION_RESTITUTION_SANS_ENVOI}</p>}
           {aEnvoyer.length > 0 && (
@@ -272,4 +329,16 @@ export const CSS_FENETRE_RESTITUTION = `
 .vgp-apercu textarea{width:100%;box-sizing:border-box;font:inherit;font-size:.85rem;border:1px solid var(--color-svv-line-strong);border-radius:8px;padding:8px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 .vgp-confirmation-ok{margin:0;font-weight:800;color:var(--color-svv-green-ink)}
 .vgp-envoi-ok{margin:0;color:var(--color-svv-green-ink)}
+.vgp-libre{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px dashed var(--color-svv-line-strong);border-radius:10px;min-width:0}
+.vgp-libre-ligne{display:flex;align-items:center;gap:8px;min-width:0}
+.vgp-libre-ligne input[type=checkbox]{width:20px;height:20px;flex:none;margin:0}
+.vgp-libre input[type=email],.vgp-libre input[type=text]{flex:1 1 auto;min-width:0;min-height:40px;box-sizing:border-box;width:100%;font:inherit;border:1px solid var(--color-svv-line-strong);border-radius:8px;padding:6px 10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
+.vgp-libre input[aria-invalid=true]{border-color:var(--color-svv-red)}
+.vgp-libre-retirer{flex:none;width:40px;height:40px;border:1px solid var(--color-svv-line-strong);border-radius:8px;background:transparent;color:var(--color-svv-ink);font-size:1.3rem;line-height:1;cursor:pointer}
+.vgp-libre-modele{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.vgp-libre-choix{min-height:36px;padding:0 12px;border:1px solid var(--color-svv-line-strong);border-radius:999px;background:transparent;color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
+.vgp-libre-choix--actif{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
+.vgp-libre-refus{margin:0}
+.vgp-ajouter-adresse{align-self:flex-start}
+@media (max-width:600px){.vgp-ajouter-adresse{align-self:stretch;width:100%}}
 `;

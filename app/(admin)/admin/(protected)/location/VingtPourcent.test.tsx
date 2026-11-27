@@ -1883,6 +1883,67 @@ describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montan
     const b = container.querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement;
     expect([b.tagName, b.disabled, b.title.startsWith('Envoi de mails non autorisé pour votre compte')]).toEqual(['BUTTON', true, true]);
   });
+  // ══ 🔴🔴 Arno (27/11/2026, 22h17) — « je veux aussi pouvoir ajouter une adresse mail libre si je veux » ══
+  const champLibre = (f: Element, i: number, sel: string) => f.querySelectorAll('[data-restitution-libre]')[i].querySelector(sel) as HTMLInputElement;
+  it('🔴 22h17 — « + Ajouter une adresse » sous PARTENAIRES : format vérifié, doublon refusé, « × » retire, plusieurs possibles', async () => {
+    const f = await ouvrirFenetre();
+    const ajouter = () => act(async () => { (f.querySelector('[data-restitution-ajouter-adresse]') as HTMLButtonElement).click(); });
+    expect(f.querySelector('[data-restitution-partenaires] [data-restitution-ajouter-adresse]')?.textContent).toBe('+ Ajouter une adresse');
+    await ajouter();
+    expect(champLibre(f, 0, '[data-restitution-libre-coche]').checked).toBe(true);
+    expect(f.querySelector('[data-restitution-libre] [data-restitution-libre-choix="partenaire"]')?.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { saisir(champLibre(f, 0, '[data-restitution-libre-adresse]'), 'pas-une-adresse'); });
+    await act(async () => { champLibre(f, 0, '[data-restitution-libre-adresse]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(f.querySelector('[data-restitution-libre-refus]')?.textContent).toBe('Adresse e-mail invalide (exemple : nom@domaine.fr).');
+    await act(async () => { saisir(champLibre(f, 0, '[data-restitution-libre-adresse]'), 'cabinet@exemple.test'); });
+    expect(f.querySelector('[data-restitution-libre-refus]')).toBeNull();
+    // un doublon : d'une autre adresse ajoutée, ou d'un partenaire de la liste
+    await ajouter();
+    await act(async () => { saisir(champLibre(f, 1, '[data-restitution-libre-adresse]'), 'CABINET@exemple.test'); });
+    expect(f.querySelectorAll('[data-restitution-libre]')[1].querySelector('[data-restitution-libre-refus]')?.textContent).toBe('Cette adresse est déjà dans la fenêtre : un seul mail par adresse.');
+    await act(async () => { saisir(champLibre(f, 1, '[data-restitution-libre-adresse]'), 'partenaire@exemple.test'); });
+    expect(f.querySelectorAll('[data-restitution-libre]')[1].querySelector('[data-restitution-libre-refus]')?.textContent).toContain('déjà dans la fenêtre');
+    // invalide et cochée : « Valider » refuse et le dit ; rien ne part
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(f.querySelector('[data-restitution-refus]')?.textContent).toBe('Adresse ajoutée n° 2 : Cette adresse est déjà dans la fenêtre : un seul mail par adresse.');
+    expect(container.querySelector('[data-confirmation-restitution]')).toBeNull();
+    await act(async () => { (f.querySelectorAll('[data-restitution-libre-retirer]')[1] as HTMLButtonElement).click(); });
+    expect(f.querySelectorAll('[data-restitution-libre]')).toHaveLength(1);
+    expect([...gestes, ...envois]).toEqual([]);
+  });
+  it('🔴 22h17 — chaque adresse ajoutée reçoit SON mail (un seul destinataire), modèle « Partenaire » par défaut ou « Locataire », texte modifiable, récapitulatif ; rien dans les Paramètres', async () => {
+    const f = await ouvrirFenetre();
+    for (const [i, a, nom] of [[0, 'cabinet@exemple.test', 'Cabinet _TEST'], [1, 'garant@exemple.test', '']] as const) {
+      await act(async () => { (f.querySelector('[data-restitution-ajouter-adresse]') as HTMLButtonElement).click(); });
+      await act(async () => { saisir(champLibre(f, i, '[data-restitution-libre-adresse]'), a); });
+      if (nom) await act(async () => { saisir(champLibre(f, i, '[data-restitution-libre-nom]'), nom); });
+    }
+    await act(async () => { (f.querySelectorAll('[data-restitution-libre]')[1].querySelector('[data-restitution-libre-choix="locataire"]') as HTMLButtonElement).click(); });
+    const apercus = [...f.querySelectorAll('[data-restitution-apercu] summary')].map((x) => x.textContent);
+    expect(apercus).toHaveLength(3); // le locataire coché + les deux adresses ajoutées
+    expect(apercus[1]).toMatch(/^À cabinet@exemple\.test — Restitution du solde du dépôt de garantie — /);
+    expect(apercus[2]).toMatch(/^À garant@exemple\.test — Restitution du solde de votre dépôt de garantie — /);
+    const texte = f.querySelector('[data-restitution-texte^="libre-a2-locataire"]') as HTMLTextAreaElement;
+    expect(texte.value.startsWith('Bonjour Madame, Monsieur,')).toBe(true);
+    await act(async () => { saisir(texte, 'Bonjour,\n\nTexte retouché pour le garant.'); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-confirmation-recap]')?.textContent).toBe('Vous allez valider la restitution de 400,00 € et envoyer 3 mails à : BENOÎT Sarah (locataire) ; '
+      + 'Cabinet _TEST — cabinet@exemple.test (adresse ajoutée, modèle Partenaire) ; garant@exemple.test (adresse ajoutée, modèle Locataire).');
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(envois.map((e) => [e.a, e.cc, e.cci, (e.vingtPourcent as { modele: string }).modele])).toEqual([
+      [['a.jorel+locataire-benoit@sansvisavis.com'], [], [], 'restitution_locataire'],
+      [['cabinet@exemple.test'], [], [], 'restitution_partenaire'],
+      [['garant@exemple.test'], [], [], 'restitution_locataire'],
+    ]);
+    expect(String(envois[2].corps)).toContain('Texte retouché pour le garant.');
+    // chaque mail est classé sur le bien de la ligne (historique du bien, échanges) ; la liste des Paramètres n'est jamais écrite
+    expect(envois.every((e) => (e.cibles as { sorte: string }[])[0].sorte === 'lot')).toBe(true);
+    expect(gestes.map((g) => g.action)).toEqual(['restitution-20-faite']);
+  });
+  it('🔴 22h17 — sans droit d’envoi : « + Ajouter une adresse » visible, inactif (rien ne partirait)', async () => {
+    const f = await ouvrirFenetre(false);
+    expect((f.querySelector('[data-restitution-ajouter-adresse]') as HTMLButtonElement).disabled).toBe(true);
+  });
   it('sans droit d’envoi (Gestion ou Location) : cases grisées, la restitution s’enregistre sans mail, et on le dit (🔴 Arno, 27/11/2026, 22h17)', async () => {
     const f = await ouvrirFenetre(false);
     expect((f.querySelector('[data-restitution-locataire="0"] input') as HTMLInputElement).disabled).toBe(true);
