@@ -1463,9 +1463,21 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Limite connue : un événement ouvert par un compte aujourd'hui désactivé ou sans accès n'a pas de case dans la fenêtre (règle « collègues ayant
   accès ») ; il reste visible avec « Tous ».
 
+### 27/11/2026, 12h37 — panne « pas de bouton d'envoi depuis l'historique » (Location) — `7b5715a6` (NON POUSSÉ, aucune migration)
+- **Cause** : règle VOULUE du 17/10/2026 — fiche commune ouverte depuis la tuile Location = mails en lecture (écran `redaction={null}` + bandeau ;
+  serveur : `peutEnvoyerAuNomDeGestion` et les routes envois / brouillons / pièces refusaient toute requête « contexte Location », même admin).
+  ✅ **Levée par Arno le 27/11/2026.**
+- **Correctif** : `useContexteRedaction` (la lecture du contexte, DÉPLACÉE de GestionVue dans `contexteRedactionLu`) pour `FicheCommuneLocation` et
+  l'écran de sortie (`HistoriqueEchangesLecture`, classé sur le logement du bail) ; dans `HistoriqueDuBien`, « Écrire un mail » pleine largeur en tête
+  (`MOT_ECRIRE_UN_MAIL`) et, sans droit, « Envoi de mails non autorisé pour votre compte » (`MENTION_ENVOI_NON_AUTORISE`) ; serveur : plus de refus
+  « Location », le droit d'envoi décide (`capaciteEnvoiGestion` : administrateur, ou perm_gestion + perm_gestion_envoi). `requeteDepuisLaLocation`
+  reste pour l'annuaire (libellé / affichage). Captures `.captures/ecrire-depuis-historique/` (aucun mail envoyé).
+- Écrans d'historique de bien : Gestion › Annuaire (fiche bien, propriétaire, locataire) — avait déjà l'écriture ; Location › bien / propriétaire /
+  locataire (même composant) — ne l'avait PAS, l'a ; Location › sortie des locataires (historique du logement) — ne l'avait PAS, l'a.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `1c40ed6c`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; 519 inutilisé, la 361 prendra la 521). En attente
-de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759`, `44c08532`, `93cef884` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
+de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759`, `44c08532`, `93cef884`, `7b5715a6` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
