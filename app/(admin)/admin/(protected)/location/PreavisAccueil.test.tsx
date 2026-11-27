@@ -625,6 +625,96 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     choisir(document.querySelector('[data-confier-a]')!, '3');
     expect(document.querySelector('[data-inviter-locataires="non"]')?.getAttribute('aria-checked')).toBe('true');
   });
+  // ══ 🔴🔴 Arno (27/11/2026, 21h19) — les TROIS états de la case 3 (horloge simulée : seule la date de la machine est simulée) ══
+  it('🔴 21h19 — à programmer : case blanche, « étape en cours », « Planifier l’état des lieux de sortie » pleine largeur', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: null, etatDesLieuxLe: null } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    const bloc = container.querySelector('[data-ligne-depliee="C"] [data-bloc-edls]')!;
+    expect(bloc.getAttribute('data-etat-edls')).toBe('a_programmer');
+    expect(bloc.closest('[data-etape="edls"]')?.getAttribute('data-statut-etape')).toBe('a_faire');
+    expect(bloc.querySelector('[data-planifier-edls]')?.className).toContain('pva-pleine-largeur');
+    expect(bloc.querySelector('[data-edls-cartouche]')).toBeNull();
+  });
+  for (const [quand, iso, attendu] of [
+    ['avant le RDV', '2099-11-05T08:00:00Z', 'fixe'], ['pendant', '2099-11-05T09:30:00Z', 'fixe'],
+    ['fin + 59 min', '2099-11-05T10:59:00Z', 'fixe'], ['fin + 1 h', '2099-11-05T11:00:00Z', 'effectue'],
+  ] as const) {
+    it(`🔴 21h19 — horloge simulée, ${quand} (RDV du 05/11/2099 de 10h00 à 11h00, Paris) : ${attendu === 'fixe' ? 'RDV fixé, case blanche, « Modifier le RDV »' : 'effectué, case VERTE avec coche'}`, async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(iso));
+      try {
+        planification = true;
+        lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, statut: 'acceptee' as const }, etatDesLieuxLe: '2099-11-05' } : l));
+        await rendre();
+        clic('button[data-ouvrir-preavis="C"]'); await attendre();
+        const bloc = container.querySelector('[data-ligne-depliee="C"] [data-bloc-edls]')!;
+        const caseEdls = bloc.closest('[data-etape="edls"]')!;
+        const cartouche = bloc.querySelector('[data-edls-cartouche]')!;
+        expect(bloc.getAttribute('data-etat-edls')).toBe(attendu);
+        if (attendu === 'fixe') {
+          expect(caseEdls.getAttribute('data-statut-etape')).toBe('programmee'); // case blanche
+          expect(caseEdls.querySelector('[data-pastille-etape]')?.textContent).toBe('3');
+          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 05/11/2099 de 10h00 à 11h00 · confié à Claire TEST']);
+        } else {
+          expect(caseEdls.getAttribute('data-statut-etape')).toBe('faite'); // .frp-etape--faite : la case entière en vert
+          expect(caseEdls.className).toContain('frp-etape--faite');
+          expect(caseEdls.querySelector('[data-pastille-etape]')?.textContent).toBe('✓');
+          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--effectuee', '✓ État des lieux effectué — le 05/11/2099 de 10h00 à 11h00 · par Claire TEST']);
+        }
+        // « Modifier le RDV » pleine largeur (le serveur juge s'il est encore modifiable) ; « Valider la sortie » (case 4) inchangé
+        const modifier = bloc.querySelector('[data-deplacer-edls]')!;
+        expect([modifier.textContent, modifier.className.includes('pva-pleine-largeur')]).toEqual(['Modifier le RDV', true]);
+        expect(container.querySelector('[data-ligne-depliee="C"] [data-etape="sortie"] [data-valider-sortie]')?.textContent).toBe('Valider la sortie');
+      } finally { vi.useRealTimers(); }
+    });
+  }
+  it('🔴 21h19 — « Modifier le RDV » rouvre la MÊME fenêtre PRÉREMPLIE (date, durée, horaires, confié à, commentaire) ; l’heure changée → le récapitulatif ; le même rendez-vous', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, commentaire: 'clés chez le gardien' }, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('button[data-deplacer-edls]'); await attendre();
+    expect(container.querySelector('[data-bloc-edls] [data-formulaire-edls]')).toBeNull(); // toujours aucune saisie dans la case
+    const f = document.querySelector('[data-fenetre-edls="deplacer"]')!;
+    expect(f.querySelector('[data-titre-edls]')?.textContent).toBe('Modifier le RDV — état des lieux de sortie');
+    expect(f.querySelector('[data-edls-ancien]')?.textContent).toBe('Rendez-vous actuel : le 05/11/2099 de 10h00 à 11h00.');
+    expect(champ('jour').value).toBe('2099-11-05');
+    expect(champ('debut').getAttribute('data-valeur')).toBe('10:00');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('11:00');
+    expect(f.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('60');
+    expect(f.querySelector('[data-confier-a]')?.textContent).toContain('Claire Test');
+    expect((f.querySelector('[data-edls-commentaire]') as HTMLTextAreaElement).value).toBe('clés chez le gardien');
+    act(() => saisir(champ('debut'), '14:00'));
+    expect(champ('fin').getAttribute('data-valeur')).toBe('15:00');
+    await act(async () => { (document.querySelector('[data-inviter-locataires="non"]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); });
+    // le déplacement de la tâche existante (jamais « planifier » une seconde fois) ; commentaire inchangé : non envoyé ; « Non » : rien aux locataires
+    expect(posts.filter((x) => x.action === 'planifier-edls')).toEqual([]);
+    expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '14:00', fin: '15:00', confieA: 4, locataires: 'non' });
+    expect(document.querySelector('[data-fenetre-edls]')).toBeNull();
+    // le cartouche et le statut de la ligne suivent
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')?.textContent).toBe('RDV fixé — le 05/11/2099 de 14h00 à 15h00 · confié à Claire TEST');
+    expect(container.querySelector('[data-ligne-preavis="C"] [data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
+  });
+  it('🔴 21h19 — « Modifier le RDV » : le commentaire changé part avec la modification', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, commentaire: 'clés chez le gardien' }, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('button[data-deplacer-edls]'); await attendre();
+    act(() => {
+      const t = document.querySelector('[data-edls-commentaire]') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'clés en agence');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { (document.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); });
+    expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, locataires: 'oui', commentaire: 'clés en agence' });
+  });
   it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
     planification = true;
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));
@@ -1361,7 +1451,7 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     // 🔴 (16/11/2026) le cartouche VERT de la case 2 (même classe), puis « Prénom NOM : acceptée »
     const m = document.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')!;
     expect(m.className).toBe('pvv-etat pvv-etat--programmee');
-    expect(m.textContent).toBe('État des lieux programmé — le 01/06/2099 de 10h00 à 11h00');
+    expect(m.textContent).toBe('RDV fixé — le 01/06/2099 de 10h00 à 11h00 · confié à Claire TEST'); // 🔴 Arno (27/11/2026, 21h19)
     expect(document.querySelector('[data-ligne-depliee="C"] [data-edls-collegue]')!.textContent).toBe('Claire TEST : acceptée');
     expect(document.querySelector('[data-ligne-depliee="C"] [data-edls-mention]')).toBeNull();
     expect(CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ')).toContain('.pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);');
@@ -3762,7 +3852,7 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([c2.className, c2.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'Pré-visite programmée — le 10/01/2099 de 10h30 à 11h30']);
     expect(sel('A', '[data-etape="previsite"] [data-previsite-collegues]').textContent).toBe('Arno TEST : acceptée');
     const c3 = sel('A', '[data-etape="edls"] [data-edls-cartouche]');
-    expect([c3.className, c3.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'État des lieux programmé — le 03/02/2099 de 11h30 à 12h30']);
+    expect([c3.className, c3.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 03/02/2099 de 11h30 à 12h30 · confié à Claire TEST']); // 🔴 Arno (27/11/2026, 21h19)
     expect(sel('A', '[data-etape="edls"] [data-edls-collegue]').textContent).toBe('Claire TEST : en attente');
   });
   it('« Planifier l’état des lieux de sortie » présent et ACTIF avec une pré-visite seulement programmée ; le formulaire s’ouvre', async () => {
@@ -4265,7 +4355,7 @@ describe('🔴 Arno (19/11/2026) — libellés des rendez-vous', () => {
     clic('button[data-ouvrir-preavis="C"]');
     await attendre();
     expect(container.querySelector('[data-deplacer-previsite]')?.textContent).toBe('Modifier / déplacer la pré-visite');
-    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier / déplacer l’état des lieux');
+    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier le RDV'); // 🔴 Arno (27/11/2026, 21h19)
     expect(container.querySelector('[data-rdv-locataires="previsite"] [data-valider-rdv-main]')?.textContent).toBe('Valider le rendez-vous sans demander de confirmation aux locataires');
   });
 });
@@ -4295,7 +4385,7 @@ describe('🔴 Arno (19/11/2026) — règles uniformes des rendez-vous : A (coll
     poser({ ...pvAvenir, rdv: { jour: '2020-01-05', heure: '10:00', dureeMinutes: 60 }, rdvPasse: true }, '2020-01-06');
     await voir();
     expect(container.querySelector('[data-deplacer-previsite]')?.textContent).toBe('Modifier / déplacer la pré-visite');
-    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier / déplacer l’état des lieux');
+    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier le RDV'); // 🔴 Arno (27/11/2026, 21h19)
     act(() => root.unmount()); root = createRoot(container);
     poser({ ...pvAvenir, statut: 'effectuee', rdvPasse: true }, '2099-01-06');
     await voir();

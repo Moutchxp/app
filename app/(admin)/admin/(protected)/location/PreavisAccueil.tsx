@@ -467,7 +467,7 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
       {/* 🔴 Arno (11/11/2026, lot 3) — LA FRISE DES ÉTAPES : 1 Préavis reçu → 2 Pré-visite → 3 État des lieux de sortie → 4 Sortie validée ;
           chaque étape porte ses boutons (les blocs d'avant, inchangés, sous leur étape). Rien n'est retiré. */}
       <ol className="frp" data-frise-preavis>
-        {etapesPreavis(l, aujourdhuiParis()).map((e) => (
+        {etapesPreavis(l, aujourdhuiParis(), { maintenant: new Date() }).map((e) => (
           <li key={e.cle} className={`frp-etape frp-etape--${e.statut}${e.enCours ? ' frp-etape--en-cours' : ''}`} data-etape={e.cle} data-statut-etape={e.statut}
             {...(e.enCours ? { 'aria-current': 'step' as const } : {})}>
             <div className="frp-tete">
@@ -585,28 +585,35 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
   const fait = (x: EdlsAffiche, phrase: string): void => { setMode('lecture'); setBilan(phrase); edlsPose(x); };
   const { ecriture } = useContextePreavis();
   const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
+  /* 🔴🔴 Arno (27/11/2026, 21h19) — TROIS ÉTATS, la présentation de la case 2 : à programmer (« Planifier … ») ; RDV fixé (cartouche vert, « Modifier
+     le RDV ») ; effectué dès la FIN prévue + 1 h (la case passe au vert par la frise, cartouche « État des lieux effectué … » avec la coche). */
+  const c = e === null ? null : cartoucheEdls(e, new Date());
+  const etat = e === null ? 'a_programmer' : c?.effectue ? 'effectue' : 'fixe';
   return (
-    <div className="pva-bloc" data-bloc-edls>
+    <div className="pva-bloc" data-bloc-edls data-etat-edls={etat}>
       {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « État des lieux de sortie » (le titre de la case le dit) ; informations, puis boutons. */}
       <div className="frp-infos">
       {/* 🔴🔴 Arno (16/11/2026) — le rendez-vous fixé : le cartouche VERT de la case 2 (« État des lieux programmé — le … de … à … »), et dessous
           « Prénom NOM : en attente / acceptée / refusée » ; refusé : la mention orange « Refusée par … — à réattribuer » reste en plus */}
-      {e !== null && (() => { const c = cartoucheEdls(e); return <>
-        <p className="pvv-etat pvv-etat--programmee" role="status" data-edls-cartouche>{c.texte}</p>
+      {e !== null && c !== null && <>
+        <p className={`pvv-etat pvv-etat--${c.effectue ? 'effectuee' : 'programmee'}`} role="status" data-edls-cartouche>{c.effectue ? '✓ ' : ''}{c.texte}</p>
         <ul className="pvv-collegues" data-edls-collegue><li data-collegue-statut={c.statut}>{c.qui} : {c.reponse}</li></ul>
-        {e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}</>; })()}
+        {e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}</>}
       {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
       {sousInfos}
       </div>
       <div className="frp-actions">
-      {mode === 'lecture' && (
+      {/* 🔴🔴 Arno (27/11/2026, 21h10) — les boutons restent sous la fenêtre ouverte : la case garde sa hauteur */}
+      {(
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-          {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
+          {/* 🔴🔴 Arno (27/11/2026, 21h19) — boutons pleine largeur : « Planifier l'état des lieux de sortie », puis « Modifier le RDV » (la même fenêtre,
+              préremplie) */}
+          {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn pva-pleine-largeur" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
             <>
-              {/* 🔴 Arno (19/11/2026, règle J corrigée) — l'état des lieux planifié reste modifiable tant qu'il n'est ni réalisé ni annulé */}
+              {/* 🔴 Arno (19/11/2026, règle J corrigée) — l'état des lieux planifié reste modifiable tant qu'il n'est ni réalisé ni annulé (le serveur en juge) */}
               {(
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Modifier / déplacer l’état des lieux</button>)}
-              {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn pva-pleine-largeur" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Modifier le RDV</button>)}
+              {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn pva-pleine-largeur" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
             </>
           )}
         </div>
@@ -685,7 +692,9 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
   const [fin, setFin] = useState(e?.heure ? (e.dureeMinutes ? finDepuisDebut(e.heure, e.dureeMinutes) : null) ?? heureFinProposee(e.heure) : '');
   const [confieA, setConfieA] = useState<number | null>(e?.confieAId ?? null);
   const [libelles, setLibelles] = useState<Record<number, string>>({});
-  const [commentaire, setCommentaire] = useState('');
+  // 🔴🔴 Arno (27/11/2026, 21h19) — « Modifier le RDV » : la fenêtre PRÉREMPLIE, commentaire compris
+  const commentaireInitial = e?.commentaire ?? '';
+  const [commentaire, setCommentaire] = useState(commentaireInitial);
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire, rien de pré-coché
@@ -708,7 +717,7 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
   // sa phrase (confirmation). Les locataires ne reçoivent rien, sauf « Oui ».
   const moiId = lu.etat.etat === 'ok' && Array.isArray(lu.etat.data) ? (lu.etat.data as (Personne & { moi?: boolean })[]).find((p) => p.moi === true)?.id ?? null : null;
   const maintien = e === null || e.heure === null || jour !== e.jour || debut !== e.heure
-    || fin !== (finDepuisDebut(e.heure, e.dureeMinutes ?? 60) ?? '') || confieA === null || confieA === e.confieAId ? null
+    || fin !== (finDepuisDebut(e.heure, e.dureeMinutes ?? 60) ?? '') || confieA === null || confieA === e.confieAId || commentaire.trim() !== commentaireInitial.trim() ? null
     : resumeChangementCollaborateur({ jour, debut, fin, avant: [{ id: e.confieAId, libelle: e.confieA }], apres: [{ id: confieA, libelle: libelles[confieA] ?? `compte ${confieA}` }], moiId });
   // 🔴 Arno (19/11/2026) — seule la personne change : la demande de confirmation aux locataires PRÉ-COCHÉE sur « Non » (modifiable) ; ailleurs, rien de pré-coché
   const choixLoc = choixSaisi ?? (maintien !== null ? 'non' as const : null);
@@ -730,7 +739,8 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
     setEnvoi(true); setRefus(null); setEnRecap(true);
     const corps = e === null
       ? { action: 'planifier-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, commentaire, locataires: choixLoc }
-      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, locataires: choixLoc };
+      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, locataires: choixLoc,
+        ...(commentaire.trim() !== commentaireInitial.trim() ? { commentaire } : {}) };
     const tenu: { r: Awaited<ReturnType<typeof envoyer>> | null } = { r: null };
     const issue = await recap.demander({
       titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
@@ -746,7 +756,7 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
     onFait({
       edlsId: e?.edlsId ?? 0, tacheId: e?.tacheId ?? 0, jour: verdict.jour, heure: verdict.heure, dureeMinutes: verdict.dureeMinutes,
       confieA: (confieA !== null ? libelles[confieA] : null) ?? e?.confieA ?? '', confieAId: confieA,
-      statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null,
+      statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null, commentaire: commentaire.trim() || null,
     }, maintien !== null ? maintien.phrase : phraseGeste(e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé', r.data));
   };
   if (enRecap) return <>{recap.fenetre}</>;
@@ -765,10 +775,8 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
       <ChoixPersonne valeur={confieA} onChange={setConfieA} />
       {/* 🔴 Arno (19/11/2026) — un préavis de TEST se confie à tous : ses invitations partent uniquement vers vous */}
       {l.test && <p className="loc-muet" style={{ margin: 0, fontSize: '.88rem' }} data-mention-test-invitations>Préavis de test : les invitations partent uniquement vers vous.</p>}
-      {e === null && (
-        <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
-          <textarea value={commentaire} onChange={(ev) => setCommentaire(ev.target.value)} rows={2} placeholder="ex. clés chez le gardien" data-edls-commentaire /></label>
-      )}
+      <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
+        <textarea value={commentaire} onChange={(ev) => setCommentaire(ev.target.value)} rows={2} placeholder="ex. clés chez le gardien" data-edls-commentaire /></label>
       <ChoixInviterLocataires valeur={choixLoc} onChange={(c) => { setChoixLoc(c); setManqueChoix(false); setRefus(null); }} desactive={envoi} manque={manqueChoix} />
       <BlocageEmailLocataires e={emails} />
       {!verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-edls-message>{verdict.motif}</p>}
@@ -786,6 +794,7 @@ function FenetreEdls({ l, e, onAnnuler, onFait }: {
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. La saisie de l'etat des lieux dans la fenetre de rendez-vous : le formulaire sans cadre propre. */
 const CSS_FENETRE_EDLS = `
 .mis-boite .pva-form-edls{border:0;padding:0;margin:0;background:transparent}
+.mis-boite .pva-form-edls textarea{min-height:88px}
 `;
 
 /** Après un refus : confier l'EDLS à quelqu'un d'autre (nouvelle demande, nouveau mail). */
@@ -932,6 +941,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-ouvrir{min-height:44px}
 .pva-depliee{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;padding:4px 12px 14px}
 .pva-bloc{display:flex;flex-direction:column;gap:8px;min-width:0}
+.loc-boutons > .pva-pleine-largeur{flex:1 1 100%;width:100%;box-sizing:border-box;margin:0}
 .pva-logement{grid-column:1 / -1}
 .pva-dates-preavis{margin:0;font-weight:600;color:var(--color-svv-ink)}
 /* 🔴 Arno (13/11/2026) — un rendez-vous FIXE : vert (le vert de la pre-visite effectuee), texte vert fonce ; le refus reste orange */

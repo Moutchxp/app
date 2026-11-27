@@ -80,14 +80,14 @@ describe('la colonne des rendez-vous et le tri', () => {
 });
 
 describe('la frise, case 3 : le cartouche VERT de l’état des lieux fixé', () => {
-  it('« État des lieux programmé — le … de … à … », dessous « Prénom NOM : en attente / acceptée / refusée »', () => {
+  it('« RDV fixé — le … de … à … · confié à Prénom NOM » (🔴 Arno, 27/11/2026, 21h19), dessous « Prénom NOM : en attente / acceptée / refusée »', () => {
     const e = { jour: '2099-02-03', heure: '11:30', dureeMinutes: 60, confieA: 'Claire Test' };
-    expect(cartoucheEdls({ ...e, statut: 'en_attente' })).toEqual({ texte: 'État des lieux programmé — le 03/02/2099 de 11h30 à 12h30', qui: 'Claire TEST', reponse: 'en attente', statut: 'en_attente' });
+    expect(cartoucheEdls({ ...e, statut: 'en_attente' })).toEqual({ texte: 'RDV fixé — le 03/02/2099 de 11h30 à 12h30 · confié à Claire TEST', qui: 'Claire TEST', reponse: 'en attente', effectue: false, statut: 'en_attente' });
     expect(cartoucheEdls({ ...e, statut: 'acceptee' }).reponse).toBe('acceptée');
     expect(cartoucheEdls({ ...e, statut: 'refusee' }).reponse).toBe('refusée');
     // confié directement (sans demande) : acceptée ; sans heure : la date seule
     expect(cartoucheEdls({ ...e, statut: null }).reponse).toBe('acceptée');
-    expect(cartoucheEdls({ ...e, heure: null, statut: 'acceptee' }).texte).toBe('État des lieux programmé — le 03/02/2099');
+    expect(cartoucheEdls({ ...e, heure: null, statut: 'acceptee' }).texte).toBe('RDV fixé — le 03/02/2099 · confié à Claire TEST');
   });
 });
 

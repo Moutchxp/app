@@ -173,6 +173,50 @@ describe('deplacerEdls', () => {
   });
 });
 
+describe('🔴🔴 Arno (27/11/2026, 21h19) — « Modifier le RDV » : le MÊME rendez-vous (aucun doublon), commentaire compris, journalisé', () => {
+  const D = { occupationIds: [11], jour: '2026-11-05', debut: '14:00', fin: '15:00' };
+  const MEME = { occupationIds: [11], jour: '2026-11-03', debut: '10:00', fin: '11:30' };
+  it('nouvelle heure : la tâche EXISTANTE est décalée — jamais une seconde tâche ; journal du déplacement', async () => {
+    liens = [LIEN({ commentaire: 'clés chez le gardien' })];
+    expect(await deplacerEdls(D, AUTEUR)).toMatchObject({ etat: 'ok', tacheId: 500 });
+    expect(decalerTache).toHaveBeenCalledTimes(1);
+    expect(creerTache).not.toHaveBeenCalled();
+    expect(ecritures().some((a) => a.sql.startsWith('INSERT INTO gestion_location_edls'))).toBe(false);
+    expect(ecritures().some((a) => a.sql.startsWith('UPDATE gestion_location_edls'))).toBe(false); // commentaire absent : inchangé
+    expect(ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal')).map((a) => a.params[1])).toEqual(['location_edls_deplace']);
+  });
+  it('seul le commentaire change : ni la tâche ni la demande ne bougent (aucun mail au collègue) ; commentaire et récapitulatif de la mission mis à jour, journalisés', async () => {
+    liens = [LIEN({ commentaire: 'clés chez le gardien' })];
+    const r = await deplacerEdls({ ...MEME, commentaire: 'clés en agence' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', tacheId: 500 });
+    if (r.etat === 'ok') { expect(r.demande).toBeUndefined(); expect(r.demandes).toBeUndefined(); }
+    expect(decalerTache).not.toHaveBeenCalled();
+    expect(modifierTache).not.toHaveBeenCalled();
+    expect(creerTache).not.toHaveBeenCalled();
+    expect(ecritures().find((a) => a.sql.startsWith('UPDATE gestion_location_edls SET commentaire'))!.params).toEqual([20, 'clés en agence']);
+    const note = ecritures().find((a) => a.sql.startsWith('UPDATE gestion_tache SET note'))!;
+    expect(note.params[0]).toBe(500);
+    expect(String(note.params[1])).toContain('Commentaire : clés en agence');
+    const j = ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal'));
+    expect(j.map((a) => a.params.slice(1, 4))).toEqual([['location_edls_commentaire', 'clés chez le gardien', 'clés en agence']]);
+    expect(ecritures().some((a) => a.sql.startsWith('UPDATE gestion_annuaire_occupation'))).toBe(false); // la date ne bouge pas
+  });
+  it('heure ET commentaire : le récapitulatif réécrit AVANT le décalage (le mail du collègue le porte), une seule tâche', async () => {
+    liens = [LIEN({ commentaire: null })];
+    expect(await deplacerEdls({ ...D, commentaire: 'digicode changé' }, AUTEUR)).toMatchObject({ etat: 'ok' });
+    const iNote = appels.findIndex((a) => a.sql.startsWith('UPDATE gestion_tache SET note'));
+    expect(iNote).toBeGreaterThanOrEqual(0);
+    expect(decalerTache).toHaveBeenCalledTimes(1);
+    expect(creerTache).not.toHaveBeenCalled();
+    expect(ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal')).map((a) => a.params[1])).toEqual(['location_edls_commentaire', 'location_edls_deplace']);
+  });
+  it('rien ne change (même créneau, même commentaire) : refus, rien n’est écrit', async () => {
+    liens = [LIEN({ commentaire: 'clés chez le gardien' })];
+    expect(await deplacerEdls({ ...MEME, commentaire: ' clés chez le gardien ' }, AUTEUR)).toMatchObject({ etat: 'refus' });
+    expect(ecritures()).toHaveLength(0);
+  });
+});
+
 describe('reattribuerEdls — après un refus seulement', () => {
   it('refusé : nouvelle personne par le module (nouveau cycle), journalisé', async () => {
     liens = [LIEN({ statut: 'refusee' })];

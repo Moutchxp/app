@@ -5,7 +5,7 @@
  * l'étape EN COURS (la première ni faite ni refusée) est mise en évidence. Plus aucun gris pour une étape faite. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 import { dateFrPreavis, type LignePreavisAccueil } from './preavis';
-import { creneauFr } from './previsite';
+import { creneauFr, finDuRendezVous } from './previsite';
 import { prenomNom } from './triRdvPreavis';
 import type { EdlsAffiche } from './edls';
 
@@ -18,8 +18,10 @@ export interface EtapePreavis { cle: CleEtape; numero: number; titre: string; st
 const jourIso = (d: string | null | undefined): string | null => (d ? d.slice(0, 10) : null);
 
 export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string,
-  /** 🔴 Arno (11/11/2026) — `retenue` : la retenue de 20 % appliquée à la sortie (« Retenue 20 % appliquée » à l'étape 4). */
-  o: { sortieValidee?: string | null; retenue?: boolean } = {}): EtapePreavis[] {
+  /** 🔴 Arno (11/11/2026) — `retenue` : la retenue de 20 % appliquée à la sortie (« Retenue 20 % appliquée » à l'étape 4).
+   *  🔴🔴 Arno (27/11/2026, 21h19) — `maintenant` : l'état des lieux PLANIFIÉ est effectué dès sa FIN prévue + 1 h (`edlsEffectue`) ; absent : la règle
+   *  du jour, comme avant. */
+  o: { sortieValidee?: string | null; retenue?: boolean; maintenant?: Date } = {}): EtapePreavis[] {
   const p = l.previsite ?? null;
   const previsite: Pick<EtapePreavis, 'statut' | 'libelle'> = p === null ? { statut: 'a_faire', libelle: 'À programmer' }
     : p.statut === 'effectuee' ? { statut: 'faite', libelle: p.rdv ? `Effectuée le ${creneauFr(p.rdv)}` : 'Effectuée' }
@@ -29,6 +31,8 @@ export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string,
   const jourEdl = jourIso(l.edls?.jour ?? l.etatDesLieuxLe);
   const edls: Pick<EtapePreavis, 'statut' | 'libelle'> = o.sortieValidee ? { statut: 'faite', libelle: jourEdl ? `Réalisé le ${dateFrPreavis(jourEdl)}` : 'Réalisé' }
     : jourEdl === null ? { statut: 'a_faire', libelle: 'À planifier' }
+      : l.edls && o.maintenant ? (edlsEffectue(l.edls, o.maintenant) ? { statut: 'faite', libelle: `Réalisé le ${dateFrPreavis(jourEdl)}` }
+        : { statut: 'programmee', libelle: `Prévu le ${dateFrPreavis(jourEdl)}${l.edls.confieA ? ` — confié à ${l.edls.confieA}` : ''}` })
       : jourEdl < aujourdhui ? { statut: 'faite', libelle: `Réalisé le ${dateFrPreavis(jourEdl)}` }
         : { statut: 'programmee', libelle: `Prévu le ${dateFrPreavis(jourEdl)}${l.edls?.confieA ? ` — confié à ${l.edls.confieA}` : ''}` };
   const sortie: Pick<EtapePreavis, 'statut' | 'libelle'> = o.sortieValidee ? { statut: 'faite', libelle: `Validée le ${dateFrPreavis(o.sortieValidee)}${o.retenue ? ' — Retenue 20 % appliquée' : ''}` }
@@ -68,8 +72,24 @@ export const ETAPE_EN_COURS = 'étape en cours';
  * refusée » (confié directement, sans demande : acceptée). PUR.
  */
 export const REPONSE_EDLS: Record<'en_attente' | 'acceptee' | 'refusee', string> = { en_attente: 'en attente', acceptee: 'acceptée', refusee: 'refusée' };
-export function cartoucheEdls(e: Pick<EdlsAffiche, 'jour' | 'heure' | 'dureeMinutes' | 'confieA' | 'statut'>): { texte: string; qui: string; reponse: string; statut: 'en_attente' | 'acceptee' | 'refusee' } {
+export function cartoucheEdls(e: Pick<EdlsAffiche, 'jour' | 'heure' | 'dureeMinutes' | 'confieA' | 'statut'>, maintenant?: Date): { texte: string; qui: string; reponse: string; effectue: boolean; statut: 'en_attente' | 'acceptee' | 'refusee' } {
   const quand = e.heure ? creneauFr({ jour: e.jour, heure: e.heure, dureeMinutes: e.dureeMinutes ?? 60 }) : dateFrPreavis(e.jour);
   const statut = e.statut ?? 'acceptee';
-  return { texte: `État des lieux programmé — le ${quand}`, qui: prenomNom(e.confieA), reponse: REPONSE_EDLS[statut], statut };
+  const effectue = maintenant !== undefined && edlsEffectue(e, maintenant);
+  // 🔴🔴 Arno (27/11/2026, 21h19) — « RDV fixé — le … de … à … · confié à Prénom NOM » ; effectué : « État des lieux effectué — le … · par Prénom NOM »
+  const qui = prenomNom(e.confieA);
+  return { texte: effectue ? `État des lieux effectué — le ${quand} · par ${qui}` : `RDV fixé — le ${quand} · confié à ${qui}`, qui, reponse: REPONSE_EDLS[statut], effectue, statut };
+}
+
+/** 🔴🔴 Arno (27/11/2026, 21h19) — le délai après la FIN prévue du rendez-vous au bout duquel l'état des lieux de sortie est effectué : 1 h. */
+export const DELAI_EDLS_EFFECTUE_MS = 60 * 60_000;
+
+/**
+ * 🔴🔴 Arno (27/11/2026, 21h19) — L'ÉTAT DES LIEUX DE SORTIE EFFECTUÉ, AUTOMATIQUEMENT : dès que l'heure de FIN prévue (début + durée, heure de Paris)
+ * + 1 h est dépassée — à fin + 1 h pile, il l'est. Un rendez-vous refusé par le collègue (à réattribuer) ne l'est jamais. Règle du SEUL bloc 3 :
+ * la pré-visite reste effectuée par le geste du compte rendu (Arno, 13/11/2026). PUR.
+ */
+export function edlsEffectue(e: Pick<EdlsAffiche, 'jour' | 'heure' | 'dureeMinutes' | 'statut'> | null | undefined, maintenant: Date): boolean {
+  if (e === null || e === undefined || e.statut === 'refusee') return false;
+  return maintenant.getTime() >= finDuRendezVous(e.jour, e.heure, e.dureeMinutes).getTime() + DELAI_EDLS_EFFECTUE_MS;
 }

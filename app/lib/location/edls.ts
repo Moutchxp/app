@@ -83,6 +83,8 @@ export interface EdlsAffiche {
   statut: 'en_attente' | 'acceptee' | 'refusee' | null;
   reponduPar: string | null;
   motifRefus: string | null;
+  /** 🔴 Arno (27/11/2026, 21h19) — le commentaire de la planification (« Modifier le RDV » rouvre la fenêtre préremplie) ; absent : inconnu. */
+  commentaire?: string | null;
 }
 
 /** « EDLS planifié » / « EDLS à réattribuer » : le mot de la pastille de la ligne. PUR. */

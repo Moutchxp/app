@@ -76,7 +76,7 @@ async function lireGroupe(q: RequeteTx, ids: readonly number[]): Promise<{ ok: t
 }
 
 type LienOuvert = { id: string; tache_id: string; etat: string; jour: string; heure: string | null; duree: number | null; confiee_a: string | null;
-  confiee_a_libelle: string; objet: string; note: string | null; rappels: unknown; evenement_id: string | null; statut: string | null };
+  confiee_a_libelle: string; objet: string; note: string | null; rappels: unknown; evenement_id: string | null; statut: string | null; commentaire: string | null };
 
 /** Les liens ouverts de ces occupations, VERROUILLÉS, avec leur tâche et la demande de la personne à qui elle est confiée. */
 async function liensOuverts(q: RequeteTx, ids: readonly number[]): Promise<LienOuvert[]> {
@@ -84,7 +84,7 @@ async function liensOuverts(q: RequeteTx, ids: readonly number[]): Promise<LienO
   const demande = await colonneExisteMemo('gestion_tache_demande', 'statut');
   const { rows } = await q<LienOuvert>(
     `SELECT e.id::text, e.tache_id::text, t.etat, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-            ${duree} AS duree, t.confiee_a::text, t.confiee_a_libelle, t.objet, t.note, t.rappels, t.evenement_id::text,
+            ${duree} AS duree, t.confiee_a::text, t.confiee_a_libelle, t.objet, t.note, t.rappels, t.evenement_id::text, e.commentaire,
             ${demande ? `(SELECT d.statut FROM gestion_tache_demande d WHERE d.tache_id = t.id AND d.statut <> 'remplacee'
                ORDER BY (d.destinataire_id IS NOT DISTINCT FROM t.confiee_a) DESC, d.id DESC LIMIT 1)` : 'NULL::text'} AS statut
        FROM gestion_location_edls e JOIN gestion_tache t ON t.id = e.tache_id
@@ -185,10 +185,10 @@ async function edlsCourant(q: RequeteTx, ids: readonly number[]): Promise<{ ok: 
   return { ok: true, g, l };
 }
 
-const saisieDeLaTache = (l: LienOuvert, o: { jour: string; heure: string; dureeMinutes: number; confieeA: number }): SaisieTache => ({
+const saisieDeLaTache = (l: LienOuvert, o: { jour: string; heure: string; dureeMinutes: number; confieeA: number; note?: string | null }): SaisieTache => ({
     // 🔴 Arno (11/11/2026, lot C) — l'état des lieux de sortie est un RENDEZ-VOUS (« RDV » dans le module RDV / Tâches).
     sorte: 'rdv',
-  objet: l.objet, note: l.note, jour: o.jour, heure: o.heure, dureeMinutes: o.dureeMinutes, confieeA: o.confieeA,
+  objet: l.objet, note: o.note !== undefined ? o.note : l.note, jour: o.jour, heure: o.heure, dureeMinutes: o.dureeMinutes, confieeA: o.confieeA,
   evenementId: l.evenement_id === null ? null : Number(l.evenement_id),
   rappels: Array.isArray(l.rappels) ? (l.rappels as SaisieTache['rappels']) : rappelsParDefaut(true),
 });
@@ -197,9 +197,13 @@ const saisieDeLaTache = (l: LienOuvert, o: { jour: string; heure: string; dureeM
  * DÉPLACER LE RENDEZ-VOUS : nouvelle date et plage, et éventuellement une autre personne. La tâche repasse « en attente de
  * confirmation » (le module de tâches relance la demande), l'agenda suit (route), un NOUVEAU mail part (« Rendez-vous
  * déplacé — … ») ; le déplacement est tracé par la tâche ET au journal de la Gestion (ancienne et nouvelle plage, auteur).
+ * 🔴🔴 Arno (27/11/2026, 21h19) — « Modifier le RDV » rouvre la fenêtre PRÉREMPLIE, commentaire compris : `commentaire` (absent : inchangé) met à
+ * jour le commentaire de l'état des lieux et le récapitulatif de la mission (note de la tâche, donc son mail et l'agenda), journalisé. Toujours LE
+ * MÊME rendez-vous (la tâche existante est modifiée, jamais doublée) ; seul le commentaire change : ni la tâche ni la demande ne bougent, aucun mail
+ * au collègue.
  */
 export async function deplacerEdls(
-  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; confieA?: number | null },
+  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; confieA?: number | null; commentaire?: string | null },
   auteur: Auteur,
 ): Promise<IssueEdls<{ tacheId: number }>> {
   if (!(await edlsDisponible())) return { etat: 'sans_schema' };
@@ -212,26 +216,42 @@ export async function deplacerEdls(
   if (!avant.ok) return avant.issue;
   const l = avant.l;
   const confieA = d.confieA ?? (l.confiee_a === null ? null : Number(l.confiee_a));
-  const v = verifierPlanification({ jour: d.jour, debut: d.debut, fin: d.fin, confieA, commentaire: null }, groupePreavis(avant.g.lignes));
+  const v = verifierPlanification({ jour: d.jour, debut: d.debut, fin: d.fin, confieA, commentaire: d.commentaire ?? null }, groupePreavis(avant.g.lignes));
   if (!v.ok) return { etat: 'refus', motif: v.motif, champ: v.champ };
+  const autreCommentaire = d.commentaire !== undefined && (v.commentaire ?? null) !== ((l.commentaire ?? '').trim() || null);
   const autrePersonne = l.confiee_a === null || Number(l.confiee_a) !== Number(confieA);
   if (autrePersonne && !(await confiablesEdls(auteur.id)).some((c) => Number(c.id) === Number(confieA))) {
     return { etat: 'refus', motif: 'Cette personne n’a pas accès aux tuiles Location et Gestion avec une adresse de notre Workspace.', champ: 'confieA' };
   }
-  if (!autrePersonne && v.jour === l.jour && v.heure === l.heure && v.dureeMinutes === (l.duree ?? 60)) {
+  const memeCreneau = !autrePersonne && v.jour === l.jour && v.heure === l.heure && v.dureeMinutes === (l.duree ?? 60);
+  if (memeCreneau && !autreCommentaire) {
     return { etat: 'refus', motif: 'Le rendez-vous est déjà à cette date et à cette heure.' };
   }
   const tacheId = Number(l.tache_id);
-  const t = autrePersonne
-    ? await modifierTache(tacheId, saisieDeLaTache(l, { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes, confieeA: confieA as number }), auteur)
+  // le récapitulatif de la mission, réécrit avec le nouveau commentaire AVANT le geste : le mail du collègue le porte déjà
+  const note = autreCommentaire ? await recapitulatif(ids, avant.g.lignes, v.commentaire) : null;
+  if (note !== null && !autrePersonne) await query('UPDATE gestion_tache SET note = $2 WHERE id = $1', [tacheId, note]);
+  const t = memeCreneau ? null : autrePersonne
+    ? await modifierTache(tacheId, saisieDeLaTache(l, { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes, confieeA: confieA as number, ...(note !== null ? { note } : {}) }), auteur)
     : await decalerTache(tacheId, { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes }, auteur);
-  if (!t.ok) return refusTache(t);
+  if (t !== null && !t.ok) {
+    if (note !== null && !autrePersonne) await query('UPDATE gestion_tache SET note = $2 WHERE id = $1', [tacheId, l.note]); // rien n'a bougé : la note d'avant
+    return refusTache(t);
+  }
   /* La même personne garde le rendez-vous : son mail est celui d'un DÉPLACEMENT (« Rendez-vous déplacé — … »). Le module de
      tâches porte l'ancienne date avec les invités (migration 365) ; sans eux, on la lui donne ici. */
   const ancienneDate = { jour: l.jour, heure: l.heure, dureeMinutes: l.duree };
   const avecAncienne = (x: DemandePosee | null | undefined): DemandePosee | null | undefined =>
     (x && !autrePersonne && x.ancienneDate === undefined && (v.jour !== l.jour || v.heure !== l.heure) ? { ...x, ancienneDate } : x);
   await withTransaction(async (q) => {
+    if (autreCommentaire) {
+      await q('UPDATE gestion_location_edls SET commentaire = $2 WHERE id = $1', [Number(l.id), v.commentaire]);
+      for (const r of avant.g.lignes) {
+        await journaliser(q, Number(r.locataire_id), 'location_edls_commentaire', (l.commentaire ?? '').trim() || null, v.commentaire,
+          `état des lieux de sortie : commentaire modifié — tâche ${tacheId} — occupation ${r.id}`, auteur);
+      }
+    }
+    if (memeCreneau) return; // seul le commentaire change : ni date, ni personne
     await q('UPDATE gestion_annuaire_occupation SET etat_des_lieux_prevu_le = $2::date WHERE id = ANY($1::bigint[]) AND sortie IS NULL', [ids, v.jour]);
     for (const r of avant.g.lignes) {
       await journaliser(q, Number(r.locataire_id), 'location_edls_deplace',
@@ -239,6 +259,7 @@ export async function deplacerEdls(
         `état des lieux de sortie déplacé — tâche ${tacheId} — occupation ${r.id}`, auteur);
     }
   });
+  if (t === null) return { etat: 'ok', data: { tacheId }, tacheId };
   return { etat: 'ok', data: { tacheId }, tacheId, demande: avecAncienne(t.demande), demandes: t.demandes?.map((x) => avecAncienne(x) as DemandePosee) };
 }
 
@@ -311,8 +332,8 @@ export async function edlsDesOccupations(occupationIds: readonly number[]): Prom
   const duree = (await colonneExisteMemo('gestion_tache', 'duree_minutes')) ? 't.duree_minutes' : 'NULL::int';
   const demande = await colonneExisteMemo('gestion_tache_demande', 'statut');
   const { rows } = await query<{ id: string; tache_id: string; occupation_ids: string[]; jour: string; heure: string | null; duree: number | null;
-    confiee_a: string | null; confiee_a_libelle: string; statut: string | null; repondu_par: string | null; motif: string | null }>(
-    `SELECT e.id::text, e.tache_id::text, e.occupation_ids::text[] AS occupation_ids, to_char(t.jour, 'YYYY-MM-DD') AS jour,
+    confiee_a: string | null; confiee_a_libelle: string; statut: string | null; repondu_par: string | null; motif: string | null; commentaire: string | null }>(
+    `SELECT e.id::text, e.tache_id::text, e.commentaire, e.occupation_ids::text[] AS occupation_ids, to_char(t.jour, 'YYYY-MM-DD') AS jour,
             to_char(t.heure, 'HH24:MI') AS heure, ${duree} AS duree, t.confiee_a::text, t.confiee_a_libelle,
             ${demande ? 'd.statut, d.repondu_par_libelle AS repondu_par, d.motif' : 'NULL::text AS statut, NULL::text AS repondu_par, NULL::text AS motif'}
        FROM gestion_location_edls e JOIN gestion_tache t ON t.id = e.tache_id
@@ -326,7 +347,7 @@ export async function edlsDesOccupations(occupationIds: readonly number[]): Prom
       edlsId: Number(r.id), tacheId: Number(r.tache_id), jour: r.jour, heure: r.heure, dureeMinutes: r.duree === null ? null : Number(r.duree),
       confieA: r.confiee_a_libelle, confieAId: r.confiee_a === null ? null : Number(r.confiee_a),
       statut: r.statut === 'en_attente' || r.statut === 'acceptee' || r.statut === 'refusee' ? r.statut : null,
-      reponduPar: r.repondu_par, motifRefus: r.motif,
+      reponduPar: r.repondu_par, motifRefus: r.motif, commentaire: r.commentaire,
     },
   }));
 }

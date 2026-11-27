@@ -822,7 +822,9 @@ async function postLocation(request: Request): Promise<Response> {
         const r = action === 'planifier-edls'
           ? await planifierEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA, commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null }, auteur)
           : action === 'deplacer-edls'
-            ? await deplacerEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA }, auteur)
+            ? await deplacerEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA,
+              // 🔴 Arno (27/11/2026, 21h19) — « Modifier le RDV » : le commentaire (absent : inchangé)
+              ...(typeof corps.commentaire === 'string' ? { commentaire: corps.commentaire } : {}) }, auteur)
             : await reattribuerEdls({ occupationIds: occs, confieA }, auteur);
         if (r.etat !== 'ok') return repondre(r);
         let mails: { destinataire: string; etat: string; objet?: string }[] = [];
