@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { ouvreursDesEvenements } from './ouvreurEvenementRepo';
 import { sqlNbEtapesAValider } from './etapesAValider';
 import { sqlEvenementOuvertParLaFrise, sqlPeriodesDeLEvenement, CERTITUDE_ECARTEE } from './etatParLaFrise';
 import {
@@ -188,6 +189,7 @@ export async function periodesDesEvenements(): Promise<PeriodeEvenement[]> {
 
 /** Le tableau de bord complet : deux lectures, puis le pli PUR. */
 export async function tableauBord(maintenant: Date = new Date()): Promise<TableauBordEvenements> {
-  const [faits, periodes] = await Promise.all([faitsDesEvenements(), periodesDesEvenements()]);
-  return tableauBordEvenements(faits, periodes, maintenant);
+  const [faits, periodes, ouvreurs] = await Promise.all([faitsDesEvenements(), periodesDesEvenements(), ouvreursDesEvenements()]);
+  // 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) qui a ouvert chaque événement : la règle commune (point 1)
+  return tableauBordEvenements(faits.map((f) => (ouvreurs.has(f.id) ? { ...f, ouvreur: ouvreurs.get(f.id) } : f)), periodes, maintenant);
 }

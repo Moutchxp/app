@@ -188,6 +188,8 @@ export function GestionVue({ intro, location = false }: {
    * vide. Voir `evenementsFiltres`.
    */
   const [idsParFiltre, setIdsParFiltre] = useState<Record<string, number[]> | null>(null);
+  /* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) les boutons de « OUVERT PAR », lus avec les ensembles du tableau de bord */
+  const [ouvreursFiltre, setOuvreursFiltre] = useState<{ cle: string; mot: string; n: number }[] | null>(null);
   const [comptesBoite, setComptesBoite] = useState<
     {
       lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null;
@@ -1782,7 +1784,7 @@ export function GestionVue({ intro, location = false }: {
             onOuvrir={(v) => aller({ ...etatUrl, tb: v })}
             filtre={etatUrl.evf ?? null}
             onFiltre={(cle) => aller({ ...etatUrl, evf: cle, filOuvert: null })}
-            onDonnees={(tb) => setIdsParFiltre(tb.idsParFiltre)} />
+            onDonnees={(tb) => { setIdsParFiltre(tb.idsParFiltre); setOuvreursFiltre(tb.ouvreurs ?? null); }} />
           {/* LOT 5-FUSION-B — la colonne du mode prend la place des liens de modules. ⚠️ Elle ne contient QUE ce que
               la colonne des cartes portait déjà : son titre, son compteur, la mention de troncature, et le retour.
               La colonne des cartes n'a JAMAIS eu de recherche ni de filtre (la recherche d'événement, elle, vit dans
@@ -1829,7 +1831,7 @@ export function GestionVue({ intro, location = false }: {
             * existants, et Arno écrit « comportement actuel ». Ils ne sont pas réécrits, ils déménagent.
             */}
           <LigneFiltresEvenements
-            etat={ligne} ids={idsParFiltre}
+            etat={ligne} ids={idsParFiltre} ouvreurs={ouvreursFiltre}
             boutonsNewUrgent={boutonsDeTri}
             onBasculer={(cle) => allerLigne(basculer(ligne, cle))}
             onTri={(cle) => allerLigne(choisirTri(ligne, cle))}

@@ -2,6 +2,7 @@
 
 /* 🔴 MODULES PURS UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026, garde
    `clientBoundary.guard.test.ts`). `ligneFiltresEvenements` n'a ni base, ni réseau, ni React. */
+import { OUVREUR_TOUS } from '../../../../lib/gestion/ouvreurEvenement';
 import {
   ETATS, MONGAS, INTERRUPTEURS, TRIS_LIGNE, compteDe, ligneParDefaut,
   type EtatLigne,
@@ -31,8 +32,10 @@ import { TYPES_EVENEMENT } from '../../../../lib/gestion/evenementQualite';
  *
  * ⚠️ AUCUNE ÉCRITURE : ce composant ne connaît ni `fetch`, ni route, ni base. Il remonte des clés.
  */
-export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReinitialiser, boutonsNewUrgent }: {
+export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReinitialiser, boutonsNewUrgent, ouvreurs = null }: {
   etat: EtatLigne;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) les boutons de « OUVERT PAR » (tableau de bord) ; `null` : pas encore lus — « Tous » seul. */
+  ouvreurs?: { cle: string; mot: string; n: number }[] | null;
   /** Les ensembles du tableau de bord. `null` = pas encore lus : les boutons s'affichent alors sans nombre. */
   ids: Record<string, number[]> | null;
   onBasculer: (cle: string) => void;
@@ -94,6 +97,15 @@ export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReiniti
 
       {/* ④ MONGA — trois choix exclusifs. */}
       {famille('Monga', MONGAS.map((m) => bouton(m.cle, m.mot, etat.monga === m.cle)))}
+
+      {/* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) « OUVERT PAR » — même style que PRIORITÉ / ÉTAT / MONGA : « Tous », un bouton par utilisateur
+          ayant ouvert au moins un événement (avec son nombre), « Automatique », « Non renseigné » ; un seul choix, combiné avec les autres filtres. */}
+      {famille('Ouvert par', [
+        <button key={OUVREUR_TOUS} type="button" className={`gpil${(etat.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS ? ' gpil--actif' : ''}`}
+          aria-pressed={(etat.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS} title="Tous les événements, quel que soit qui les a ouverts"
+          onClick={() => onBasculer(OUVREUR_TOUS)} data-lfe-ouvreur={OUVREUR_TOUS}>Tous</button>,
+        ...(ouvreurs ?? []).map((o) => <span key={o.cle} data-lfe-ouvreur={o.cle}>{bouton(o.cle, o.mot, etat.ouvreur === o.cle)}</span>),
+      ], ' lfe-fam--ouvreurs')}
 
       {/* ⑤ ⑦ ⑧ LES INTERRUPTEURS — indépendants, combinables. */}
       {famille('À surveiller',

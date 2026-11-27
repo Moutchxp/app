@@ -24,6 +24,7 @@
  * descendra dans le SQL — et l'épreuve, elle, restera valable pour l'arbitrer.
  */
 
+import { boutonsOuvreurs, cleFiltreOuvreur, type OuvreurEvenement } from './ouvreurEvenement';
 import { TYPES_EVENEMENT, NIVEAUX_URGENCE } from './evenementQualite';
 import { CLE_FILTRE_ETAPES_A_VALIDER } from './etapesAValider';
 
@@ -41,6 +42,8 @@ import { CLE_FILTRE_ETAPES_A_VALIDER } from './etapesAValider';
  */
 export interface FaitsEvenement {
   id: number;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) qui l'a ouvert — le filtre « OUVERT PAR ». Absent : non renseigné. */
+  ouvreur?: OuvreurEvenement;
   /** La catégorie de l'événement (`travaux`, `fuite_eau`…), ou `null` : « non précisé ». */
   type: string | null;
   /** Le niveau d'urgence (`normale`, `haute`, `urgent`), ou `null` : aucun niveau enregistré. */
@@ -165,6 +168,8 @@ export function cleFiltreUrgence(cle: string): string { return `urgence:${cle}`;
 export interface TableauBordEvenements {
   /** Pour chaque chiffre cliquable, les événements qu'il compte. Voir l'encadré de `IdsParFiltre`. */
   idsParFiltre: IdsParFiltre;
+  /** 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) les boutons de « OUVERT PAR » : un par utilisateur, puis Automatique et Non renseigné. */
+  ouvreurs: { cle: string; mot: string; n: number }[];
   volumes: {
     enCours: number;
     clos: number;
@@ -435,8 +440,15 @@ export function tableauBordEvenements(
   /* 🔴 LOT GESTION-VALIDATION-MONGA — le filtre « Étapes à valider » de la famille « À surveiller » (Arno, 10/11/2026). */
   retenir(CLE_FILTRE_ETAPES_A_VALIDER, (f) => (f.nbEtapesAValider ?? 0) > 0);
 
+  /* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) « trier par événement ouvert par tel ou tel utilisateur » : un ensemble par auteur, et le chiffre du
+     bouton est la longueur de SON ensemble (la règle de ce fichier) */
+  const ouvreurs = boutonsOuvreurs(faits.map((f) => f.ouvreur)).map((b) => ({
+    ...b, n: retenir(b.cle, (f) => cleFiltreOuvreur(f.ouvreur ?? { cle: 'nr' }) === b.cle),
+  }));
+
   return {
     idsParFiltre: ids,
+    ouvreurs,
     volumes,
     flux: mois.map((m, i) => ({
       mois: m, mot: motDuMois(m), motCourt: motCourtDuMois(m, i === 0),

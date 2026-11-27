@@ -286,3 +286,29 @@ describe('🔴🔴 ② la tuile « Gestion » ouvre l’écran partagé', () => 
     expect(lireEtatUrl('?ecran=annuaire&fiche=bien-478').fiche).toEqual({ sorte: 'bien', id: 478 });
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 09h48, point 3) — « OUVERT PAR » : un seul choix, dans l'adresse, combiné avec les autres filtres. */
+describe('« OUVERT PAR » dans la ligne de filtres', () => {
+  it('lu et écrit dans l’adresse (&evf=), aller-retour sans dérive ; absent = tous (ligne par défaut)', () => {
+    const e = basculer(LIGNE_PAR_DEFAUT, 'ouvert:u2');
+    expect([e.ouvreur, ecrireLigne(e), ligneParDefaut(e)]).toEqual(['ouvert:u2', 'ouvert:u2', false]);
+    expect(lireLigne('clos,ouvert:u2', null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, etat: 'clos', ouvreur: 'ouvert:u2' });
+    expect(lireLigne(ecrireLigne({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreur: 'ouvert:auto' }), null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreur: 'ouvert:auto' });
+    expect(lireLigne(null, null, null)).toEqual(LIGNE_PAR_DEFAUT);
+  });
+  it('un seul choix : un autre remplace ; recliquer le même, ou « Tous », revient à tous', () => {
+    const e = basculer(basculer(LIGNE_PAR_DEFAUT, 'ouvert:u2'), 'ouvert:nr');
+    expect(e.ouvreur).toBe('ouvert:nr');
+    expect(basculer(e, 'ouvert:nr')).toEqual(LIGNE_PAR_DEFAUT);
+    expect(basculer(e, 'ouvert-tous')).toEqual(LIGNE_PAR_DEFAUT);
+  });
+  it('combiné avec l’état et Monga (intersection) ; un auteur inconnu du tableau de bord : aucune carte, jamais toutes', () => {
+    const ids = { encours: [1, 2, 3], clos: [4], tous: [1, 2, 3, 4], monga: [2, 3], 'sans-monga': [1, 4], 'ouvert:u2': [1, 3, 4], 'ouvert:nr': [2] };
+    const cartes = [carte(1), carte(2), carte(3), carte(4)];
+    const ids_ = (e: EtatLigne) => appliquerFiltres(cartes, e, ids).map((c) => c.evenementId);
+    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2' })).toEqual([1, 3]);
+    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2', monga: 'monga' })).toEqual([3]);
+    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2', etat: 'tous' })).toEqual([1, 3, 4]);
+    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u99' })).toEqual([]);
+  });
+});
