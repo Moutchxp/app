@@ -31,7 +31,8 @@ export interface BienDeLAdresse { numero: string; adresse: string | null }
 export function resumeAdresse(d: DigicodesDeLAdresse | null | undefined, biens: readonly BienDeLAdresse[]): { digicodes: string[]; biens: string[] } {
   const digicodes = d === null || d === undefined ? [] : [
     ...(d.commun.digicode !== null || (d.commun.code ?? '') !== '' ? [`digicode copropriété : ${motCode(d.commun)}`] : []),
-    ...d.batiments.map((b) => `bâtiment / cage ${b.libelle} : ${motCode(b)}`)];
+    // 🔴 (Arno, 27/11/2026, 23h30) « Bâtiment / cage » devient « Bâtiment / cage d'escalier » partout à l'écran
+    ...d.batiments.map((b) => `bâtiment / cage d’escalier ${b.libelle} : ${motCode(b)}`)];
   return { digicodes, biens: biens.map((b) => `n° ${b.numero}${b.adresse ? ` (${b.adresse})` : ''}`) };
 }
 

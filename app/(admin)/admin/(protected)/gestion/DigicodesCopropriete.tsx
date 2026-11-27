@@ -278,7 +278,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
   const refus = refusDigicodes(s, nomenclature, connus, parAdresse && s.length > 1);
   /** Le « + » d'une adresse : une ligne de bâtiment ou de cage (fiche Copropriété) ; en mode bien, le menu du bâtiment du bien. */
   const plus = (d: DigicodesAdresseSaisis): React.ReactNode => (modeBien && onPlusBatiment === undefined ? null : (
-    <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage${d.voie ? ` — ${d.voie}` : ''}`} title="Ajouter un digicode de bâtiment ou de cage"
+    <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage d’escalier${d.voie ? ` — ${d.voie}` : ''}`} title="Ajouter un digicode de bâtiment ou de cage d’escalier"
       onClick={() => {
         if (modeBien) { onPlusBatiment?.(); return; }
         const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk);
@@ -330,7 +330,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
               {...(!b.nouveau && lisere(batimentDe(b.libelle)?.cle ?? '')['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               {/* 🔴 (Arno, 17/11/2026 : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. ») */}
               {b.nouveau && <div className={b.choisi === true ? 'dcp-champ-bat-replie' : 'dcp-champ dcp-champ-bat'}>
-                {b.choisi !== true && <span>Bâtiment / cage</span>}
+                {b.choisi !== true && <span>{LIBELLE_BATIMENT_CAGE}</span>}
                 <>
                   {/* 🔴 (Arno, 17/11/2026) le COMPOSANT UNIQUE du choix / de l'ajout d'un bâtiment (menu superposé, « + Ajouter le bâtiment … »,
                       encadré « Ajouter nouveau bâtiment », avertissement de numérotation) */}
@@ -502,7 +502,7 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
   const [proprietaires, setProprietaires] = useState(false);
   const [fait, setFait] = useState<IssueEnvoi | null>(null);
   const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode copropriété', etat: d.communEtat }] : []),
-    ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `Bâtiment / cage ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
+    ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `${LIBELLE_BATIMENT_CAGE} ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
   /* 🔴🔴 (Arno, 17/11/2026 : « PLUSIEURS CODES DANS UN SEUL MAIL : dans la fenêtre « Modifier », on peut cocher un ou plusieurs codes (copropriété et/ou
      bâtiments), avec pour CHACUN son nouveau code, sa date d'activation et une heure facultative (sans heure : début de journée, et le mail n'affiche que la
      date). Un seul enregistrement, un seul écran de destinataires. […] Chaque code bascule à sa propre date. ») */
@@ -676,7 +676,7 @@ function AArbitrer({ s, desactive, onArbitrer }: { s: readonly DigicodesAdresseS
       <p className="loc-muet dcp-sans-marge">Des valeurs différentes ont été saisies pour le même digicode (fiches d’avant). Rien n’a été choisi ni effacé : gardez la bonne.</p>
       {places.map((p) => (
         <div key={`${p.d.cle}#${p.batiment ?? ''}`} className="dcp-arbitrer-place" data-dcp-arbitrer-place={`${p.d.cle}#${p.batiment ?? ''}`}>
-          <p className="dcp-titre">{adresseImmeuble(p.d.voie, p.d.codePostal, p.d.commune)} — {p.batiment === null ? 'digicode copropriété' : `bâtiment / cage ${p.batiment}`}</p>
+          <p className="dcp-titre">{adresseImmeuble(p.d.voie, p.d.codePostal, p.d.commune)} — {p.batiment === null ? 'digicode copropriété' : `bâtiment / cage d’escalier ${p.batiment}`}</p>
           <ul className="dcp-arbitrer-liste">{p.etat.aArbitrer.map((c, i) => {
             const id = `${p.d.cle}#${p.batiment ?? ''}#${i}`;
             const v = c.digicode === false ? { digicode: false, code: null } : c.code ? { digicode: true, code: c.code } : null;
@@ -954,7 +954,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   };
   const valider = (nom: string, depuisEncadre: boolean): void => {
     const n = nom.trim();
-    if (n === '') { if (depuisEncadre) setAjout((x) => (x === null ? x : { ...x, erreur: 'Donnez un nom au bâtiment ou à la cage.' })); return; }
+    if (n === '') { if (depuisEncadre) setAjout((x) => (x === null ? x : { ...x, erreur: 'Donnez un nom au bâtiment ou à la cage d’escalier.' })); return; }
     fermer();
     const deja = existe(n);
     if (deja !== undefined) { setAjout(null); setMessage(null); onChoix(deja.libelle, false); return; }
@@ -1000,8 +1000,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
       {proposition !== undefined && t === '' && (
         <button type="button" className="dcp-lien" disabled={desactive} onClick={() => valider(proposition.nom, false)} data-cbc-escalier>{proposition.texte}</button>)}
       {ajout !== null && (
-        <div className="cb-encadre" role="group" aria-label="Ajouter un bâtiment ou une cage" data-cb-encadre>
-          <label className="dcp-champ cb-encadre-champ"><span>Nom du bâtiment / cage</span>
+        <div className="cb-encadre" role="group" aria-label="Ajouter un bâtiment ou une cage d’escalier" data-cb-encadre>
+          <label className="dcp-champ cb-encadre-champ"><span>Nom du bâtiment / cage d’escalier</span>
             <input ref={champEncadre} value={ajout.nom} placeholder={exempleNom(nomenclature)} maxLength={60} data-cb-encadre-nom autoFocus
               onChange={(e) => setAjout({ nom: majusculesBatiment(e.target.value), erreur: null })}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); valider(ajout.nom, true); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAjout(null); champ.current?.focus(); } }} /></label>

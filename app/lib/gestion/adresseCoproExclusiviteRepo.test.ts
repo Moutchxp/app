@@ -28,7 +28,7 @@ describe('la lecture du conflit', () => {
     const c = await conflitDeLAdresse(q as never, { coproId: 7, coproCle: '137 rue gerhard' }, { libelle: '40bis rue Baudin Courbevoie', codePostal: '92400' });
     expect(c).toEqual({ cle: '40 bis rue baudin courbevoie', ecrite: '40 bis Rue Baudin COURBEVOIE, 92400',
       copropriete: { id: 9, cle: '38 rue baudin', libelle: '38 rue Baudin', nom: '_TEST Copro Baudin', syndic: 'Cabinet B / Lyon' }, principale: false,
-      biens: ['n° W12 (40 bis rue Baudin)'], digicodes: ['digicode copropriété : code 4040', 'bâtiment / cage A : code A40'] });
+      biens: ['n° W12 (40 bis rue Baudin)'], digicodes: ['digicode copropriété : code 4040', 'bâtiment / cage d’escalier A : code A40'] });
     // celle-ci est exclue de la recherche (par son identifiant et par sa clé)
     expect(h.sql[0].p).toEqual([7, '137 rue gerhard']);
     expect(h.sql[0].s).toContain('WHERE a.retire_le IS NULL');

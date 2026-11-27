@@ -267,7 +267,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     const rep = g === null ? undefined : digi.find((x) => x.cle === representants.get(g.banId));
     if (g === null || rep === undefined || rep.cle === d.cle) return [];
     const places = [{ place: 'digicode copropriété', v: valeurDe(d.communEtat), r: valeurDe(rep.communEtat) },
-      ...d.batiments.map((b) => ({ place: `bâtiment / cage ${b.libelle}`, v: valeurDe(b.etat), r: valeurDe(rep.batiments.find((y) => y.k === b.k)?.etat) }))];
+      ...d.batiments.map((b) => ({ place: `bâtiment / cage d’escalier ${b.libelle}`, v: valeurDe(b.etat), r: valeurDe(rep.batiments.find((y) => y.k === b.k)?.etat) }))];
     return places.filter((x) => x.v !== null && x.v !== x.r).map((x) => ({ adresse: g.libelle, place: x.place, valeur: x.v as string, ecriture: d.voie }));
   });
   /* 🔴 (Arno, 26/11/2026, 11h58) une adresse confirmée (enregistrée, ou à l'écran avant « Valider ») ne porte plus « à vérifier » */

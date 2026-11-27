@@ -44,7 +44,7 @@ describe('« Retirer cette adresse »', () => {
     const j = e.find((x) => x.s.includes("'adresse_retiree'"))!;
     expect(j.p.slice(0, 2)).toEqual([7, '17 rue voltaire']);
     expect(j.p[2]).toBe('Adresse retirée de la copropriété : 17 rue Voltaire, 92800 Puteaux — digicodes et bâtiments partis avec elle : digicode copropriété : code 1701 · '
-      + 'bâtiment / cage A : code A17 · bâtiment / cage CAGE B : pas de digicode — biens du portefeuille à cette adresse : n° W5 (17 rue Voltaire)');
+      + 'bâtiment / cage d’escalier A : code A17 · bâtiment / cage d’escalier CAGE B : pas de digicode — biens du portefeuille à cette adresse : n° W5 (17 rue Voltaire)');
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
   });
   it('une adresse qui n’est pas (ou plus) de la copropriété : refus ; une fiche non enregistrée : refus', async () => {

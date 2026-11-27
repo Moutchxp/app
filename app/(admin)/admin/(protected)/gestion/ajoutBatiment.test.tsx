@@ -99,7 +99,7 @@ describe('③ « Ajouter nouveau bâtiment » : l’ENCADRÉ, qui ne se referme 
     await monter();
     await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
     await clic($('[data-cb-valider]'));
-    expect($('[data-cb-erreur]').textContent).toBe('Donnez un nom au bâtiment ou à la cage.');
+    expect($('[data-cb-erreur]').textContent).toBe('Donnez un nom au bâtiment ou à la cage d’escalier.');
     expect($('[data-cb-encadre]')).not.toBeNull();
     await saisir($('[data-cb-encadre-nom]'), 'c');
     await clic($('[data-cb-valider]'));

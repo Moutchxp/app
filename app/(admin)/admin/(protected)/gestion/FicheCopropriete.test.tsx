@@ -998,7 +998,7 @@ describe('« Retirer cette adresse » (DIGICODES et « × ») ; « Définir comm
     await act(async () => { ([...document.querySelectorAll('[data-dcp-retirer-adresse]')][1] as HTMLButtonElement).click(); }); await calmer();
     const w = $('[data-fcp-retrait-adresse]');
     expect(w.querySelector('[data-fcp-retrait-libelle]')?.textContent).toBe('12 rue des Lilas, 75011 Paris');
-    expect([...w.querySelectorAll('[data-fcp-retrait-digicodes] li')].map((x) => x.textContent)).toEqual(['digicode copropriété : code 1212', 'bâtiment / cage A : code A12']);
+    expect([...w.querySelectorAll('[data-fcp-retrait-digicodes] li')].map((x) => x.textContent)).toEqual(['digicode copropriété : code 1212', 'bâtiment / cage d’escalier A : code A12']);
     // 🔴🔴 (Arno, 27/11/2026, 23h30) la fiche est ouverte depuis le bien W1 : « ce bien » à part, puis les AUTRES biens (ici aucun)
     expect(w.textContent).toContain('Vous allez retirer cette adresse de la copropriété, avec l’ensemble des digicodes et des bâtiments / cages d’escalier qui lui sont associés');
     expect(w.querySelector('[data-fcp-retrait-ce-bien]')?.textContent).toContain('Le bien d’où vous venez (n° W1 (12 rue des Lilas)) est à cette adresse : Ils ne seront plus rattachés à cette copropriété');

@@ -27,3 +27,19 @@ describe('le retrait d’une adresse de la copropriété : les biens touchés', 
     expect(TEXTE_RETRAIT_ADRESSE).toContain('l’ensemble des digicodes et des bâtiments / cages d’escalier');
   });
 });
+
+describe('🔴 (Arno, 27/11/2026, 23h30) « Bâtiment / cage » devient « Bâtiment / cage d’escalier » partout à l’écran', () => {
+  it('aucun texte affiché ne dit plus « bâtiment / cage » sans « d’escalier » (fiche copropriété, digicodes, création de bien, mails)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fichiers = ['app/(admin)/admin/(protected)/gestion/DigicodesCopropriete.tsx', 'app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx',
+      'app/(admin)/admin/(protected)/location/CreationBien.tsx', 'app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'app/lib/gestion/adresseCoproGestes.ts',
+      'app/lib/gestion/batimentsCopropriete.ts', 'app/lib/location/mailNouvelleLocation.ts', 'app/lib/location/sortieLocataires.ts', 'app/lib/location/encartBien.ts'];
+    for (const f of fichiers) {
+      // hors commentaires : les lignes de code seulement
+      const code = readFileSync(f, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(l)).join('\n');
+      expect(code.match(/b[âa]timents? (ou (de |à la |une )?|\/ )cages?(?!s)(?! d[’'])/gi) ?? [], f).toEqual([]);
+    }
+    const { resumeAdresse } = await import('./adresseCoproGestes');
+    expect(resumeAdresse({ commun: { digicode: null, code: null }, batiments: [{ libelle: 'A', digicode: true, code: 'a1' }] }, []).digicodes).toEqual(['bâtiment / cage d’escalier A : code A1']);
+  });
+});
