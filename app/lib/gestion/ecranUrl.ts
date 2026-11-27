@@ -574,7 +574,10 @@ function cleFiltreBrute(brut: string | null): string | null {
   /* ⚠️ LA VIRGULE EST ADMISE DEPUIS LE LOT LIGNE-DE-FILTRES : `evf` porte désormais une LISTE de clés
      (« clos,type:travaux,devis-attente »), parce que les filtres de la ligne se combinent. Le plafond passe
      de 40 à 160 caractères — assez pour tous les boutons allumés à la fois, et borné quand même. */
-  return s !== '' && s.length <= 160 && /^[a-z_:,-]+$/.test(s) ? s : null;
+  /* 🔴🔴 (Arno, 27/11/2026, 11h01, point 2) « Le filtre est mémorisé dans l'adresse de la page comme les autres filtres » : les clés « OUVERT PAR »
+     portent le n° du compte (« ouvert:u5 ») — les CHIFFRES sont admis, et le plafond passe à 400 (plusieurs collègues à la fois). Avant, la clé
+     était refusée à la relecture et le filtre se perdait au rechargement. */
+  return s !== '' && s.length <= 400 && /^[a-z0-9_:,-]+$/.test(s) ? s : null;
 }
 
 /**

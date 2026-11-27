@@ -2,7 +2,9 @@
 
 /* 🔴 MODULES PURS UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026, garde
    `clientBoundary.guard.test.ts`). `ligneFiltresEvenements` n'a ni base, ni réseau, ni React. */
-import { OUVREUR_TOUS } from '../../../../lib/gestion/ouvreurEvenement';
+import { useState } from 'react';
+import { libelleBoutonOuvertPar } from '../../../../lib/gestion/ouvreurEvenement';
+import { FenetreOuvertPar } from './FenetreOuvertPar';
 import {
   ETATS, MONGAS, INTERRUPTEURS, TRIS_LIGNE, compteDe, ligneParDefaut,
   type EtatLigne,
@@ -32,10 +34,12 @@ import { TYPES_EVENEMENT } from '../../../../lib/gestion/evenementQualite';
  *
  * ⚠️ AUCUNE ÉCRITURE : ce composant ne connaît ni `fetch`, ni route, ni base. Il remonte des clés.
  */
-export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReinitialiser, boutonsNewUrgent, ouvreurs = null }: {
+export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReinitialiser, boutonsNewUrgent, ouvreurs = null, onOuvreurs }: {
   etat: EtatLigne;
-  /** 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) les boutons de « OUVERT PAR » (tableau de bord) ; `null` : pas encore lus — « Tous » seul. */
+  /** 🔴🔴 (Arno, 27/11/2026) les collègues de « OUVERT PAR » (accès Gestion ou Location, tableau de bord) ; `null` : pas encore lus. */
   ouvreurs?: { cle: string; mot: string; n: number }[] | null;
+  /** 🔴🔴 (Arno, 27/11/2026, 11h01, point 2) la sélection appliquée dans la fenêtre « Ouvert par » (vide = tous). */
+  onOuvreurs?: (cles: string[]) => void;
   /** Les ensembles du tableau de bord. `null` = pas encore lus : les boutons s'affichent alors sans nombre. */
   ids: Record<string, number[]> | null;
   onBasculer: (cle: string) => void;
@@ -44,6 +48,7 @@ export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReiniti
   /** Les deux boutons de tri existants (« New », « Urgent »), rendus par l'appelant et posés en tête. */
   boutonsNewUrgent: React.ReactNode;
 }) {
+  const [fenetreOuvreurs, setFenetreOuvreurs] = useState(false);
   const bouton = (cle: string, mot: string, actif: boolean) => {
     const n = compteDe(cle, ids);
     return (
@@ -98,14 +103,17 @@ export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReiniti
       {/* ④ MONGA — trois choix exclusifs. */}
       {famille('Monga', MONGAS.map((m) => bouton(m.cle, m.mot, etat.monga === m.cle)))}
 
-      {/* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) « OUVERT PAR » — même style que PRIORITÉ / ÉTAT / MONGA : « Tous », un bouton par utilisateur
-          ayant ouvert au moins un événement (avec son nombre), « Automatique », « Non renseigné » ; un seul choix, combiné avec les autres filtres. */}
-      {famille('Ouvert par', [
-        <button key={OUVREUR_TOUS} type="button" className={`gpil${(etat.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS ? ' gpil--actif' : ''}`}
-          aria-pressed={(etat.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS} title="Tous les événements, quel que soit qui les a ouverts"
-          onClick={() => onBasculer(OUVREUR_TOUS)} data-lfe-ouvreur={OUVREUR_TOUS}>Tous</button>,
-        ...(ouvreurs ?? []).map((o) => <span key={o.cle} data-lfe-ouvreur={o.cle}>{bouton(o.cle, o.mot, etat.ouvreur === o.cle)}</span>),
-      ], ' lfe-fam--ouvreurs')}
+      {/* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3, puis 11h01, point 2) « OUVERT PAR » : un seul bouton « Ouvert par : Tous ▾ » qui ouvre la fenêtre
+          des collègues (accès Gestion ou Location) ; il dit ensuite le choix (« Ouvert par : Arnaud JOREL », « Ouvert par : 2 collègues »). */}
+      {famille('Ouvert par', (
+        <button type="button" className={`gpil${(etat.ouvreurs ?? []).length > 0 ? ' gpil--actif' : ''}`} aria-haspopup="dialog" aria-expanded={fenetreOuvreurs}
+          onClick={() => setFenetreOuvreurs(true)} data-lfe-ouvert-par>
+          {libelleBoutonOuvertPar(etat.ouvreurs, ouvreurs ?? [])} <span aria-hidden="true">▾</span>
+        </button>), ' lfe-fam--ouvreurs')}
+      {fenetreOuvreurs && (
+        <FenetreOuvertPar collegues={ouvreurs ?? []} choisis={etat.ouvreurs ?? []}
+          onAnnuler={() => setFenetreOuvreurs(false)}
+          onAppliquer={(cles) => { setFenetreOuvreurs(false); onOuvreurs?.(cles); }} />)}
 
       {/* ⑤ ⑦ ⑧ LES INTERRUPTEURS — indépendants, combinables. */}
       {famille('À surveiller',

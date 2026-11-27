@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  appliquerFiltres, basculer, choisirTri, compteDe, ecrireLigne, lireLigne, ligneParDefaut, trierLigne,
+  appliquerFiltres, basculer, choisirOuvreurs, choisirTri, compteDe, ecrireLigne, lireLigne, ligneParDefaut, trierLigne,
   ETAT_PAR_DEFAUT, LIGNE_PAR_DEFAUT, MONGA_PAR_DEFAUT, type EtatLigne,
 } from './ligneFiltresEvenements';
 import { ecrireEtatUrl, ETAT_DEFAUT, lireEtatUrl, memeEtat } from './ecranUrl';
@@ -287,28 +287,45 @@ describe('🔴🔴 ② la tuile « Gestion » ouvre l’écran partagé', () => 
   });
 });
 
-/** 🔴🔴 Arno (27/11/2026, 09h48, point 3) — « OUVERT PAR » : un seul choix, dans l'adresse, combiné avec les autres filtres. */
-describe('« OUVERT PAR » dans la ligne de filtres', () => {
+/** 🔴🔴 Arno (27/11/2026, 09h48 point 3, puis 11h01 point 2) — « OUVERT PAR » : plusieurs collègues, dans l'adresse, combinés avec les autres filtres. */
+describe('« OUVERT PAR » dans la ligne de filtres : plusieurs collègues', () => {
   it('lu et écrit dans l’adresse (&evf=), aller-retour sans dérive ; absent = tous (ligne par défaut)', () => {
-    const e = basculer(LIGNE_PAR_DEFAUT, 'ouvert:u2');
-    expect([e.ouvreur, ecrireLigne(e), ligneParDefaut(e)]).toEqual(['ouvert:u2', 'ouvert:u2', false]);
-    expect(lireLigne('clos,ouvert:u2', null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, etat: 'clos', ouvreur: 'ouvert:u2' });
-    expect(lireLigne(ecrireLigne({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreur: 'ouvert:auto' }), null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreur: 'ouvert:auto' });
+    const e = choisirOuvreurs(LIGNE_PAR_DEFAUT, ['ouvert:u2', 'ouvert:u5']);
+    expect([e.ouvreurs, ecrireLigne(e), ligneParDefaut(e)]).toEqual([['ouvert:u2', 'ouvert:u5'], 'ouvert:u2,ouvert:u5', false]);
+    expect(lireLigne('clos,ouvert:u2,ouvert:u5', null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, etat: 'clos', ouvreurs: ['ouvert:u2', 'ouvert:u5'] });
+    expect(lireLigne(ecrireLigne({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreurs: ['ouvert:u9'] }), null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, monga: 'monga', ouvreurs: ['ouvert:u9'] });
     expect(lireLigne(null, null, null)).toEqual(LIGNE_PAR_DEFAUT);
   });
-  it('un seul choix : un autre remplace ; recliquer le même, ou « Tous », revient à tous', () => {
-    const e = basculer(basculer(LIGNE_PAR_DEFAUT, 'ouvert:u2'), 'ouvert:nr');
-    expect(e.ouvreur).toBe('ouvert:nr');
-    expect(basculer(e, 'ouvert:nr')).toEqual(LIGNE_PAR_DEFAUT);
+  it('la fenêtre applique d’un coup ; vide = tous ; « Tous » et la bascule d’une clé restent possibles', () => {
+    const e = choisirOuvreurs(LIGNE_PAR_DEFAUT, ['ouvert:u2', 'ouvert:u2', 'x', 'ouvert:u5']);
+    expect(e.ouvreurs).toEqual(['ouvert:u2', 'ouvert:u5']);
+    expect(choisirOuvreurs(e, [])).toEqual(LIGNE_PAR_DEFAUT);
     expect(basculer(e, 'ouvert-tous')).toEqual(LIGNE_PAR_DEFAUT);
+    expect(basculer(e, 'ouvert:u5').ouvreurs).toEqual(['ouvert:u2']);
   });
-  it('combiné avec l’état et Monga (intersection) ; un auteur inconnu du tableau de bord : aucune carte, jamais toutes', () => {
-    const ids = { encours: [1, 2, 3], clos: [4], tous: [1, 2, 3, 4], monga: [2, 3], 'sans-monga': [1, 4], 'ouvert:u2': [1, 3, 4], 'ouvert:nr': [2] };
+  it('plusieurs collègues en UNION, combinés avec l’état et Monga (intersection) ; un collègue sans événement n’ajoute rien', () => {
+    const ids = { encours: [1, 2, 3], clos: [4], tous: [1, 2, 3, 4], monga: [2, 3], 'sans-monga': [1, 4], 'ouvert:u2': [1, 4], 'ouvert:u5': [2], 'ouvert:u6': [] };
     const cartes = [carte(1), carte(2), carte(3), carte(4)];
-    const ids_ = (e: EtatLigne) => appliquerFiltres(cartes, e, ids).map((c) => c.evenementId);
-    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2' })).toEqual([1, 3]);
-    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2', monga: 'monga' })).toEqual([3]);
-    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u2', etat: 'tous' })).toEqual([1, 3, 4]);
-    expect(ids_({ ...LIGNE_PAR_DEFAUT, ouvreur: 'ouvert:u99' })).toEqual([]);
+    const vus = (e: EtatLigne) => appliquerFiltres(cartes, e, ids).map((c) => c.evenementId);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u2'] })).toEqual([1]);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u2', 'ouvert:u5'] })).toEqual([1, 2]);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u2', 'ouvert:u5'], etat: 'tous' })).toEqual([1, 2, 4]);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u2', 'ouvert:u5'], monga: 'monga' })).toEqual([2]);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u6'] })).toEqual([]);
+    expect(vus({ ...LIGNE_PAR_DEFAUT, ouvreurs: ['ouvert:u99'] })).toEqual([]);
+  });
+});
+
+/** 🔴🔴 Arno (27/11/2026, 11h01, point 2) — « Le filtre est mémorisé dans l'adresse de la page comme les autres filtres » : il survit au rechargement. */
+describe('« OUVERT PAR » relu depuis l’adresse de la page', () => {
+  it('« ouvert:u2,ouvert:u5 » (avec des chiffres) passe la relecture de l’adresse, et redonne les deux collègues', () => {
+    const e = lireEtatUrl('?ecran=evenements&evf=tous%2Couvert%3Au2%2Couvert%3Au5');
+    expect(e.evf).toBe('tous,ouvert:u2,ouvert:u5');
+    expect(lireLigne(e.evf ?? null, null, null)).toEqual({ ...LIGNE_PAR_DEFAUT, etat: 'tous', ouvreurs: ['ouvert:u2', 'ouvert:u5'] });
+  });
+  it('toujours bornée : majuscules, espaces, caractères étrangers ou plus de 400 caractères → ignorée', () => {
+    for (const mauvais of ['OUVERT:U2', 'ouvert:u2 ouvert:u5', 'ouvert:u2;drop', `ouvert:u${'1'.repeat(400)}`]) {
+      expect(lireEtatUrl(`?ecran=evenements&evf=${encodeURIComponent(mauvais)}`).evf, mauvais).toBeNull();
+    }
   });
 });

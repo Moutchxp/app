@@ -43,8 +43,7 @@ import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches'
 import { LigneFiltresEvenements } from './LigneFiltresEvenements';
 import {
   appliquerFiltres, auStadeCloture, basculer, choisirTri, ecrireLigne, LIGNE_PAR_DEFAUT, ligneParDefaut, lireLigne, trierLigne,
-  type EtatLigne,
-} from '../../../../lib/gestion/ligneFiltresEvenements';
+  type EtatLigne, choisirOuvreurs } from '../../../../lib/gestion/ligneFiltresEvenements';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — la barre de recherche de l'annuaire, sur l'accueil. */
 import { BarreAnnuaire } from './BarreAnnuaire';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, partagée avec la boîte. */
@@ -1831,7 +1830,7 @@ export function GestionVue({ intro, location = false }: {
             * existants, et Arno écrit « comportement actuel ». Ils ne sont pas réécrits, ils déménagent.
             */}
           <LigneFiltresEvenements
-            etat={ligne} ids={idsParFiltre} ouvreurs={ouvreursFiltre}
+            etat={ligne} ids={idsParFiltre} ouvreurs={ouvreursFiltre} onOuvreurs={(cles) => allerLigne(choisirOuvreurs(ligne, cles))}
             boutonsNewUrgent={boutonsDeTri}
             onBasculer={(cle) => allerLigne(basculer(ligne, cle))}
             onTri={(cle) => allerLigne(choisirTri(ligne, cle))}

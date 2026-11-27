@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boutonsOuvreurs, ouvreurDe, texteOuvertPar, texteOuvertureFrise } from './ouvreurEvenement';
+import { boutonsOuvreurs, colleguesEnChoix, libelleBoutonOuvertPar, ouvreurDe, texteOuvertPar, texteOuvertureFrise } from './ouvreurEvenement';
 
 /** 🔴🔴 Arno (27/11/2026, 09h48) — « taguer l'ouverture de nouveaux événements avec le nom de l'utilisateur qui l'a ouvert ou initié ». */
 describe('qui a ouvert l’événement : la règle commune', () => {
@@ -32,5 +32,19 @@ describe('qui a ouvert l’événement : la règle commune', () => {
     const c = { sorte: 'utilisateur' as const, cle: 'u7', nom: 'Claire TEST' };
     expect(boutonsOuvreurs([c, a, a, { sorte: 'automatique', cle: 'auto' }, null])).toEqual([
       { cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 }, { cle: 'ouvert:u7', mot: 'Claire TEST', n: 1 }]);
+  });
+});
+
+/** 🔴🔴 Arno (27/11/2026, 11h01, point 2) — la fenêtre « Ouvert par » : par NOM, « Prénom NOM » ; le libellé du bouton. */
+describe('les collègues et le bouton « Ouvert par »', () => {
+  it('colleguesEnChoix : par NOM (accents et majuscules ignorés), puis prénom ; « Prénom NOM » ; sans nom : « compte n° … »', () => {
+    expect(colleguesEnChoix([{ id: 5, prenom: 'Jean-Baptiste', nom: 'PONS' }, { id: 4, prenom: 'Augustin', nom: 'Jorel' }, { id: 2, prenom: 'Arnaud', nom: 'Jorel' },
+      { id: 11, prenom: 'Élodie', nom: 'émery' }, { id: 12, prenom: null, nom: null }]).map((c) => [c.cle, c.mot]))
+      .toEqual([['ouvert:u12', 'compte n° 12'], ['ouvert:u11', 'Élodie ÉMERY'], ['ouvert:u2', 'Arnaud JOREL'], ['ouvert:u4', 'Augustin JOREL'], ['ouvert:u5', 'Jean-Baptiste PONS']]);
+  });
+  it('libelleBoutonOuvertPar : Tous / le nom / « N collègues »', () => {
+    const c = [{ cle: 'ouvert:u2', mot: 'Arnaud JOREL' }, { cle: 'ouvert:u5', mot: 'Jean-Baptiste PONS' }];
+    expect([libelleBoutonOuvertPar(undefined, c), libelleBoutonOuvertPar([], c), libelleBoutonOuvertPar(['ouvert:u2'], c), libelleBoutonOuvertPar(['ouvert:u2', 'ouvert:u5'], c)])
+      .toEqual(['Ouvert par : Tous', 'Ouvert par : Tous', 'Ouvert par : Arnaud JOREL', 'Ouvert par : 2 collègues']);
   });
 });

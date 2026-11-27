@@ -408,3 +408,15 @@ describe('« OUVERT PAR » : un ensemble par auteur, le chiffre = la longueur de
     expect([tb.idsParFiltre['ouvert:u2'], tb.idsParFiltre['ouvert:u7'], tb.idsParFiltre['ouvert:auto'], tb.idsParFiltre['ouvert:nr']]).toEqual([[1, 3], [2], undefined, undefined]);
   });
 });
+
+/** 🔴🔴 Arno (27/11/2026, 11h01, point 2) — « tous les utilisateurs qui ont accès aux tuiles Gestion et Location », même sans événement, triés par NOM. */
+describe('« OUVERT PAR » : la liste vient des collègues (accès Gestion ou Location)', () => {
+  it('tous, même sans événement (0), par NOM puis prénom, « Prénom NOM », le chiffre = son ensemble', () => {
+    const a = { sorte: 'utilisateur' as const, cle: 'u2', nom: 'Arnaud JOREL' };
+    const tb = tableauBordEvenements([vide(1, { ouvreur: a }), vide(2, { ouvreur: a }), vide(3, { ouvreur: { sorte: 'utilisateur', cle: 'l:x@y.z', nom: 'x@y.z' } })], [], MAINTENANT,
+      [{ id: 5, prenom: 'Jean-Baptiste', nom: 'PONS' }, { id: 2, prenom: 'Arnaud', nom: 'Jorel' }, { id: 9, prenom: 'Service', nom: 'Gestion' }, { id: 6, prenom: 'Cédric', nom: 'JULLIEN' }]);
+    expect(tb.ouvreurs).toEqual([{ cle: 'ouvert:u9', mot: 'Service GESTION', n: 0 }, { cle: 'ouvert:u2', mot: 'Arnaud JOREL', n: 2 },
+      { cle: 'ouvert:u6', mot: 'Cédric JULLIEN', n: 0 }, { cle: 'ouvert:u5', mot: 'Jean-Baptiste PONS', n: 0 }]);
+    expect(tb.idsParFiltre['ouvert:u2']).toEqual([1, 2]);
+  });
+});

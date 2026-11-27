@@ -24,7 +24,7 @@
  * descendra dans le SQL — et l'épreuve, elle, restera valable pour l'arbitrer.
  */
 
-import { boutonsOuvreurs, cleFiltreOuvreur, type OuvreurEvenement } from './ouvreurEvenement';
+import { boutonsOuvreurs, cleFiltreOuvreur, colleguesEnChoix, type OuvreurEvenement } from './ouvreurEvenement';
 import { TYPES_EVENEMENT, NIVEAUX_URGENCE } from './evenementQualite';
 import { CLE_FILTRE_ETAPES_A_VALIDER } from './etapesAValider';
 
@@ -376,7 +376,8 @@ export function tableauBordEvenements(
   faits: readonly FaitsEvenement[],
   periodes: readonly PeriodeEvenement[],
   maintenant: Date,
-): TableauBordEvenements {
+  /** 🔴🔴 (27/11/2026, point 2) les comptes ayant accès à Gestion ou Location (fenêtre « Ouvert par ») ; absent : les seuls auteurs. */
+  collegues?: readonly { id: number; prenom: string | null; nom: string | null }[]): TableauBordEvenements {
   const mois = douzeMois(maintenant);
   const ouvertsParMois = new Map<string, number>();
   const closParMois = new Map<string, number>();
@@ -442,8 +443,12 @@ export function tableauBordEvenements(
 
   /* 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) « trier par événement ouvert par tel ou tel utilisateur » : un ensemble par auteur, et le chiffre du
      bouton est la longueur de SON ensemble (la règle de ce fichier) */
-  const ouvreurs = boutonsOuvreurs(faits.map((f) => f.ouvreur)).map((b) => ({
-    ...b, n: retenir(b.cle, (f) => cleFiltreOuvreur(f.ouvreur ?? { cle: 'nr' }) === b.cle),
+  /* 🔴🔴 (27/11/2026, 11h01, point 2) les collègues ayant accès à Gestion ou Location, MÊME sans événement (fournis par le dépôt) ; sans eux (appel
+     d'avant), les seuls auteurs. Le chiffre reste la longueur de l'ensemble. */
+  const choix = collegues !== undefined ? colleguesEnChoix(collegues).map((c) => ({ cle: c.cle, mot: c.mot }))
+    : boutonsOuvreurs(faits.map((f) => f.ouvreur)).map((b) => ({ cle: b.cle, mot: b.mot }));
+  const ouvreurs = choix.map((b) => ({
+    ...b, n: retenir(b.cle, (f) => f.ouvreur !== undefined && f.ouvreur.sorte === 'utilisateur' && cleFiltreOuvreur(f.ouvreur) === b.cle),
   }));
 
   return {

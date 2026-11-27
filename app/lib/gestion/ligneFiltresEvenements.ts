@@ -91,8 +91,8 @@ export interface EtatLigne {
   tri: string | null;
   /** Le sens du tri. `desc` = du plus récent / plus urgent au moins. */
   sens: 'asc' | 'desc';
-  /** 🔴🔴 (Arno, 27/11/2026, 09h48, point 3) « OUVERT PAR » : `ouvert-tous` (défaut, absent = tous) ou `ouvert:<auteur>`, un seul à la fois. */
-  ouvreur?: string;
+  /** 🔴🔴 (Arno, 27/11/2026, point 3 puis 11h01 point 2) « OUVERT PAR » : les collègues choisis (`ouvert:u<id>`), en UNION ; absent = tous. */
+  ouvreurs?: string[];
 }
 
 export const LIGNE_PAR_DEFAUT: EtatLigne = {
@@ -102,7 +102,7 @@ export const LIGNE_PAR_DEFAUT: EtatLigne = {
 /** Rien n'est choisi : ni filtre hors défaut, ni tri. C'est ce qui décide d'offrir « Réinitialiser ». */
 export function ligneParDefaut(e: EtatLigne): boolean {
   return e.etat === ETAT_PAR_DEFAUT && e.monga === MONGA_PAR_DEFAUT
-    && e.types.length === 0 && e.interrupteurs.length === 0 && e.tri === null && (e.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS;
+    && e.types.length === 0 && e.interrupteurs.length === 0 && e.tri === null && (e.ouvreurs ?? []).length === 0;
 }
 
 const CLES_INTERRUPTEURS = new Set(INTERRUPTEURS.map((i) => i.cle));
@@ -125,7 +125,7 @@ export function lireLigne(evf: string | null, tric: string | null, sens: string 
     tri: TRIS_LIGNE.some((t) => t.cle === tric) ? tric : null,
     sens: sens === 'asc' ? 'asc' : 'desc',
     // 🔴 (27/11/2026, point 3) posé seulement quand un auteur est choisi : absent = tous (l'aller-retour ne dérive pas)
-    ...(cles.some((c) => estCleOuvreur(c)) ? { ouvreur: cles.find((c) => estCleOuvreur(c)) } : {}),
+    ...(cles.some((c) => estCleOuvreur(c)) ? { ouvreurs: [...new Set(cles.filter((c) => estCleOuvreur(c)))] } : {}),
   };
 }
 
@@ -139,7 +139,7 @@ export function ecrireLigne(e: EtatLigne): string | null {
     ...(e.monga === MONGA_PAR_DEFAUT ? [] : [e.monga]),
     ...e.types,
     ...e.interrupteurs,
-    ...((e.ouvreur ?? OUVREUR_TOUS) === OUVREUR_TOUS ? [] : [e.ouvreur as string]),
+    ...(e.ouvreurs ?? []),
   ];
   return cles.length === 0 ? null : cles.join(',');
 }
@@ -157,8 +157,11 @@ export function basculer(e: EtatLigne, cle: string): EtatLigne {
   if (CLES_ETATS.has(cle)) return { ...e, etat: e.etat === cle ? ETAT_PAR_DEFAUT : cle };
   if (CLES_MONGA.has(cle)) return { ...e, monga: e.monga === cle ? MONGA_PAR_DEFAUT : cle };
   // 🔴🔴 (27/11/2026, point 3) « OUVERT PAR » : un seul choix ; recliquer le choix (ou « Tous ») revient à tous
-  if (cle === OUVREUR_TOUS || (estCleOuvreur(cle) && e.ouvreur === cle)) { const { ouvreur: _o, ...reste } = e; return reste; }
-  if (estCleOuvreur(cle)) return { ...e, ouvreur: cle };
+  if (cle === OUVREUR_TOUS) return choisirOuvreurs(e, []);
+  if (estCleOuvreur(cle)) {
+    const l = e.ouvreurs ?? [];
+    return choisirOuvreurs(e, l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]);
+  }
   if (cle.startsWith('type:')) {
     return {
       ...e,
@@ -180,6 +183,13 @@ export function basculer(e: EtatLigne, cle: string): EtatLigne {
 }
 
 /** Choisir un tri. Recliquer le tri actif INVERSE le sens (Arno) ; en choisir un autre repart en décroissant. */
+/** 🔴🔴 (Arno, 27/11/2026, 11h01, point 2) la fenêtre « Ouvert par » applique sa sélection d'un coup ; vide = tous. PUR. */
+export function choisirOuvreurs(e: EtatLigne, cles: readonly string[]): EtatLigne {
+  const { ouvreurs: _o, ...reste } = e;
+  const l = [...new Set(cles.filter((c) => estCleOuvreur(c)))];
+  return l.length === 0 ? reste : { ...reste, ouvreurs: l };
+}
+
 export function choisirTri(e: EtatLigne, cle: string): EtatLigne {
   if (e.tri === cle) return { ...e, sens: e.sens === 'desc' ? 'asc' : 'desc' };
   return { ...e, tri: cle, sens: 'desc' };
@@ -231,10 +241,11 @@ export function appliquerFiltres(
     const s = dans(e.monga);
     if (s !== null) out = out.filter((c) => s.has(c.evenementId));
   }
-  /* ②bis 🔴🔴 (27/11/2026, point 3) OUVERT PAR — même forme ; un auteur que le tableau de bord ne connaît plus : aucune carte (jamais toutes). */
-  if ((e.ouvreur ?? OUVREUR_TOUS) !== OUVREUR_TOUS) {
-    const s = dans(e.ouvreur as string) ?? new Set<number>();
-    out = out.filter((c) => s.has(c.evenementId));
+  /* ②bis 🔴🔴 (27/11/2026) OUVERT PAR — les collègues choisis, en UNION ; un collègue inconnu du tableau de bord n'ajoute rien (jamais toutes). */
+  if ((e.ouvreurs ?? []).length > 0) {
+    const union = new Set<number>();
+    for (const k of e.ouvreurs ?? []) for (const id of dans(k) ?? []) union.add(id);
+    out = out.filter((c) => union.has(c.evenementId));
   }
   /* ③ LES TYPES, EN UNION : un événement passe s'il appartient à AU MOINS un des types cochés. */
   if (e.types.length > 0) {

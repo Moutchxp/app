@@ -68,3 +68,23 @@ export function boutonsOuvreurs(ouvreurs: readonly (OuvreurEvenement | null | un
   }
   return [...parCle.values()].sort((a, b) => a.mot.localeCompare(b.mot, 'fr', { sensitivity: 'base' }));
 }
+
+/**
+ * 🔴🔴 (Arno, 27/11/2026, 11h01, point 2) LES COLLÈGUES DE LA FENÊTRE « Ouvert par » : TOUS les comptes qui ont accès à Gestion ou à Location, même
+ * sans événement, triés par NOM (puis prénom), au format « Prénom NOM » (règle de d1d501cd), avec le nombre d'événements de chacun. PUR.
+ */
+export function colleguesEnChoix(collegues: readonly { id: number; prenom: string | null; nom: string | null }[]): { cle: string; mot: string; id: number }[] {
+  const tri = (x: string | null) => (x ?? '').replace(/\s+/g, ' ').trim();
+  return [...collegues]
+    .sort((a, b) => tri(a.nom).localeCompare(tri(b.nom), 'fr', { sensitivity: 'base' }) || tri(a.prenom).localeCompare(tri(b.prenom), 'fr', { sensitivity: 'base' }) || a.id - b.id)
+    .map((c) => ({ cle: cleFiltreOuvreur({ cle: `u${c.id}` }), mot: nomCollaborateur(c) || `compte n° ${c.id}`, id: c.id }));
+}
+/** Le bouton : « Ouvert par : Tous » / « Ouvert par : Arnaud JOREL » / « Ouvert par : 2 collègues ». PUR. */
+export function libelleBoutonOuvertPar(choisis: readonly string[] | undefined, collegues: readonly { cle: string; mot: string }[]): string {
+  const c = choisis ?? [];
+  if (c.length === 0) return 'Ouvert par : Tous';
+  if (c.length === 1) return `Ouvert par : ${collegues.find((x) => x.cle === c[0])?.mot ?? '1 collègue'}`;
+  return `Ouvert par : ${c.length} collègues`;
+}
+/** Le seuil au-delà duquel la fenêtre propose une recherche (Arno : « champ de recherche si plus de 8 noms »). */
+export const SEUIL_RECHERCHE_COLLEGUES = 8;
