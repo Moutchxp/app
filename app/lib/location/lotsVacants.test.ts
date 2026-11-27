@@ -57,3 +57,13 @@ describe('la lecture côté serveur', () => {
     vi.doUnmock('../db/client'); vi.doUnmock('./portefeuilleRepo'); vi.doUnmock('./sondeLocation');
   });
 });
+
+describe('🔴 Arno (28/11/2026, 00h45) — « Nombre de lots vacants » plus discret, pas en gras', () => {
+  it('« Location » garde le style du titre ; la parenthèse : plus petite, poids normal, couleur secondaire du thème, d’un bloc (passe à la ligne entière)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const page = readFileSync('app/(admin)/admin/(protected)/location/page.tsx', 'utf8');
+    expect(page).toContain('<>Location <span className="loc-titre-vacants"');
+    expect(page).toContain("'.loc-titre-vacants{display:inline-block;font-size:.8rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap;vertical-align:baseline}'");
+    expect(page).toContain('<style>{CSS_TITRE_VACANTS}</style>');
+  });
+});

@@ -25,6 +25,9 @@ export default async function LocationPage({ searchParams }: { searchParams: Pro
   const vacants = autorise ? await compterLotsVacants() : null;
   return (
     <section className="gst-page">
+      {/* 🔴 Arno (28/11/2026, 00h45) « écrire "Nombre de lots vacants x" en plus discret, pas en gras » : plus petit, poids normal, couleur secondaire du thème,
+          sur la ligne de « Location » (qui garde son style) ; au téléphone, il passe à la ligne entier */}
+      <style>{CSS_TITRE_VACANTS}</style>
       {/* 🔴 Arno (23/11/2026) — sur la ligne du titre, à droite : « 20 % à restituer » en pleine page, avec sa pastille (rien d'autre ne bouge) */}
       <EnTetePage titre={vacants === null ? titreLocation(null)
         : <>Location <span className="loc-titre-vacants" data-lots-vacants={vacants}>{titreLocation(vacants).slice('Location '.length)}</span></>}
@@ -35,3 +38,5 @@ export default async function LocationPage({ searchParams }: { searchParams: Pro
     </section>
   );
 }
+
+const CSS_TITRE_VACANTS = '.loc-titre-vacants{display:inline-block;font-size:.8rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap;vertical-align:baseline}';
