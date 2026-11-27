@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (copropriété, libellés, lots vacants : 0e0c62a4 → e0af8a0d)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (annexes et abréviations, 7779d9bd et e4c6c944 — migration 522)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1562,10 +1562,33 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome (recette, ordinateur et 390 px, clair et sombre), toute écriture bloquée ; captures `.captures/copro-bien-libelles-vacants/`. Aucune migration.
 - Un flake connu est réapparu une fois (PreavisAccueil, photo « page rechargée pendant la coupure », docs/FLAKES_CONNUS.md) ; vert en relance.
 
+### 28/11/2026 — annexes dans la copropriété, abréviations d'adresse (`7779d9bd`, `e4c6c944`, MIGRATION 522)
+- Décisions d'Arno du 28/11 : la règle des lots vacants est acceptée (vacant le jour de la sortie ; un préavis ne libère rien) ; pas de vraie création de bien à l'écran en recette.
+- **Point 1 (`7779d9bd`)** — `rattacherAnnexeALaCopropriete` (digicodesBienRepo.ts), appelé par sa carte (ajouterAnnexe — jusqu'ici rien), dans « Modifier » et à la création :
+  - une annexe à la MÊME adresse que son logement prend l'« Immeuble » du logement (journalisé) ;
+  - à une AUTRE adresse, elle rejoint la copropriété qui porte cette adresse (règle 520).
+  - Une annexe n'a pas de champ « Bâtiment / cage d'escalier » : rien d'autre à inscrire. Aucune copropriété à son adresse : rien ne change. Annexe importée : inchangée.
+  - Prouvé en recette, en transaction annulée (copro 271).
+- **Point 2 (`e4c6c944`, migration 522)** — `cleComparable` (serveur) et `gestion_cle_adresse_comparable` (base) écrivent en entier le type de voie abrégé juste
+  après le numéro : r., av./ave, bd/bld/bvd/boul., pl., all., imp., ch./chem., sq., qu. ; bis / ter / quater collés ou non.
+  - La 522 recalcule le registre de la 520 (rejouable, sans garde recette, arrêt clair si un doublon naissait). Aucune adresse enregistrée réécrite.
+  - Contrôle en LECTURE SEULE : `db/controles/522_doublons_lecture_seule.sql` (recette : 0 doublon, 0 clé qui change ; détection d'un doublon prouvée en transaction annulée).
+  - Épreuve sur copie jetable de la RECETTE à 520 (fichier final, empreinte `2da58edd…`) : appliquée, rejouée deux fois, parité 316 + 27 / 0 écart,
+    refus du « 7 r. » dans une autre copropriété — `.captures/abreviations-adresse/epreuve-copie-recette-final.log`.
+  - **Appliquée et inscrite en RECETTE** (518 lignes, commit `e4c6c944`). Production : NON.
+- ⚠️ **À FAIRE PAR ARNO (production, lecture seule)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh` (le contrôle des doublons). Puis, pour l'épreuve
+  demandée sur une copie de la PRODUCTION à l'état 520 : `bash .captures/abreviations-adresse/copier-prod.sh` (lecture de la prod par ssh, copie jetable port 5433),
+  puis `bash .captures/abreviations-adresse/epreuve.sh > .captures/abreviations-adresse/epreuve-copie-prod.log`. Claude ne lance rien sur la production.
+- ⚠️ **361 / 521** : une fois la 522 inscrite, une 521 est REFUSÉE par l'outil (numérotée sous la dernière appliquée). La 361 devra partir AVEC la 522 ou prendre
+  un numéro après elle (garde `migrationsEnAttente.test.ts`). L'en-tête de la 361 dit toujours « 521 » : à décider par Arno.
+- Contrôles : `npm test` VERT (1 895 fichiers, 28 355 tests) ; `tsc` = 0. Chrome (recette, ordinateur et 390 px, clair et sombre) : fiche de la copro 271
+  inchangée, conflit « 7 r. » reconnu par le contrôle (lecture seule), toute écriture bloquée.
+  - Une adresse abrégée ne peut pas venir de l'écran (suggestions BAN seulement) : elle vient des biens « hors liste » et de l'import.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé, la 361 prendra la 521**). En attente
-de mise en production (sans migration) : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d` et leurs passations, non poussés. Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
+**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé ; la 361 : en 521 seulement si elle part avec la 522**).
+En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)** et leurs passations, non poussés. Avant : le contrôle en lecture seule de la 522 en production (Arno). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
