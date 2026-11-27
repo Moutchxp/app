@@ -1449,9 +1449,23 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   intervention reste au « + » (vérifié dans Chrome) ; cartes RDV existantes intactes (16 Monga) ; `MOT_OUVERTURE_NON_MODIFIABLE` (refus serveur)
   inchangé. Sous la carte : « créée le … » et « Ouvert par … le … ». Captures `.captures/retrait-lien-rdv/`.
 
+### 27/11/2026, 11h01 — « OUVERT PAR » : plus d'anonymat, fenêtre des collègues (NON POUSSÉS, aucune migration)
+- **Point 0 (lecture seule)** : un événement ne se crée QUE par `creerEvenementDansTransaction` (gestes.ts, seule insertion dans
+  `gestion_evenement`), via trois routes humaines (fils/[id]/affectation, messages/[id]/affectation, monga → `creerEvenementEtRelier`), toutes
+  derrière `exigerCompteActif`, qui refuse toute session sans compte depuis le 15/10/2026. Aucune création par la relève, le démon, un script ou
+  une tâche planifiée : ni automatique, ni anonyme.
+- **`44c08532` — point 1** : auteur OBLIGATOIRE côté serveur (`MOTIF_OUVERTURE_SANS_AUTEUR`, avant toute écriture ; rattacher à un événement
+  existant non concerné) ; « Automatique » et « Non renseigné » retirés du filtre. Les 6 événements gardent leur auteur.
+- **`93cef884` — point 2** : bouton « Ouvert par : Tous ▾ » + `FenetreOuvertPar` (comptes actifs avec accès Gestion OU Location —
+  `colleguesGestionLocation` —, par NOM, cases multiples, Tout / Aucun, recherche > 8, Appliquer / Annuler, plein écran ≤ 600 px) ; état
+  `ouvreurs: string[]` en union ; `&evf=ouvert:u…`. Correctif : `cleFiltreBrute` (ecranUrl) admet les chiffres (plafond 400) — le filtre se
+  perdait au rechargement depuis 5687808e. Captures `.captures/ouvert-par-collegues/`.
+- Limite connue : un événement ouvert par un compte aujourd'hui désactivé ou sans accès n'a pas de case dans la fenêtre (règle « collègues ayant
+  accès ») ; il reste visible avec « Tous ».
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `1c40ed6c`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; 519 inutilisé, la 361 prendra la 521). En attente
-de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
+de mise en production (sans migration) : `4cddd862`, `0fa48347`, `5687808e`, `2adbc759`, `44c08532`, `93cef884` + leurs passations. Les scripts `.captures/maj/1` à `5` restent calés sur `1c40ed6c` : à recaler avant la prochaine mise en production.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
