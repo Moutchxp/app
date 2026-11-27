@@ -1,6 +1,6 @@
 import type { ComptesStatuts } from '../gestion/statutBien';
 import { cleImmeuble } from '../gestion/syndics';
-import { rattacherBienALaCoproprieteDeSonAdresse } from '../gestion/digicodesBienRepo';
+import { rattacherAnnexeALaCopropriete, rattacherBienALaCoproprieteDeSonAdresse } from '../gestion/digicodesBienRepo';
 import { mandatParBienDisponible, mandatsDesBiensDuProprietaire, type MandatDUnBien } from './mandatParBienRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dateMandatDisponible, mandatsDesProprietaires } from './mandatBienRepo';
@@ -562,6 +562,8 @@ export async function ajouterAnnexe(parentId: number, brut: Record<string, unkno
         champs: { ...v.valeurs, adresse: parent.adresse, codePostal: parent.code_postal, commune: parent.commune },
       }, auteur);
       await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
+      // 🔴🔴 (demande du 28/11/2026, point 1) l'annexe ajoutée par sa carte rejoint la copropriété de son logement (même adresse) — le code commun
+      await rattacherAnnexeALaCopropriete(q, id, parentId, auteur);
       if (avecNom && categorie === 'autre') await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [id, String(brut.nomAnnexe).trim().slice(0, 80)]);
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee', null, `annexe ${id} (${categorie})`,
         'annexe créée sous ce logement, dans la Location', auteur);

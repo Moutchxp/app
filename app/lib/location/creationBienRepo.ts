@@ -31,7 +31,7 @@ import { enregistrerMandatDans } from './mandatBienRepo';
 import { dateFr, verifierRentreOccupe } from './rentreOccupe';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
-import { ecrireDigicodesDuBien, rattacherBienALaCoproprieteDeSonAdresse, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
+import { ecrireDigicodesDuBien, rattacherAnnexeALaCopropriete, rattacherBienALaCoproprieteDeSonAdresse, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
 import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
@@ -512,7 +512,7 @@ async function creerBienInterne(s: SaisieBien & {
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
-        await rattacherBienALaCoproprieteDeSonAdresse(q, id, auteur); // une annexe à une autre adresse : la copropriété de SON adresse
+        await rattacherAnnexeALaCopropriete(q, id, logementId, auteur); // 🔴 (28/11/2026) la copropriété de SON adresse (celle du logement, ou une autre)
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
         `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`
@@ -863,7 +863,7 @@ export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
         ids.push(id);
-        await rattacherBienALaCoproprieteDeSonAdresse(q, id, auteur); // 🔴 (27/11/2026, point 4) une seule base, comme à la création
+        await rattacherAnnexeALaCopropriete(q, id, parentId, auteur); // 🔴 (27-28/11/2026) une seule base, comme à la création
       }
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee',
         `${ids.length} annexe(s) ajoutée(s) dans « Modifier » de la fiche (formulaire complet) : ${ids.join(', ')}`, auteur);

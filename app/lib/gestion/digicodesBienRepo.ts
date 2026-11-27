@@ -129,6 +129,27 @@ export async function rattacherBienALaCoproprieteDeSonAdresse(q: RequeteTx, lotI
 }
 
 /**
+ * 🔴🔴 (demande du 28/11/2026, point 1) UNE ANNEXE (cave, parking) REJOINT LA COPROPRIÉTÉ DE SON ADRESSE — le même code que 994eed68 :
+ *   · à la MÊME adresse que son logement : elle prend l'« Immeuble » du logement (la clé de sa copropriété), journalisé — elle est dans la même copropriété ;
+ *   · à une AUTRE adresse (« Autre adresse ») : elle rejoint la copropriété qui porte déjà cette adresse (règle 520, `rattacherBienALaCoproprieteDeSonAdresse`).
+ * Une annexe n'a pas de champ « Bâtiment / cage d'escalier » : il n'y a rien d'autre à inscrire. Aucune copropriété ne porte son adresse : rien ne change.
+ */
+export async function rattacherAnnexeALaCopropriete(q: RequeteTx, annexeId: number, parentId: number, auteur: Auteur): Promise<void> {
+  const { rows } = await q<{ id: string; immeuble: string | null; adresse: string | null; wippimmo_id: string | null }>(
+    'SELECT id::text, immeuble, adresse, wippimmo_id FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) FOR UPDATE', [[annexeId, parentId]]);
+  const a = rows.find((r) => Number(r.id) === annexeId); const p = rows.find((r) => Number(r.id) === parentId);
+  if (a !== undefined && p !== undefined && (a.wippimmo_id ?? '').startsWith('app-') && cleImmeuble(a.adresse) !== '' && cleImmeuble(a.adresse) === cleImmeuble(p.adresse)) {
+    const duLogement = immeubleDuBien(p);
+    if (cleImmeuble(duLogement) !== '' && duLogement !== immeubleDuBien(a)) {
+      await q('UPDATE gestion_annuaire_lot SET immeuble = $2 WHERE id = $1', [annexeId, duLogement]);
+      await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, 'immeuble_copropriete', $2, $3, $4, $5, $6)`,
+        [annexeId, immeubleDuBien(a) || null, duLogement, `annexe à l’adresse de son logement (n° ${parentId}) : la même copropriété`, auteur.id, auteur.libelle]);
+    }
+  }
+  await rattacherBienALaCoproprieteDeSonAdresse(q, annexeId, auteur);
+}
+
+/**
  * L'ÉCRITURE depuis la fiche du bien, DANS LA TRANSACTION DE L'APPELANT (création ou modification) : le bâtiment choisi (lien sûr + texte
  * « Bâtiment » ; un NOUVEAU bâtiment qui ne suit pas la numérotation exige la confirmation de l'écran, sinon refus clair) et la PREMIÈRE valeur
  * des places sans code connu (« saisie »). Un code connu ne se change pas d'ici (« Corriger une erreur », ou « Modifier »). Rend le refus, ou `null`.
