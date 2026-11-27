@@ -109,6 +109,28 @@ export function MentionReserveLocation() {
 const jourFrIso = (iso: string): string => new Date(iso).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
 
 /** Le bloc « Pré-visite » de la ligne dépliée. */
+/**
+ * ══ 🔴🔴 LA PRÉSENTATION D'UNE CASE DE RENDEZ-VOUS (Arno, 28/11/2026, 00h45) ═════════════════════════════════════════════════════════════════════════
+ * « harmoniser la symétrie entre les deux tuiles » : la case « 2. Pré-visite » et la case « 3. État des lieux de sortie » passent par CE composant, dans le
+ * MÊME ordre — l'état (cartouche vert), la ligne « Prénom NOM : acceptée / en attente », les mentions, la ligne des locataires — puis les boutons, pleine
+ * largeur, juste après. Les deux cases commencent en haut (avant : le contenu de la case la moins remplie était centré, son cartouche plus bas que l'autre). Aucune information ni aucun bouton n'y est retiré : chaque case garde les siens.
+ */
+export function PresentationRdv({ donnees, etat, personnes, mentions, sousInfos, boutons, apresBoutons, fenetres }: {
+  donnees: Record<string, string | undefined>; etat: ReactNode; personnes?: ReactNode; mentions?: ReactNode; sousInfos?: ReactNode;
+  boutons: ReactNode; apresBoutons?: ReactNode; fenetres?: ReactNode;
+}) {
+  return (
+    <div className="pva-bloc pva-bloc--rdv" {...donnees}>
+      <div className="frp-infos">{etat}{personnes}{mentions}{sousInfos}</div>
+      <div className="frp-actions">
+        <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>{boutons}</div>
+        {apresBoutons}
+      </div>
+      {fenetres}
+    </div>
+  );
+}
+
 export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil; apres: () => void;
   /** 🔴 Arno (18/11/2026) — sous les informations du rendez-vous (pleine largeur de la carte) : le bloc des LOCATAIRES ; absent : rien. */
   sousInfos?: ReactNode }) {
@@ -127,27 +149,25 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
   // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : les boutons restent visibles, INACTIFS, avec la mention.
   const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
-    <div className="pva-bloc" data-bloc-previsite data-statut-previsite={p.statut}>
-      {/* 🔴 Arno (11/11/2026, lot 5) — dans la case « 2. Pré-visite » : plus de sous-titre (le titre de la case le dit), plus de bandeau « Préavis
-          reçu » (doublon de la case 1) ; les autres états restent. Deux zones — informations, puis boutons — alignées d'une case à l'autre. */}
-      <div className="frp-infos">
+    /* 🔴 Arno (11/11/2026, lot 5) — dans la case « 2. Pré-visite » : plus de sous-titre (le titre de la case le dit), plus de bandeau « Préavis
+       reçu » (doublon de la case 1) ; les autres états restent. 🔴🔴 (28/11/2026, 00h45) la présentation commune des cases de rendez-vous. */
+    <PresentationRdv donnees={{ 'data-bloc-previsite': '', 'data-statut-previsite': p.statut }}
+      etat={<>
       {p.statut !== 'recu' && <p className={`pvv-etat pvv-etat--${p.statut}`} role="status" data-previsite-etat>
         {LIBELLE_STATUT_PREVISITE[p.statut]}{p.rdv && (p.statut === 'programmee' || p.statut === 'effectuee') ? ` — le ${creneauFr(p.rdv)}` : ''}</p>}
-      <CartouchesPrevisite p={p} />
-      {/* 🔴 Arno (18/11/2026) — une pré-visite fixée APRÈS un refus / une absence : la mention discrète (le refus reste au journal) */}
-      {p.refusLe && p.statut !== 'refusee' && p.rdvFixeLe && p.rdvFixeLe > p.refusLe && (
-        <p className="loc-muet pvv-refus-avant" data-refus-avant>Refus / absence signalé le {jourFrIso(p.refusLe)} — pré-visite fixée ensuite le {jourFrIso(p.rdvFixeLe)}</p>)}
-      {p.collegues.length > 0 && p.statut === 'programmee' && (
+      <CartouchesPrevisite p={p} /></>}
+      personnes={p.collegues.length > 0 && p.statut === 'programmee' && (
         <ul className="pvv-collegues" data-previsite-collegues>
           {p.collegues.map((c, i) => (
             <li key={`${i}-${c.libelle}`} data-collegue-statut={c.statut ?? 'inconnu'}>{prenomNom(c.libelle)} : {LIBELLE_REPONSE[c.statut ?? ''] ?? '—'}{c.statut === 'refusee' && c.motif ? ` (${c.motif})` : ''}</li>
           ))}
         </ul>
       )}
-      {sousInfos}
-      </div>
-      <div className="frp-actions">
-      <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+      /* 🔴 Arno (18/11/2026) — une pré-visite fixée APRÈS un refus / une absence : la mention discrète (le refus reste au journal) */
+      mentions={p.refusLe && p.statut !== 'refusee' && p.rdvFixeLe && p.rdvFixeLe > p.refusLe && (
+        <p className="loc-muet pvv-refus-avant" data-refus-avant>Refus / absence signalé le {jourFrIso(p.refusLe)} — pré-visite fixée ensuite le {jourFrIso(p.rdvFixeLe)}</p>)}
+      sousInfos={sousInfos}
+      boutons={<>
         {/* 🔴 Arno (18/11/2026) — après un « Refus / absence », le locataire peut finalement demander une pré-visite : « Fixer une pré-visite »
             (le même geste, le même formulaire) ; partout ailleurs le libellé ne change pas */}
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>
@@ -162,7 +182,8 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
           : <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
         {p.statut !== 'effectuee' && p.statut !== 'refusee' && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
-      </div>
+      </>}
+      apresBoutons={<>
       {!ecriture && <MentionReserveLocation />}
       {/* 🔴 Arno (13/11/2026) — la pré-visite effectuée : « Voir le compte rendu » (lecture seule, ouvert à tout compte Location) ; aucun compte rendu
           saisi : le bouton le dit, inactif (pas de nouvelle saisie). */}
@@ -173,11 +194,12 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
             : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" onClick={() => setVoirCr('envoye')} data-voir-compte-rendu="oui">Voir le compte rendu</button>}
         </div>
       )}
-      </div>
+      </>}
+      fenetres={<>
       {voirCr !== false && <FenetreCompteRendu l={l} p={p} mode={voirCr} onFermer={() => setVoirCr(false)} />}
       {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
       {resultat !== null && <FenetrePrevisite geste="compte_rendu" l={l} p={p} resultatInitial={resultat} onFermer={() => { setResultat(null); apres(); }} />}
-    </div>
+      </>} />
   );
 }
 

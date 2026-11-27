@@ -656,12 +656,12 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
         if (attendu === 'fixe') {
           expect(caseEdls.getAttribute('data-statut-etape')).toBe('programmee'); // case blanche
           expect(caseEdls.querySelector('[data-pastille-etape]')?.textContent).toBe('3');
-          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 05/11/2099 de 10h00 à 11h00 · confié à Claire TEST']);
+          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 05/11/2099 de 10h00 à 11h00']);
         } else {
           expect(caseEdls.getAttribute('data-statut-etape')).toBe('faite'); // .frp-etape--faite : la case entière en vert
           expect(caseEdls.className).toContain('frp-etape--faite');
           expect(caseEdls.querySelector('[data-pastille-etape]')?.textContent).toBe('✓');
-          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--effectuee', '✓ État des lieux effectué — le 05/11/2099 de 10h00 à 11h00 · par Claire TEST']);
+          expect([cartouche.className, cartouche.textContent]).toEqual(['pvv-etat pvv-etat--effectuee', '✓ État des lieux effectué — le 05/11/2099 de 10h00 à 11h00']);
         }
         // « Modifier le RDV » pleine largeur (le serveur juge s'il est encore modifiable) ; « Valider la sortie » (case 4) inchangé
         const modifier = bloc.querySelector('[data-deplacer-edls]')!;
@@ -696,7 +696,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '14:00', fin: '15:00', confieA: 4, locataires: 'non' });
     expect(document.querySelector('[data-fenetre-edls]')).toBeNull();
     // le cartouche et le statut de la ligne suivent
-    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')?.textContent).toBe('RDV fixé — le 05/11/2099 de 14h00 à 15h00 · confié à Claire TEST');
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')?.textContent).toBe('RDV fixé — le 05/11/2099 de 14h00 à 15h00');
     expect(container.querySelector('[data-ligne-preavis="C"] [data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
   });
   it('🔴 21h19 — « Modifier le RDV » : le commentaire changé part avec la modification', async () => {
@@ -714,6 +714,28 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await act(async () => { (document.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); });
     expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, locataires: 'oui', commentaire: 'clés en agence' });
+  });
+  // ══ 🔴🔴 Arno (28/11/2026, 00h45) — les deux cases de rendez-vous : la même présentation, le cartouche sans le nom (il est sur la ligne du dessous) ══
+  it('🔴 00h45 — cases « Pré-visite » et « État des lieux » : le MÊME composant (mêmes zones, même ordre) ; le cartouche vert sans le nom ; aucun bouton retiré', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, statut: 'acceptee' as const }, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    const ligneC = container.querySelector('[data-ligne-depliee="C"]')!;
+    const blocs = [ligneC.querySelector('[data-bloc-previsite]'), ligneC.querySelector('[data-bloc-edls]')].filter((x): x is Element => x !== null);
+    for (const b of blocs) {
+      expect(b.className).toBe('pva-bloc pva-bloc--rdv');
+      expect([...b.children].slice(0, 2).map((x) => x.className)).toEqual(['frp-infos', 'frp-actions']);
+      expect(b.querySelector('.frp-actions > .loc-boutons')).not.toBeNull();
+    }
+    const edls = ligneC.querySelector('[data-bloc-edls]')!;
+    expect(edls.querySelector('[data-edls-cartouche]')?.textContent).toBe('RDV fixé — le 05/11/2099 de 10h00 à 11h00');
+    expect(edls.querySelector('[data-edls-collegue]')?.textContent).toBe('Claire TEST : acceptée'); // la ligne gardée
+    // l'ordre des informations : le cartouche, puis la ligne du collaborateur
+    expect(edls.querySelector('[data-edls-cartouche]')!.compareDocumentPosition(edls.querySelector('[data-edls-collegue]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...edls.querySelectorAll('.frp-actions button')].map((x) => x.textContent)).toEqual(['Modifier le RDV']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.frp-etape > .pva-bloc--rdv{align-self:start}'); // les deux cases commencent en haut (avant : centrées, l'une plus bas que l'autre)
   });
   it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
     planification = true;
@@ -1451,7 +1473,7 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     // 🔴 (16/11/2026) le cartouche VERT de la case 2 (même classe), puis « Prénom NOM : acceptée »
     const m = document.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')!;
     expect(m.className).toBe('pvv-etat pvv-etat--programmee');
-    expect(m.textContent).toBe('RDV fixé — le 01/06/2099 de 10h00 à 11h00 · confié à Claire TEST'); // 🔴 Arno (27/11/2026, 21h19)
+    expect(m.textContent).toBe('RDV fixé — le 01/06/2099 de 10h00 à 11h00'); // 🔴 Arno (27/11/2026, 21h19)
     expect(document.querySelector('[data-ligne-depliee="C"] [data-edls-collegue]')!.textContent).toBe('Claire TEST : acceptée');
     expect(document.querySelector('[data-ligne-depliee="C"] [data-edls-mention]')).toBeNull();
     expect(CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ')).toContain('.pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);');
@@ -3852,7 +3874,7 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([c2.className, c2.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'Pré-visite programmée — le 10/01/2099 de 10h30 à 11h30']);
     expect(sel('A', '[data-etape="previsite"] [data-previsite-collegues]').textContent).toBe('Arno TEST : acceptée');
     const c3 = sel('A', '[data-etape="edls"] [data-edls-cartouche]');
-    expect([c3.className, c3.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 03/02/2099 de 11h30 à 12h30 · confié à Claire TEST']); // 🔴 Arno (27/11/2026, 21h19)
+    expect([c3.className, c3.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'RDV fixé — le 03/02/2099 de 11h30 à 12h30']); // 🔴 Arno (27/11/2026, 21h19)
     expect(sel('A', '[data-etape="edls"] [data-edls-collegue]').textContent).toBe('Claire TEST : en attente');
   });
   it('« Planifier l’état des lieux de sortie » présent et ACTIF avec une pré-visite seulement programmée ; le formulaire s’ouvre', async () => {

@@ -29,7 +29,7 @@ import { colonnesRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LI
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
-import { BlocPrevisite, CadreFenetreRdv, CartoucheStatutLigne, CartouchesPrevisite, cssFenetreRdv, CSS_PREVISITE, EnteteFenetreRdv, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
+import { BlocPrevisite, CadreFenetreRdv, PresentationRdv, CartoucheStatutLigne, CartouchesPrevisite, cssFenetreRdv, CSS_PREVISITE, EnteteFenetreRdv, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
@@ -590,24 +590,19 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
   const c = e === null ? null : cartoucheEdls(e, new Date());
   const etat = e === null ? 'a_programmer' : c?.effectue ? 'effectue' : 'fixe';
   return (
-    <div className="pva-bloc" data-bloc-edls data-etat-edls={etat}>
-      {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « État des lieux de sortie » (le titre de la case le dit) ; informations, puis boutons. */}
-      <div className="frp-infos">
-      {/* 🔴🔴 Arno (16/11/2026) — le rendez-vous fixé : le cartouche VERT de la case 2 (« État des lieux programmé — le … de … à … »), et dessous
-          « Prénom NOM : en attente / acceptée / refusée » ; refusé : la mention orange « Refusée par … — à réattribuer » reste en plus */}
-      {e !== null && c !== null && <>
-        <p className={`pvv-etat pvv-etat--${c.effectue ? 'effectuee' : 'programmee'}`} role="status" data-edls-cartouche>{c.effectue ? '✓ ' : ''}{c.texte}</p>
-        <ul className="pvv-collegues" data-edls-collegue><li data-collegue-statut={c.statut}>{c.qui} : {c.reponse}</li></ul>
-        {e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}</>}
-      {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
-      {sousInfos}
-      </div>
-      <div className="frp-actions">
-      {/* 🔴🔴 Arno (27/11/2026, 21h10) — les boutons restent sous la fenêtre ouverte : la case garde sa hauteur */}
-      {(
-        <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-          {/* 🔴🔴 Arno (27/11/2026, 21h19) — boutons pleine largeur : « Planifier l'état des lieux de sortie », puis « Modifier le RDV » (la même fenêtre,
-              préremplie) */}
+    /* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « État des lieux de sortie » (le titre de la case le dit). 🔴🔴 (28/11/2026, 00h45) la présentation
+       commune des cases de rendez-vous (PresentationRdv) : le même ordre, les mêmes marges et largeurs que la case « 2. Pré-visite ». */
+    <PresentationRdv donnees={{ 'data-bloc-edls': '', 'data-etat-edls': etat }}
+      /* 🔴🔴 Arno (16/11/2026) — le rendez-vous fixé : le cartouche VERT de la case 2 ; 🔴🔴 (28/11/2026, 00h45) sans le nom du collaborateur (il est sur la
+         ligne « Prénom NOM : en attente / acceptée / refusée » dessous) ; refusé : la mention orange « Refusée par … — à réattribuer » reste en plus */
+      etat={e !== null && c !== null && <p className={`pvv-etat pvv-etat--${c.effectue ? 'effectuee' : 'programmee'}`} role="status" data-edls-cartouche>{c.effectue ? '✓ ' : ''}{c.texte}</p>}
+      personnes={e !== null && c !== null && <ul className="pvv-collegues" data-edls-collegue><li data-collegue-statut={c.statut}>{c.qui} : {c.reponse}</li></ul>}
+      mentions={<>
+        {e !== null && e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}
+        {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}</>}
+      sousInfos={sousInfos}
+      /* 🔴🔴 Arno (27/11/2026, 21h10) — les boutons restent sous la fenêtre ouverte : la case garde sa hauteur ; 21h19 : pleine largeur */
+      boutons={<>
           {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn pva-pleine-largeur" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
             <>
               {/* 🔴 Arno (19/11/2026, règle J corrigée) — l'état des lieux planifié reste modifiable tant qu'il n'est ni réalisé ni annulé (le serveur en juge) */}
@@ -616,17 +611,13 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
               {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn pva-pleine-largeur" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
             </>
           )}
-        </div>
-      )}
-      {!ecriture && <MentionReserveLocation />}
-      {/* 🔴🔴 Arno (27/11/2026, 21h10) — plus aucun formulaire déplié dans la case : la FENÊTRE de rendez-vous (le cadre de « RDV pré-visite »),
-          la case garde sa hauteur */}
-      {ecriture && (mode === 'planifier' || mode === 'deplacer') && (
-        <FenetreEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />
-      )}
-      {ecriture && mode === 'reattribuer' && e !== null && <FenetreReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
-      </div>
-    </div>
+      </>}
+      apresBoutons={!ecriture && <MentionReserveLocation />}
+      /* 🔴🔴 Arno (27/11/2026, 21h10) — plus aucun formulaire déplié dans la case : la FENÊTRE de rendez-vous (le cadre de « RDV pré-visite ») */
+      fenetres={<>
+        {ecriture && (mode === 'planifier' || mode === 'deplacer') && <FenetreEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />}
+        {ecriture && mode === 'reattribuer' && e !== null && <FenetreReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
+      </>} />
   );
 }
 
@@ -1004,6 +995,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-statut{grid-column:2;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere;display:flex;flex-direction:column}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 .frp-etape > .pva-bloc{grid-row:2;align-self:center;display:flex;flex-direction:column;gap:8px;min-width:0;margin:0}
+.frp-etape > .pva-bloc--rdv{align-self:start}
 .frp-infos,.frp-actions{display:flex;flex-direction:column;gap:8px;min-width:0}
 .frp-actions .loc-boutons{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0}
 .frp-actions .loc-boutons .svv-btn{width:100%;min-height:48px;margin:0;display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:normal}

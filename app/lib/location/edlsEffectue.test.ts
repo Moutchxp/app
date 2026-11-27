@@ -40,13 +40,13 @@ describe('edlsEffectue — fin prévue + 1 h', () => {
 });
 
 describe('le cartouche de la case 3', () => {
-  it('RDV fixé : « RDV fixé — le JJ/MM/AAAA de HHhMM à HHhMM · confié à Prénom NOM »', () => {
+  it('RDV fixé : « RDV fixé — le JJ/MM/AAAA de HHhMM à HHhMM', () => {
     const c = cartoucheEdls(RDV, a('2026-12-10T10:59:00Z'));
-    expect([c.texte, c.effectue]).toEqual(['RDV fixé — le 10/12/2026 de 10h00 à 11h00 · confié à Claire TEST', false]);
+    expect([c.texte, c.effectue]).toEqual(['RDV fixé — le 10/12/2026 de 10h00 à 11h00', false]);
   });
-  it('effectué : « État des lieux effectué — le JJ/MM/AAAA de HHhMM à HHhMM · par Prénom NOM »', () => {
+  it('effectué : « État des lieux effectué — le JJ/MM/AAAA de HHhMM à HHhMM', () => {
     const c = cartoucheEdls(RDV, a('2026-12-10T11:00:00Z'));
-    expect([c.texte, c.effectue]).toEqual(['État des lieux effectué — le 10/12/2026 de 10h00 à 11h00 · par Claire TEST', true]);
+    expect([c.texte, c.effectue]).toEqual(['État des lieux effectué — le 10/12/2026 de 10h00 à 11h00', true]);
   });
   it('sans instant : jamais effectué (le texte « RDV fixé »)', () => {
     expect(cartoucheEdls(RDV).effectue).toBe(false);

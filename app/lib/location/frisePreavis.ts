@@ -78,7 +78,9 @@ export function cartoucheEdls(e: Pick<EdlsAffiche, 'jour' | 'heure' | 'dureeMinu
   const effectue = maintenant !== undefined && edlsEffectue(e, maintenant);
   // 🔴🔴 Arno (27/11/2026, 21h19) — « RDV fixé — le … de … à … · confié à Prénom NOM » ; effectué : « État des lieux effectué — le … · par Prénom NOM »
   const qui = prenomNom(e.confieA);
-  return { texte: effectue ? `État des lieux effectué — le ${quand} · par ${qui}` : `RDV fixé — le ${quand} · confié à ${qui}`, qui, reponse: REPONSE_EDLS[statut], effectue, statut };
+  // 🔴🔴 (Arno, 28/11/2026, 00h45) « dans le cartouche vert, ne pas mettre le nom du collaborateur […] ça fait doublon avec la ligne du dessous que l'on
+  //    garde » : la date et les horaires seulement ; « Prénom NOM : acceptée / en attente » reste la ligne du dessous (`qui`, `reponse`)
+  return { texte: effectue ? `État des lieux effectué — le ${quand}` : `RDV fixé — le ${quand}`, qui, reponse: REPONSE_EDLS[statut], effectue, statut };
 }
 
 /** 🔴🔴 Arno (27/11/2026, 21h19) — le délai après la FIN prévue du rendez-vous au bout duquel l'état des lieux de sortie est effectué : 1 h. */
