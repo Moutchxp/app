@@ -29,8 +29,10 @@ export default async function LocationPage({ searchParams }: { searchParams: Pro
           sur la ligne de « Location » (qui garde son style) ; au téléphone, il passe à la ligne entier */}
       <style>{CSS_TITRE_VACANTS}</style>
       {/* 🔴 Arno (23/11/2026) — sur la ligne du titre, à droite : « 20 % à restituer » en pleine page, avec sa pastille (rien d'autre ne bouge) */}
+      {/* 🔴🔴 Arno (28/11/2026, 11h47) « Lots vacants : 15 dont 10 logements et 5 parkings » : le total, puis le décompte par type */}
       <EnTetePage titre={vacants === null ? titreLocation(null)
-        : <>Location <span className="loc-titre-vacants" data-lots-vacants={vacants}>{titreLocation(vacants).slice('Location '.length)}</span></>}
+        : <>Location <span className="loc-titre-vacants" data-lots-vacants={vacants.total}
+            data-lots-vacants-detail={vacants.parType.map((x) => `${x.type}:${x.n}`).join('|')}>{titreLocation(vacants).slice('Location '.length)}</span></>}
         intro={INTRO_LOCATION} {...(autorise ? { actions: <BoutonVingtPourcent /> } : {})} />
       {autorise ? <AccueilLocation gestion={gestion} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_LOCATION}</div>
@@ -39,4 +41,5 @@ export default async function LocationPage({ searchParams }: { searchParams: Pro
   );
 }
 
-const CSS_TITRE_VACANTS = '.loc-titre-vacants{display:inline-block;font-size:.8rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap;vertical-align:baseline}';
+// 🔴 (Arno, 28/11/2026, 11h47) le détail passe à la ligne proprement (au téléphone : le bloc entier sous « Location », coupé entre les mots)
+const CSS_TITRE_VACANTS = '.loc-titre-vacants{display:inline-block;max-width:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted);white-space:normal;overflow-wrap:anywhere;vertical-align:baseline}';

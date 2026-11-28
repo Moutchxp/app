@@ -25,6 +25,11 @@ export interface LotPourVacance {
   /** la fiche autonome OUVERTE qui le contient (gestion_bien_regroupement) ; `null` : aucune */
   regroupement: { id: number; teteId: number } | null;
   occupations: readonly OccupationDuLot[];
+  /** 🔴 (Arno, 28/11/2026, 11h47) le TYPE du lot : catégorie (Location), nom d'une annexe « Autre », nature et type WIPPIMMO */
+  categorie?: string | null;
+  nomAnnexe?: string | null;
+  nature?: string | null;
+  typeBien?: string | null;
 }
 /** Un bien : son lot de tête (le lot principal, ou la tête de la fiche autonome) et tous ses lots du portefeuille. */
 export interface BienPourVacance<L extends LotPourVacance = LotPourVacance> { teteId: number; lots: L[] }
@@ -66,7 +71,75 @@ export function biensVacants<L extends LotPourVacance>(lots: readonly L[], aujou
   return biensDesLots(lots).filter((b) => !b.lots.some((l) => l.occupations.some((o) => occupationEnPlace(o, aujourdhui))));
 }
 
-/** « Location (Nombre de lots vacants : 3) » ; sans nombre (lecture impossible) : « Location ». PUR. */
-export function titreLocation(n: number | null): string {
-  return n === null ? 'Location' : `Location (Nombre de lots vacants : ${n})`;
+/* ══ 🔴🔴 Arno (28/11/2026, 11h47) — LE DÉTAIL PAR TYPE ═════════════════════════════════════════════════════════════════════════════════════════════
+ * « Afficher le nombre de lots vacants totaux en séparant le cumul des logements avec leurs annexes rattachées et les lots annexes séparés. Ex. : 10 logements
+ * avec leurs annexes rattachées et 5 parkings séparés à louer → "Lots vacants : 15 dont 10 logements et 5 parkings" ; faire aussi le décompte des caves si le
+ * cas se présente, ou d'autres annexes personnalisées. » Le type d'un bien est celui de son lot de TÊTE (le lot principal, ou la tête de la fiche autonome) :
+ *   · la catégorie de la Location : logement, parking, cave ; box, local, et une annexe « Autre » sous son nom tel qu'enregistré ;
+ *   · sans catégorie (lots importés de WIPPIMMO) : la nature et le type — « box » ; parking, garage, stationnement → parking ; cave, cellier → cave ;
+ *     appartement, maison, studio… → logement ; sinon la nature telle qu'enregistrée (ex. « local commercial ») ; rien, ou « A renseigner » : lot à renseigner.
+ * Ordre : logements, parkings, caves, puis les autres par ordre alphabétique ; un type à 0 n'est pas dit. PUR. */
+const sansAccents = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const propre = (t: string | null | undefined): string => (t ?? '').replace(/\s+/g, ' ').trim();
+export const TYPE_A_RENSEIGNER = 'lot à renseigner';
+/** Le type d'un lot, en mot singulier minuscule (« logement », « parking », « cave », « box », « local commercial »…). PUR. */
+export function typeDuLotVacant(l: Pick<LotPourVacance, 'categorie' | 'nomAnnexe' | 'nature' | 'typeBien'>): string {
+  const c = propre(l.categorie).toLowerCase();
+  if (c === 'logement' || c === 'parking' || c === 'cave' || c === 'box' || c === 'local') return c;
+  if (c === 'autre') return propre(l.nomAnnexe).toLocaleLowerCase('fr-FR') || 'annexe';
+  if (c !== '') return c;
+  const t = sansAccents([l.nature, l.typeBien].map(propre).join(' '));
+  if (/\bbox\b/.test(t)) return 'box';
+  if (/parking|garage|stationnement/.test(t)) return 'parking';
+  if (/\bcave|cellier/.test(t)) return 'cave';
+  if (/appartement|maison|studio|logement|duplex|triplex|loft|chambre|villa|pavillon|habitation|meuble/.test(t)) return 'logement';
+  const nature = propre(l.nature).toLocaleLowerCase('fr-FR');
+  return nature === '' || sansAccents(nature) === 'a renseigner' ? TYPE_A_RENSEIGNER : nature;
+}
+
+const PREPOSITIONS = new Set(['de', 'du', 'des', 'à', 'a', 'au', 'aux', 'en', 'pour', 'sur', 'sous', 'avec', 'sans']);
+/** Le pluriel français d'un mot : s, x, z inchangés ; -au, -eau, -eu → x ; -al → -aux ; sinon + s. PUR. */
+export function plurielMot(m: string): string {
+  if (/[sxz]$/i.test(m)) return m;
+  if (/(au|eu)$/i.test(m)) return `${m}x`;
+  if (/al$/i.test(m)) return `${m.slice(0, -2)}aux`;
+  return `${m}s`;
+}
+/** « 1 parking », « 2 parkings », « 2 locaux commerciaux », « 2 lots à renseigner » (rien n'est accordé après une préposition). PUR. */
+export function nombreEtType(n: number, type: string): string {
+  if (n <= 1) return `${n} ${type}`;
+  let apresPreposition = false;
+  const mots = type.split(' ').map((m) => {
+    if (apresPreposition || PREPOSITIONS.has(m) || m.startsWith('d’') || m.startsWith("d'")) { apresPreposition = true; return m; }
+    return plurielMot(m);
+  });
+  return `${n} ${mots.join(' ')}`;
+}
+
+export interface DetailVacants { total: number; parType: { type: string; n: number }[] }
+const RANG_TYPE: Record<string, number> = { logement: 0, parking: 1, cave: 2 };
+/** Le total et le décompte par type des biens vacants, dans l'ordre d'Arno. PUR. */
+export function detailVacants(biens: readonly BienPourVacance[]): DetailVacants {
+  const compte = new Map<string, number>();
+  for (const b of biens) {
+    const tete = b.lots.find((l) => l.id === b.teteId) ?? b.lots[0];
+    const t = typeDuLotVacant(tete);
+    compte.set(t, (compte.get(t) ?? 0) + 1);
+  }
+  const parType = [...compte.entries()].map(([type, n]) => ({ type, n })).filter((x) => x.n > 0)
+    .sort((a, b) => (RANG_TYPE[a.type] ?? 3) - (RANG_TYPE[b.type] ?? 3) || a.type.localeCompare(b.type, 'fr'));
+  return { total: biens.length, parType };
+}
+/** « a », « a et b », « a, b et c ». PUR. */
+const enumerer = (x: readonly string[]): string => (x.length <= 1 ? x.join('') : `${x.slice(0, -1).join(', ')} et ${x[x.length - 1]}`);
+/** « Lots vacants : 15 dont 10 logements, 3 parkings et 2 caves » ; un seul type : « Lots vacants : 10 logements » ; aucun : « Lots vacants : 0 ». PUR. */
+export function libelleVacants(d: DetailVacants): string {
+  if (d.total === 0 || d.parType.length === 0) return `Lots vacants : ${d.total}`;
+  const parts = d.parType.map((x) => nombreEtType(x.n, x.type));
+  return d.parType.length === 1 ? `Lots vacants : ${parts[0]}` : `Lots vacants : ${d.total} dont ${enumerer(parts)}`;
+}
+
+/** « Location (Lots vacants : 15 dont 10 logements et 5 parkings) » ; sans détail (lecture impossible) : « Location ». PUR. */
+export function titreLocation(d: DetailVacants | null): string {
+  return d === null ? 'Location' : `Location (${libelleVacants(d)})`;
 }
