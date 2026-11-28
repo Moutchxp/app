@@ -1804,10 +1804,26 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Contrôles : `npm test` VERT (1 902 fichiers, 28 485 tests, 21 ignorés) ; `tsc` = 0. Chrome, syndics 56 et 54, 1440 et 390 px, clair et sombre.
   - Captures `.captures/fiche-syndic-compte/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 13h18 — fiche syndic : « Copier » aligné (`c4065cbb`), collaborateurs (`96262b6e`), retour à l'origine (`eac573f7`)
+- **`c4065cbb`** — sur une ligne de téléphone, « Copier » est suivi de la place INVISIBLE (aria-hidden) de la case et d'« Écrire » : il tombe dans la
+  colonne de celui des e-mails (Location et Gestion). Sans droit d'envoi, rien n'est réservé. Gestion à 390 px : la ligne du téléphone standard passe à la ligne.
+- **`96262b6e`** — sous « Total », les contacts du syndic affectés à la copropriété (gestion_syndic_contact_copropriete, déjà lue) :
+  « Fonction : Civ Prénom NOM », téléphone, e-mail. Aucun : « Aucun collaborateur du syndic affecté à cette copropriété ».
+- **`eac573f7`** — trois endroits corrigés :
+  - la fiche syndic (Location) ouvre la fiche copropriété EN FENÊTRE sur place ; fermer : même défilement, relue ;
+  - `EcranCoproprietes` (`?ouvrir=`, depuis la recherche de l'accueil) : `retourVersOrigine()` à la fermeture ;
+  - `EcranSyndics` (`?syndic=N`, lien « à compléter ») : idem.
+  - Les autres fiches copropriété s'ouvraient déjà en fenêtre sur place.
+- Flake vu une fois : `serverOnly.guard.test.ts` ENOENT `__garde_eslint_tmp__.ts`. Même cause que celle documentée pour `dateSortieUnique` (FLAKES_CONNUS),
+  pas encore corrigée pour ce garde ; vert seul et à la passe suivante. Non traité (hors lot).
+- Contrôles : `npm test` VERT après chaque point (dernier : 1 903 fichiers, 28 494 tests, 21 ignorés) ; `tsc` = 0.
+  - Chrome, syndics 56, 49 et 2, 1440 et 390 px, clair et sombre. Rien enregistré (« Fermer » et « × » seulement), aucun mail.
+  - Captures `.captures/fiche-syndic-13h18/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
