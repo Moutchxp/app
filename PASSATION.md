@@ -1751,10 +1751,21 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Contrôles : `npm test` VERT après chaque commit (dernier : 1 898 fichiers, 28 417 tests, 21 ignorés) ; `tsc` = 0.
   - Chrome, `/admin/location`, 1440 et 390 px, clair et sombre. Captures `.captures/lots-vacants-biens/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 11h59 — page Location : sous-titre vide (`97ca2f40`) ; « local » = « locaux commerciaux » (`cb2c6c35`)
+- **`97ca2f40`** — le texte « L'espace de l'équipe location : … » est retiré (accord explicite d'Arno pour CE texte). La ligne reste, vide, à la hauteur
+  exacte du texte d'avant (`CSS_INTRO_VIDE`, page.tsx), mesurée au pixel près : 3 lignes ≤ 412 px ; 2 lignes de 413 à 759 px et de 768 à 999 px ;
+  1 ligne de 760 à 767 px et ≥ 1000 px. Balayage 320 → 1920 px : aucun écart ; recherche et tuiles aux mêmes coordonnées. EnTetePage n'est pas touché.
+  - Piège évité : deux enfants texte dans `<style>` faisaient échouer l'hydratation (alerte de Next) ; une seule chaîne.
+- **`cb2c6c35`** — décision d'Arno : la catégorie « local » et la nature « Local commercial » sont un seul type, « locaux commerciaux ». Le script
+  `.captures/maj/0-controles-vacants-lecture-seule.sh` (via `lecture-vacants.sql`) fait le même regroupement. Recette : 88 dont 70 logements,
+  10 parkings, 4 locaux commerciaux et 4 lots à renseigner. Le seul « local » de recette est le lot 439 (« 20 rue ESSAI ENCART local », essai, jamais occupé).
+- Contrôles : `npm test` VERT après chaque point (dernier : 1 899 fichiers, 28 421 tests, 21 ignorés) ; `tsc` = 0.
+  - Chrome 1440 et 390 px, clair et sombre. Captures `.captures/location-intro-vide/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
