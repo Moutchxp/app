@@ -11,7 +11,7 @@ import { ACTION_PERIODE_CONTACT } from './reintegrationContact';
 import {
   libelleCategorieImmeuble,
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
-  cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
+  cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeCabinet, type CoordonneeConnue, type CoordonneeSaisie,
   type ProprietaireCoordonnee, type AdresseConnue, type ConflitParcelle,
   adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
@@ -25,8 +25,11 @@ function comparableDuSyndicSaisi(s: SyndicSaisi): SyndicComparable {
   const coords = s.contacts.filter((c) => c.parti !== true).flatMap((c) => c.coordonnees);
   return {
     id: null, nom: s.nom, adresse: s.adresse, codePostal: s.codePostal, ville: s.ville,
-    emails: [s.email, ...coords.filter((k) => k.sorte === 'email').map((k) => k.valeur)],
-    telephones: [s.telephone, s.telephone2, ...coords.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)],
+    // 🔴 (Arno, 28/11/2026, 524) toute la liste du cabinet, quand la saisie la porte
+    emails: [...(s.coordonneesCabinet !== undefined ? s.coordonneesCabinet.filter((k) => k.sorte === 'email').map((k) => k.valeur) : [s.email]),
+      ...coords.filter((k) => k.sorte === 'email').map((k) => k.valeur)],
+    telephones: [...(s.coordonneesCabinet !== undefined ? s.coordonneesCabinet.filter((k) => k.sorte === 'telephone').map((k) => k.valeur) : [s.telephone, s.telephone2]),
+      ...coords.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)],
   };
 }
 
@@ -333,6 +336,50 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
  * La fiche complète d'un syndic, ou `null` (inconnu ou supprimé).
  * LOT SYNDIC-NOTE-PAR-BIEN — avec `lotId`, elle porte aussi la note du couple (ce lot, ce syndic), et elle seule.
  */
+/* ══ 🔴🔴 Arno (28/11/2026, 524) — LES COORDONNÉES DU CABINET, EN LISTE ══════════════════════════════════════════════════════════════════════════════
+ * La table de la 524 (sondée une fois par processus : sans elle, les trois colonnes d'avant, comme avant). Lecture : les lignes NON retirées, dans
+ * leur ordre. Écriture : même règle que les coordonnées des contacts — mise à jour, insertion, RETRAIT (retire_le, jamais d'effacement). */
+let cabinetDisponibleMemo: Promise<boolean> | null = null;
+export function coordonneesCabinetDisponibles(): Promise<boolean> {
+  cabinetDisponibleMemo ??= query<{ ok: boolean }>(`SELECT to_regclass('public.gestion_syndic_coordonnee_cabinet') IS NOT NULL AS ok`)
+    .then((r) => r.rows[0]?.ok === true).catch(() => { cabinetDisponibleMemo = null; return false; });
+  return cabinetDisponibleMemo;
+}
+/** Les coordonnées du cabinet de ces syndics (lignes non retirées), par syndic ; sans la 524 : rien (le lecteur déduit des colonnes). */
+export async function lireCoordonneesCabinet(syndicIds: readonly number[]): Promise<Map<number, CoordonneeCabinet[]>> {
+  const m = new Map<number, CoordonneeCabinet[]>();
+  if (syndicIds.length === 0 || !(await coordonneesCabinetDisponibles())) return m;
+  const { rows } = await query<{ id: string; syndic_id: string; sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }>(
+    `SELECT id::text, syndic_id::text, sorte, libelle, valeur FROM gestion_syndic_coordonnee_cabinet
+      WHERE syndic_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY syndic_id, rang, id`, [[...syndicIds]]);
+  for (const r of rows) {
+    const l = m.get(Number(r.syndic_id)) ?? [];
+    l.push({ id: Number(r.id), sorte: r.sorte, libelle: r.libelle, valeur: r.valeur });
+    m.set(Number(r.syndic_id), l);
+  }
+  return m;
+}
+async function enregistrerCoordonneesCabinet(q: RequeteTx, syndicId: number, liste: readonly CoordonneeSaisie[], auteur: Auteur): Promise<void> {
+  const { rows } = await q<{ id: string }>(
+    `SELECT id::text FROM gestion_syndic_coordonnee_cabinet WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);
+  const ids = new Set(rows.map((r) => Number(r.id)));
+  const gardes = new Set<number>();
+  for (const [rang, k] of liste.entries()) {
+    if (k.id != null && ids.has(k.id)) {
+      gardes.add(k.id);
+      await q(`UPDATE gestion_syndic_coordonnee_cabinet SET sorte = $2, libelle = $3, valeur = $4, rang = $5 WHERE id = $1`,
+        [k.id, k.sorte, nul(k.libelle), k.valeur, rang]);
+    } else {
+      await q(`INSERT INTO gestion_syndic_coordonnee_cabinet (syndic_id, sorte, libelle, valeur, rang, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [syndicId, k.sorte, nul(k.libelle), k.valeur, rang, auteur.libelle]);
+    }
+  }
+  const retires = [...ids].filter((x) => !gardes.has(x));
+  if (retires.length > 0) {
+    await q(`UPDATE gestion_syndic_coordonnee_cabinet SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`, [retires, auteur.libelle]);
+  }
+}
+
 export async function ficheSyndic(id: number, lotId: number | null = null): Promise<FicheSyndic | null> {
   const { rows } = await query<{
     id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
@@ -343,6 +390,7 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
             cree_le::text, cree_par_libelle, maj_le::text, maj_par_libelle
        FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL`, [id]);
   const s = rows[0];
+  const cabinet = s === undefined ? undefined : (await coordonneesCabinetDisponibles()) ? (await lireCoordonneesCabinet([Number(s.id)])).get(Number(s.id)) ?? [] : undefined;
   if (s === undefined) return null;
 
   const { rows: contacts } = await query<{
@@ -397,6 +445,8 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
     })),
     id: Number(s.id), nom: s.nom, adresse: s.adresse, codePostal: s.code_postal, ville: s.ville,
     telephone: s.telephone, telephone2: s.telephone_2, email: s.email, note: s.note,
+    // 🔴 (524) la liste du cabinet ; absente sans la migration (ou vide : le lecteur déduit des colonnes)
+    ...(cabinet !== undefined ? { coordonneesCabinet: cabinet } : {}),
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
     contacts: contacts.map((c) => ({
       id: Number(c.id), titre: c.titre, prenom: c.prenom, nom: c.nom, civilite: civiliteLue(c.civilite) ?? null,
@@ -468,6 +518,12 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
     const conflitsParcelle = await conflitsDesCoproprietesRecues(q, id, saisie);
     const manquants = conflitsNonConfirmes(conflitsParcelle, saisie.conflitsParcelle ?? []);
     if (manquants.length > 0) return { ok: false, motif: motifConflitParcelle(manquants), conflitsParcelle: manquants };
+    // 🔴 (524) sans la table, la liste ne peut garder que deux téléphones et un e-mail : au-delà, refus AVANT toute écriture (rien ne se perd en silence)
+    const avecCabinet = await coordonneesCabinetDisponibles();
+    if (saisie.coordonneesCabinet !== undefined && !avecCabinet
+      && (saisie.coordonneesCabinet.filter((k) => k.sorte === 'telephone').length > 2 || saisie.coordonneesCabinet.filter((k) => k.sorte === 'email').length > 1)) {
+      return { ok: false, motif: 'Plus de deux téléphones ou d’un e-mail pour le cabinet : la base doit d’abord être mise à jour (migration 524).' };
+    }
     // LOT SYNDIC-NOTE-PAR-BIEN — le bien de la note doit exister : refus AVANT toute écriture.
     if (saisie.noteBien) {
       const { rows: lot } = await q<{ id: string }>(`SELECT id::text FROM gestion_annuaire_lot WHERE id = $1`, [saisie.noteBien.lotId]);
@@ -516,6 +572,8 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
       await enregistrerAdressePersonne(q, 'syndic', syndicId, { adresse: apres.adresse, codePostal: apres.codePostal, commune: apres.ville,
         nature: saisie.adresseNature === 'liste' ? 'liste' : 'hors_liste' }, { id: auteur.id ?? null, libelle: auteur.libelle });
     }
+    // 🔴 (524) la liste du cabinet (les trois colonnes ci-dessus en sont déjà déduites)
+    if (saisie.coordonneesCabinet !== undefined && avecCabinet) await enregistrerCoordonneesCabinet(q, syndicId, saisie.coordonneesCabinet, auteur);
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur, ecran);
     await enregistrerAdressesSecondaires(q, saisie, auteur);

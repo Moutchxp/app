@@ -21,6 +21,13 @@ vi.mock('../gestion/FicheCopropriete', async () => {
   return { FicheCopropriete: ({ immeuble, onFerme }: { immeuble: string; onFerme: () => void }) =>
     createElement('div', { 'data-fiche-copro-double': immeuble }, createElement('button', { type: 'button', onClick: onFerme, 'data-fermer-double': '' }, 'Fermer')) };
 });
+// 🔴 (Arno, 28/11/2026, 14h00, points 2 à 4) LA fenêtre de la fiche syndic de la Gestion : un double qui dit ce qu'on lui a demandé
+vi.mock('../gestion/FicheSyndic', async () => {
+  const { createElement } = await import('react');
+  return { FicheSyndic: ({ syndicId, departContacts, onFerme }: { syndicId: number; departContacts?: boolean; onFerme: () => void }) =>
+    createElement('div', { 'data-fiche-syndic-double': String(syndicId), 'data-depart-contacts': String(departContacts === true) },
+      createElement('button', { type: 'button', onClick: onFerme, 'data-fermer-fiche-syndic': '' }, 'Fermer')) };
+});
 import { FicheSyndicLocationVue } from './EcransLocation';
 
 const CONTEXTE = { schemaPret: true, peutEnvoyer: true, jetonPresent: true, signature: '— Gestion', signatureHtml: '', nomExpediteur: 'CRITERIMMO',
@@ -46,7 +53,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 const calmer = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); }); };
-const rendre = async () => { await act(async () => { root.render(createElement(FicheSyndicLocationVue, { id: 4 })); }); await calmer(); };
+const rendre = async (peutModifier?: boolean) => { await act(async () => { root.render(createElement(FicheSyndicLocationVue, { id: 4, ...(peutModifier !== undefined ? { peutModifier } : {}) })); }); await calmer(); };
 
 describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré par copropriété, ses adresses jamais répétées, « N lots », le total', () => {
   const RESUME = { detail: { total: 4, parType: [{ type: 'logement', n: 3 }, { type: 'parking', n: 1 }] }, copros: [{ id: 157, cle: '43 avenue marceau', nom: 'Résidence Marceau',
@@ -338,5 +345,41 @@ describe('🔴 14h00 point 1 — « Coordonnées du syndic », « Téléphone st
     expect(container.querySelector('[data-coordonnees-syndic] h3')?.textContent).toBe('Coordonnées du syndic');
     expect([...container.querySelectorAll('[data-coordonnees-syndic] dt')].map((x) => x.textContent)).toEqual(['Adresse', 'Téléphone standard', 'E-mail contact', 'Note']);
     expect([...container.querySelectorAll('h3')].map((h) => h.childNodes[0]?.textContent)).toContain('Contacts du syndic ');
+  });
+});
+
+describe('🔴🔴 14h00 point 2 (décisions « 1A » et « 2A ») — « Modifier » des coordonnées : LA fenêtre de la Gestion ; la liste du cabinet affichée', () => {
+  it('avec le droit Gestion : « Modifier » en haut à droite du bloc ouvre la fiche syndic de la Gestion (aucune copie) ; la fermer recharge la fiche', async () => {
+    await rendre(true);
+    const b = container.querySelector('[data-coordonnees-syndic] [data-modifier-syndic="coordonnees"]') as HTMLButtonElement;
+    expect(b?.textContent).toBe('Modifier');
+    expect(b.closest('.loc-bloc-tete')?.querySelector('h3')?.textContent).toBe('Coordonnées du syndic');
+    const avant = (global.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await act(async () => { b.click(); }); await calmer();
+    const f = document.querySelector('[data-fiche-syndic-double]');
+    expect(f?.getAttribute('data-fiche-syndic-double')).toBe('4');
+    expect(f?.getAttribute('data-depart-contacts')).toBe('false');
+    await act(async () => { (document.querySelector('[data-fermer-fiche-syndic]') as HTMLElement).click(); }); await calmer();
+    expect(document.querySelector('[data-fiche-syndic-double]')).toBeNull();
+    expect((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(avant).some((c) => String(c[0]).includes('syndic=4'))).toBe(true);
+  });
+  it('sans le droit Gestion : AUCUN bouton « Modifier », une mention claire à sa place', async () => {
+    await rendre(false);
+    expect(container.querySelector('[data-modifier-syndic]')).toBeNull();
+    expect(container.querySelector('[data-coordonnees-syndic] [data-mention-droit]')?.textContent).toBe('Modification réservée aux comptes qui ont le droit « Gestion ».');
+  });
+  it('les téléphones et e-mails du cabinet (524) : tous, chacun sur sa ligne, le libellé dit devant s’il n’est pas « Standard » / « Contact »', async () => {
+    syndic = { ...BASE, telephone: '0140000000', coordonneesCabinet: [
+      { id: 1, sorte: 'telephone', libelle: 'Standard', valeur: '0140000000' },
+      { id: 2, sorte: 'telephone', libelle: 'Standard', valeur: '0140000001' },
+      { id: 3, sorte: 'telephone', libelle: 'Portable', valeur: '0611223344' },
+      { id: 4, sorte: 'email', libelle: 'Contact', valeur: 'syndic@exemple.test' },
+      { id: 5, sorte: 'email', libelle: 'Email service', valeur: 'service@exemple.test' }] };
+    await rendre(true);
+    expect([...container.querySelectorAll('[data-ligne-tel]')].map((x) => x.getAttribute('data-ligne-tel'))).toEqual(['01 40 00 00 00', '01 40 00 00 01', '06 11 22 33 44']);
+    expect([...container.querySelectorAll('[data-ligne-mail]')].map((x) => x.getAttribute('data-ligne-mail'))).toEqual(['syndic@exemple.test', 'service@exemple.test']);
+    expect(container.querySelector('[data-ligne-tel="06 11 22 33 44"]')?.textContent).toContain('Portable : ');
+    expect(container.querySelector('[data-ligne-tel="01 40 00 00 00"]')?.textContent).not.toContain('Standard');
+    expect(container.querySelector('[data-ligne-mail="service@exemple.test"]')?.textContent).toContain('Email service : ');
   });
 });

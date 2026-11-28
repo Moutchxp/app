@@ -1,4 +1,4 @@
-import { cleImmeuble, type ContactForm, type FicheSyndic, type ImmeubleConnu, type SyndicForm } from './syndics';
+import { cleImmeuble, type ContactForm, type FicheSyndic, type ImmeubleConnu, type SyndicForm, emailsDuFormulaire, telephonesDuFormulaire } from './syndics';
 
 /**
  * ══ 🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — UNE FICHE SYNDIC N'EXISTE QU'UNE FOIS, ET SE PARTAGE PAR LIEN ══════════
@@ -94,9 +94,12 @@ const contenuContact = (c: ContactForm) => JSON.stringify({
  * La note du bien n'est d'aucun des deux : elle est propre au bien.
  */
 export function niveauxModifies(avant: SyndicForm, apres: SyndicForm, cleCopro: string | null): { cabinet: boolean; copropriete: boolean } {
-  const tels = (f: SyndicForm) => f.telephones.map((t) => t.replace(/\D/g, '')).filter((t) => t !== '').join(',');
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du cabinet : sa liste (libellés compris), sinon les champs d'avant
+  const tels = (f: SyndicForm) => telephonesDuFormulaire(f).map((t) => t.replace(/\D/g, '')).filter((t) => t !== '').join(',');
+  const mails = (f: SyndicForm) => emailsDuFormulaire(f).map((e) => e.toLowerCase()).join(',');
+  const libelles = (f: SyndicForm) => (f.cabinet ?? []).map((k) => `${k.choix}|${k.libre}`).join(',');
   const cabinetChamps = avant.nom !== apres.nom || avant.adresse !== apres.adresse || avant.codePostal !== apres.codePostal
-    || avant.ville !== apres.ville || tels(avant) !== tels(apres) || avant.email !== apres.email || avant.note !== apres.note;
+    || avant.ville !== apres.ville || tels(avant) !== tels(apres) || mails(avant) !== mails(apres) || libelles(avant) !== libelles(apres) || avant.note !== apres.note;
   const contenus = (f: SyndicForm) => f.contacts.map(contenuContact).sort().join('|');
   const cabinet = cabinetChamps || (apres.partis ?? []).length > 0 || contenus(avant) !== contenus(apres);
   let copropriete = false;

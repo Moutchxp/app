@@ -73,8 +73,13 @@ describe('🔴 RÈGLE 4 — ce qu’une modification touche, et à combien de bi
   const base = versFormulaire(FICHE, 1);
   const cle = '25 rue edith cavell';
   it('le cabinet : nom, standard, e-mail, note ; un contact modifié ou qui « ne travaille plus ici »', () => {
-    expect(niveauxModifies(base, { ...base, email: 'x@banc.invalid' }, cle)).toEqual({ cabinet: true, copropriete: false });
-    expect(niveauxModifies(base, { ...base, telephones: ['01 00 00 00 00'] }, cle)).toEqual({ cabinet: false, copropriete: false });
+    // 🔴 (Arno, 28/11/2026, 524) la fenêtre écrit désormais la LISTE du cabinet (`cabinet`) : c'est elle qu'on modifie (les champs d'avant n'en sont que déduits)
+    const cab = base.cabinet ?? [];
+    const mail = cab.findIndex((k) => k.sorte === 'email');
+    expect(niveauxModifies(base, { ...base, cabinet: cab.map((k, i) => (i === mail ? { ...k, valeur: 'x@banc.invalid' } : k)) }, cle)).toEqual({ cabinet: true, copropriete: false });
+    expect(niveauxModifies(base, { ...base, cabinet: [...cab, { ...cab[0], id: null, cle: 'n1', sorte: 'telephone', valeur: '06 11 22 33 44' }] }, cle)).toEqual({ cabinet: true, copropriete: false });
+    expect(niveauxModifies(base, { ...base, cabinet: cab.map((k, i) => (i === 0 ? { ...k, choix: 'Portable' } : k)) }, cle).cabinet).toBe(true);
+    expect(niveauxModifies(base, { ...base, cabinet: cab.map((k) => ({ ...k })) }, cle)).toEqual({ cabinet: false, copropriete: false });
     expect(niveauxModifies(base, { ...base, contacts: base.contacts.map((c) => (c.id === 5 ? { ...c, nom: 'Autre' } : c)) }, cle).cabinet).toBe(true);
     expect(niveauxModifies(base, { ...base, partis: [base.contacts[1]] }, cle).cabinet).toBe(true);
   });

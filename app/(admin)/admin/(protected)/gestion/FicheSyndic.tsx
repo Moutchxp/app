@@ -14,7 +14,7 @@ import {
   CATEGORIES_IMMEUBLE, refusContactImmeuble,
   avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
   resumeFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
-  emailPlausible, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
+  emailPlausible, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe, choixDe, libellesCabinetDe, LIBELLE_DEFAUT_CABINET, changementsSyndic,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
   type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
@@ -81,7 +81,7 @@ import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi, contexteCopropriete = null }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi, contexteCopropriete = null, departContacts = false }: {
   /**
    * TUILE LOCATION (Arno, 17/10/2026) — « location » : modale du formulaire « Ajouter un nouveau bien ». Un seul bouton de
    * création (pas de « Créer un nouveau syndic » en tête), l'encadré « déjà connu » à 3 boutons avec le détail en lecture
@@ -89,6 +89,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * enregistrement. Absent (« gestion ») ⇒ la modale de la Gestion, inchangée.
    */
   variante?: 'gestion' | 'location' | 'copropriete';
+  /** 🔴 (Arno, 28/11/2026, 14h00, point 3) ouverte par « Modifier » du bloc « Contacts du syndic » (Location) : la fiche s'ouvre sur les contacts. */
+  departContacts?: boolean;
   /**
    * 🔴 (Arno, 20/11/2026) « copropriete » : la modale « Copropriété » ouvre CETTE fenêtre (« même méthode qu'en copie 1 ») — la même recherche, le
    * même « Ajouter un syndic », la même création depuis les résultats avec la garde anti-doublon ; mais le CHOIX est rendu à la copropriété
@@ -318,6 +320,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     });
   };
   const [etapePartage, setEtapePartage] = useState<string | null>(null);
+  /** 🔴 (Arno, 28/11/2026, décision « 2A ») les lignes de « Ce qui change », montrées avec l'étape d'enregistrement */
+  const [recap, setRecap] = useState<string[]>([]);
   const connus = useSyndicsConnus(mode === 'recherche' && depuisUnBien ? immeubleDepart : null, lotDepart, ancienSyndicId);
   const [connusEcartes, setConnusEcartes] = useState(false);
   /** 🔴 (Arno, 17/11/2026) « Ajouter un syndic » (en-tête, Gestion) : la recherche d'abord — le curseur va dans le champ de recherche. */
@@ -343,8 +347,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche est commune : on le dit avant d'enregistrer. */
     if (!passe.partage) {
       /* Un contact en cours de modification compte aussi : c'est lui que la question « Enregistrer … ? » ajoutera. */
-      const m = motPartage(edition !== null && contactEnCours ? appliquerBrouillon(f, edition) : f);
-      if (m !== null) { setEtapePartage(m); return; }
+      const fx = edition !== null && contactEnCours ? appliquerBrouillon(f, edition) : f;
+      const m = motPartage(fx);
+      // 🔴🔴 (Arno, 28/11/2026, décision « 2A ») « Ce qui change », avant « Enregistrer » : la liste de ce qui sera écrit (syndic existant)
+      const lignes = syndicId !== null ? changementsSyndic(initial, fx) : [];
+      if (m !== null || lignes.length > 0) { setEtapePartage(m ?? ''); setRecap(lignes); return; }
     }
     /* 🔴 LOT SYNDIC-ANTI-DOUBLON — à la création, un doublon possible non encore accepté : le pied le dit d'abord. Une
        fois accepté (« Créer quand même »), les étapes existantes du Valider (parcelle, conflit) suivent normalement. */
@@ -561,8 +568,14 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onFerme}>Fermer</button>
             </div>
           ) : etapePartage !== null ? (
-            <div className="fsy-boutons fsy-partage" role="group" aria-label="La fiche est partagée">
-              <span className="fsy-question">{etapePartage}</span>
+            <div className="fsy-boutons fsy-partage" role="group" aria-label={recap.length > 0 ? 'Ce qui change' : 'La fiche est partagée'} data-fsy-recap>
+              {/* 🔴 (Arno, 28/11/2026, décision « 2A ») « Ce qui change », puis « Enregistrer » */}
+              {recap.length > 0 && (
+                <div className="fsy-recap">
+                  <p className="fsy-recap-titre">Ce qui change</p>
+                  <ul className="fsy-recap-liste">{recap.map((l, i) => <li key={i} data-fsy-recap-ligne>{l}</li>)}</ul>
+                </div>)}
+              {etapePartage !== '' && <span className="fsy-question">{etapePartage}</span>}
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapePartage(null)} disabled={envoi}>Revenir</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}
                 onClick={() => { setEtapePartage(null); void valider({ partage: true }); }}>Enregistrer</button>
@@ -780,6 +793,57 @@ function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: s
  * AU FORMAT PAR PAIRES et dit « Copié » ; c'est le bouton du module (`BoutonCopier`), avec son repli quand le
  * presse-papiers refuse. Seulement pour un numéro complet. Le numéro lui-même reste cliquable (tel:) en lecture.
  */
+/**
+ * ══ 🔴🔴 Arno (28/11/2026, 14h00, point 2 ; décision « 1A », 524) — LES COORDONNÉES DU CABINET, EN LISTE ═══════════════════════════════════════════
+ * « on doit pouvoir tout modifier : adresse, mail, téléphone, ajouter des numéros et des mails » : une ligne par téléphone (« Téléphone standard ») et par
+ * e-mail (« E-mail contact »), chacune avec son libellé (menu : Standard, Ligne directe, Portable / Contact, Email service, Email direct, ou Personnalisé),
+ * « × » pour la retirer, « + téléphone » / « + e-mail » pour en ajouter. Les mêmes actions qu'avant au bout de chaque ligne (« Copier », la case,
+ * « Écrire depuis gestion@ »). Le premier téléphone et le premier e-mail gardent les noms d'avant (« Téléphone standard », « E-mail contact »).
+ */
+function CoordonneesCabinetEdit({ form, setForm, onEcrire }: { form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void }) {
+  const liste = form.cabinet ?? [];
+  const maj = (cle: string, k: CoordonneeForm): void => setForm({ ...form, cabinet: liste.map((x) => (x.cle === cle ? k : x)) });
+  const retirer = (cle: string): void => setForm({ ...form, cabinet: liste.filter((x) => x.cle !== cle) });
+  const ajouter = (sorte: 'telephone' | 'email'): void => {
+    const k = coordonneeVide(sorte);
+    const c = choixDe(LIBELLE_DEFAUT_CABINET[sorte], libellesCabinetDe(sorte));
+    setForm({ ...form, cabinet: [...liste, { ...k, choix: c.choix, libre: c.libre }] });
+  };
+  const ligne = (k: CoordonneeForm, n: number) => {
+    const tel = k.sorte === 'telephone';
+    const nom = tel ? (n === 0 ? 'Téléphone standard' : n === 1 ? 'Second téléphone standard' : `Téléphone standard ${n + 1}`)
+      : (n === 0 ? null : `E-mail contact ${n + 1}`);
+    return (
+      <div key={k.cle} className="fsy-duo fsy-coord-cabinet" data-coord-cabinet={k.sorte} data-cle-coord={k.cle}>
+        <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={libellesCabinetDe(k.sorte)}
+          onChange={(choix, libre) => maj(k.cle, { ...k, choix, libre })} />
+        <div className="fsy-champ fsy-champ--large">
+          <span id={!tel && n === 0 ? 'fsy-email-generique' : undefined}>{tel ? 'Téléphone standard' : 'E-mail contact'}</span>
+          <span className={tel ? 'fsy-ligne-tel' : 'fsy-ligne-champ'}>
+            <input type={tel ? 'tel' : 'email'} inputMode={tel ? 'tel' : undefined} value={k.valeur} placeholder={tel ? '01 23 45 67 89' : undefined}
+              {...(nom !== null ? { 'aria-label': nom } : { 'aria-labelledby': 'fsy-email-generique' })}
+              onChange={(ev) => maj(k.cle, { ...k, valeur: tel ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })} />
+            <button type="button" className="fsy-mini" aria-label={`Retirer ${tel ? 'ce numéro' : 'cette adresse'}${k.valeur ? ` (${k.valeur})` : ''}`} onClick={() => retirer(k.cle)}>×</button>
+            {tel ? <ActionCopier tel={k.valeur} reserver={onEcrire !== undefined} /> : <ActionEcrire email={k.valeur} onEcrire={onEcrire} />}
+          </span>
+        </div>
+      </div>
+    );
+  };
+  const tels = liste.filter((k) => k.sorte === 'telephone');
+  const mails = liste.filter((k) => k.sorte === 'email');
+  return (
+    <div className="fsy-cabinet" data-coordonnees-cabinet>
+      {tels.map((k, i) => ligne(k, i))}
+      {mails.map((k, i) => ligne(k, i))}
+      <div className="fsy-ligne-ajouts">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')} data-ajouter-cabinet="telephone">+ téléphone</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')} data-ajouter-cabinet="email">+ e-mail</button>
+      </div>
+    </div>
+  );
+}
+
 function ActionCopier({ tel, reserver = false }: { tel: string; reserver?: boolean }) {
   if (!telephoneComplet(tel)) return null;
   // 🔴 (Arno, 28/11/2026, 13h18, point 1) « Copier » dans la colonne de celui des e-mails : avec le droit d'envoi, la place (invisible) de la case et
@@ -995,6 +1059,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
       <ChampRue form={form} setForm={setForm} manque={manques.includes('adresse')} libre={adresseLibre} setLibre={setAdresseLibre} />
       <ChampsCpVille form={form} setForm={setForm} manques={manques} libre={adresseLibre} />
 
+      {form.cabinet !== undefined ? <CoordonneesCabinetEdit form={form} setForm={setForm} onEcrire={onEcrire} /> : <>
       <div className="fsy-champ fsy-champ--groupe">
         <span>Téléphone standard</span>
         {form.telephones.map((t, i) => (
@@ -1024,6 +1089,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
           <ActionEcrire email={form.email} onEcrire={onEcrire} />
         </span>
       </div>
+      </>}
       {/* 🔴 LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — UNE NOTE VIDE NE S'AFFICHE PAS (accord d'Arno pour ce masquage) : à sa
           place, « + note », au style de « + téléphone ». Un clic ouvre le champ vide, le curseur dedans. Une note
           vidée puis validée disparaît à la réouverture (on relit `form.note` à l'ouverture). */}
@@ -2479,6 +2545,10 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-contact-coord > .fsy-coord-gauche{flex:1 1 12rem}
 .fsy-action{flex:0 0 auto;margin-left:auto;font-size:.82rem;white-space:nowrap}
 .fsy-actions-mail{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap}
+/* (Arno, 28/11/2026, 2A) le recapitulatif « Ce qui change » au-dessus des boutons d'enregistrement */
+.fsy-recap{flex:1 1 100%;min-width:0;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-field)}
+.fsy-recap-titre{margin:0 0 4px;font-weight:800;color:var(--color-svv-ink)}
+.fsy-recap-liste{margin:0;padding-left:18px;font-size:.86rem;color:var(--color-svv-ink);overflow-wrap:anywhere;max-height:40vh;overflow:auto}
 .fsy-place-vide{display:inline-flex;align-items:center;gap:6px;visibility:hidden;pointer-events:none}
 .fsy-ligne-tel{flex-wrap:wrap}
 .fsy-ligne-tel input{flex:1 1 10rem;min-width:8rem}
@@ -2523,6 +2593,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-alerte-coord-texte{display:flex;flex-direction:column;gap:.1rem;min-width:0;overflow-wrap:anywhere}
 .fsy-doublon-coord{display:flex;flex-direction:column;gap:.1rem;overflow-wrap:anywhere;background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
 .fsy-coord-edit > .fsy-doublon-coord{flex:1 1 100%}
+.fsy-coord-cabinet > .fsy-doublon-coord{flex:1 1 100%}
 .fsy-choix-ajout{display:flex;flex-direction:column;align-items:center;gap:.3rem}
 /* LOT COPRO-CONTACTS-IMMEUBLE — le choix : deux GROS boutons cote a cote (l'un sous l'autre sur un ecran etroit). */
 .fsy-choix-ajout-boutons{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;width:100%}
@@ -2579,6 +2650,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-contact-edit{border:1px solid var(--color-svv-line);border-radius:10px;padding:6px 10px 8px;display:flex;flex-direction:column;gap:.45rem;margin:0}
 .fsy-contact-edit legend{font-weight:700;font-size:.84rem;padding:0 .3rem}
 .fsy-coord-edit{align-items:flex-end}
+.fsy-coord-cabinet{align-items:flex-end}
 .fsy-ligne-ajouts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}

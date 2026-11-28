@@ -37,6 +37,33 @@ export function libellesDe(sorte: SorteCoordonnee): readonly string[] {
   return sorte === 'email' ? LIBELLES_EMAIL : LIBELLES_COORDONNEE;
 }
 
+/* ══ 🔴🔴 Arno (28/11/2026, 14h00 ; décision « 1A », migration 524) — LES COORDONNÉES DU CABINET, EN LISTE ════════════════════════════════════════════
+ * « on doit pouvoir tout modifier : adresse, mail, téléphone, ajouter des numéros et des mails » : téléphones et e-mails du CABINET illimités, chacun avec
+ * son libellé (« Standard » pour un téléphone, « Contact » pour un e-mail, par défaut). Lue dans gestion_syndic_coordonnee_cabinet (524) ; sans la table,
+ * ou pour un syndic qui n'y a encore rien, la liste se DÉDUIT des colonnes d'avant (telephone, telephone_2, email). Les colonnes restent tenues à jour
+ * (deux premiers téléphones, premier e-mail) : tout lecteur qui les lit encore voit au moins ceux-là. */
+export const LIBELLE_DEFAUT_CABINET: Record<SorteCoordonnee, string> = { telephone: 'Standard', email: 'Contact' };
+export const LIBELLES_CABINET_TELEPHONE = ['Standard', 'Ligne directe', 'Portable'] as const;
+export const LIBELLES_CABINET_EMAIL = ['Contact', 'Email service', 'Email direct'] as const;
+/** Le menu des libellés d'une coordonnée du CABINET. PUR. */
+export function libellesCabinetDe(sorte: SorteCoordonnee): readonly string[] {
+  return sorte === 'email' ? LIBELLES_CABINET_EMAIL : LIBELLES_CABINET_TELEPHONE;
+}
+export interface CoordonneeCabinet { id: number | null; sorte: SorteCoordonnee; libelle: string | null; valeur: string }
+/** Les coordonnées du cabinet : la liste (524), sinon celles des colonnes d'avant, libellées par défaut ; dans l'ordre. PUR. */
+export function coordonneesDuCabinet(f: { telephone?: string | null; telephone2?: string | null; email?: string | null; coordonneesCabinet?: readonly CoordonneeCabinet[] }): CoordonneeCabinet[] {
+  const liste = (f.coordonneesCabinet ?? []).filter((k) => (k.valeur ?? '').trim() !== '');
+  if (liste.length > 0) return [...liste];
+  const t = (x: string | null | undefined) => (x ?? '').trim();
+  return [
+    ...[f.telephone, f.telephone2].map(t).filter((x) => x !== '').map((valeur) => ({ id: null, sorte: 'telephone' as const, libelle: LIBELLE_DEFAUT_CABINET.telephone, valeur })),
+    ...(t(f.email) !== '' ? [{ id: null, sorte: 'email' as const, libelle: LIBELLE_DEFAUT_CABINET.email, valeur: t(f.email) }] : []),
+  ];
+}
+/** Les téléphones / e-mails du cabinet (valeurs). PUR. */
+export const telephonesDuCabinet = (f: Parameters<typeof coordonneesDuCabinet>[0]): string[] => coordonneesDuCabinet(f).filter((k) => k.sorte === 'telephone').map((k) => k.valeur);
+export const emailsDuCabinet = (f: Parameters<typeof coordonneesDuCabinet>[0]): string[] => coordonneesDuCabinet(f).filter((k) => k.sorte === 'email').map((k) => k.valeur);
+
 export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; libelle: string; valeur: string }
 export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
@@ -72,6 +99,9 @@ export interface SyndicSaisi {
   /** Les numéros sont enregistrés en CHIFFRES (un « + » en tête s'il y en a un) — jamais avec leurs espaces. */
   telephone: string; telephone2: string;
   email: string; note: string;
+  /** 🔴 (Arno, 28/11/2026, 524) la liste ENTIÈRE des coordonnées du cabinet (absentes ⇒ retirées) ; absente ⇒ les trois champs ci-dessus seulement,
+   *  comme avant. Quand elle est là, `telephone`, `telephone2` et `email` en sont DÉDUITS (deux premiers téléphones, premier e-mail). */
+  coordonneesCabinet?: CoordonneeSaisie[];
   contacts: ContactSaisi[];
   immeubles: ImmeubleSaisi[];
   /** LOT SYNDIC-NOTE-PAR-BIEN — la note du couple (ce lot, ce syndic), saisie depuis un bien. Absente ⇒ rien n'y touche. */
@@ -167,6 +197,8 @@ export interface SyndicResume {
 export interface FicheSyndic {
   id: number; nom: string; adresse: string | null; codePostal: string | null; ville: string | null;
   telephone: string | null; telephone2: string | null; email: string | null; note: string | null;
+  /** 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du cabinet, en liste avec libellé ; absente sans la migration (voir `coordonneesDuCabinet`). */
+  coordonneesCabinet?: CoordonneeCabinet[];
   creeLe: string; creeParLibelle: string; majLe: string | null; majParLibelle: string | null;
   contacts: Array<{
     id: number; titre: string | null; prenom: string | null; nom: string | null;
@@ -334,8 +366,23 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
   const b = brut as Record<string, unknown>;
   const nom = texte(b.nom);
   if (nom === '') return { ok: false, motif: 'Le nom du cabinet est obligatoire.' };
-  const email = texte(b.email);
+  let email = texte(b.email);
   if (email !== '' && !emailPlausible(email)) return { ok: false, motif: `E-mail du cabinet illisible : « ${email} ».` };
+  // 🔴 (Arno, 28/11/2026, 524) la liste des coordonnées du cabinet : formats vérifiés (e-mail plausible, téléphone en chiffres), libellé par défaut
+  let coordonneesCabinet: CoordonneeSaisie[] | undefined;
+  if (Array.isArray(b.coordonneesCabinet)) {
+    coordonneesCabinet = [];
+    for (const kb of b.coordonneesCabinet.slice(0, 50)) {
+      if (typeof kb !== 'object' || kb === null) continue;
+      const k = kb as Record<string, unknown>;
+      const sorte: SorteCoordonnee = k.sorte === 'email' ? 'email' : 'telephone';
+      const valeur = sorte === 'telephone' ? chiffresTelephone(texte(k.valeur)) : texte(k.valeur);
+      if (valeur === '' || valeur === '+') continue;
+      if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail du cabinet illisible : « ${valeur} ».` };
+      coordonneesCabinet.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle) || LIBELLE_DEFAUT_CABINET[sorte], valeur });
+    }
+    email = coordonneesCabinet.find((k) => k.sorte === 'email')?.valeur ?? '';
+  }
   if (adresseManquante({ adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville) }).length > 0) {
     return { ok: false, motif: MOTIF_ADRESSE_INCOMPLETE };
   }
@@ -447,8 +494,9 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     c.tousImmeubles = false;
   }
 
-  // Deux standards au plus ; le second remonte si le premier est vide.
-  const tels = [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
+  // Deux standards au plus ; le second remonte si le premier est vide. 🔴 (524) avec la liste : ses deux premiers téléphones
+  const tels = coordonneesCabinet !== undefined ? coordonneesCabinet.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)
+    : [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
 
   // LOT SYNDIC-NOTE-PAR-BIEN — la note d'UN bien : un lot désigné et un texte (vide = la note est retirée).
   let noteBien: { lotId: number; texte: string } | null = null;
@@ -488,6 +536,7 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
       ...(b.adresseNature === 'liste' || b.adresseNature === 'libre' || b.adresseNature === null ? { adresseNature: b.adresseNature as 'liste' | 'libre' | null } : {}),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
+      ...(coordonneesCabinet !== undefined ? { coordonneesCabinet } : {}),
     },
   };
 }
@@ -629,9 +678,12 @@ export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
   /** 🔴 (lot 7d) la nature de la saisie de l'adresse du cabinet, seulement quand on y a touché */
   adresseNature?: 'liste' | 'libre' | null;
-  /** Un ou deux standards ; le « + » en ajoute un second, deux au plus. */
+  /** Un ou deux standards ; le « + » en ajoute un second, deux au plus. 🔴 (524) remplacés par `cabinet` quand il est là. */
   telephones: string[];
   email: string; note: string;
+  /** 🔴 (Arno, 28/11/2026, 524) les coordonnées du CABINET en liste (téléphones et e-mails, libellés) : la saisie de la fiche. Absente (formulaires d'avant,
+   *  essais) : `telephones` et `email`. */
+  cabinet?: CoordonneeForm[];
   contacts: ContactForm[]; immeubles: ImmeubleSaisi[];
   /** LOT SYNDIC-NOTE-PAR-BIEN — le bien depuis lequel la fiche est ouverte (`null` sans bien), et SA note. */
   lotNote: number | null; noteBien: string;
@@ -662,7 +714,8 @@ export function valeurDuChoix(choix: string, libre: string): string {
 
 export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null, lotNote: number | null = null): SyndicForm {
   const i = immeubleDepart && immeubleDepart.libelle.trim() !== '' ? [immeubleDepart] : [];
-  return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i, lotNote, noteBien: '' };
+  return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i, lotNote, noteBien: '',
+    cabinet: [coordonneeVideCabinet('telephone'), coordonneeVideCabinet('email')] };
 }
 
 /** Un contact NOUVEAU (il s'ouvre EN MODIFICATION). */
@@ -695,6 +748,10 @@ export function suitImmeuble(c: { tousImmeubles: boolean; immeubles: readonly st
 export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
   return { cle: cleLocale(), id: null, sorte, choix: '', libre: '', valeur: '' };
 }
+/** 🔴 (Arno, 28/11/2026, 524) une ligne neuve du CABINET : son libellé par défaut déjà choisi (« Standard », « Contact »). PUR. */
+export function coordonneeVideCabinet(sorte: SorteCoordonnee): CoordonneeForm {
+  return { ...coordonneeVide(sorte), choix: LIBELLE_DEFAUT_CABINET[sorte] };
+}
 
 /** La fiche lue → le formulaire, pré-rempli ; les contacts existants arrivent REPLIÉS. PUR. */
 export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): SyndicForm {
@@ -703,6 +760,16 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
     nom: f.nom, adresse: f.adresse ?? '', codePostal: f.codePostal ?? '', ville: f.ville ?? '',
     telephones: tels.length === 0 ? [''] : tels,
     email: f.email ?? '', note: f.note ?? '',
+    // 🔴 (524) la liste du cabinet, libellés en menus (« Personnalisé… » pour un autre texte)
+    cabinet: (() => {
+      const l = coordonneesDuCabinet(f).map((k): CoordonneeForm => {
+        const c = choixDe(k.libelle, libellesCabinetDe(k.sorte));
+        return { cle: cleLocale(), id: k.id, sorte: k.sorte, choix: c.choix, libre: c.libre, valeur: k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur };
+      });
+      // comme avant, toujours au moins un champ de téléphone et un d'e-mail, à remplir (vides, ils ne s'enregistrent pas)
+      return [...l.filter((k) => k.sorte === 'telephone'), ...(l.some((k) => k.sorte === 'telephone') ? [] : [coordonneeVideCabinet('telephone')]),
+        ...l.filter((k) => k.sorte === 'email'), ...(l.some((k) => k.sorte === 'email') ? [] : [coordonneeVideCabinet('email')])];
+    })(),
     contacts: f.contacts.map((c) => {
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
@@ -734,8 +801,14 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
   return {
     nom: f.nom, adresse: f.adresse, codePostal: f.codePostal, ville: f.ville,
     ...(f.adresseNature !== undefined ? { adresseNature: f.adresseNature } : {}),
-    telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]),
-    email: f.email, note: f.note,
+    ...(f.cabinet !== undefined ? (() => {
+      // 🔴 (524) la liste du cabinet ; les trois champs d'avant en sont déduits
+      const liste = f.cabinet.map((k) => ({ id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre) || LIBELLE_DEFAUT_CABINET[k.sorte],
+        valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur.trim() })).filter((k) => k.valeur !== '' && k.valeur !== '+');
+      const tels = liste.filter((k) => k.sorte === 'telephone').map((k) => k.valeur);
+      return { coordonneesCabinet: liste, telephone: tels[0] ?? '', telephone2: tels[1] ?? '', email: liste.find((k) => k.sorte === 'email')?.valeur ?? '' };
+    })() : { telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]), email: f.email }),
+    note: f.note,
     contacts: [
       ...f.contacts.map((c) => ({
         id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom, civilite: c.civilite ?? null,
@@ -1377,4 +1450,65 @@ export function validerContactsImmeuble(brut: unknown): { ok: true; carnet: { im
     // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — un e-mail partagé n'est plus un refus (avertissement confirmé).
   }
   return { ok: true, carnet: { immeuble, contacts: liste } };
+}
+
+/** 🔴 (Arno, 28/11/2026, 524) les téléphones / e-mails du cabinet d'un FORMULAIRE : sa liste, sinon les champs d'avant. PUR. */
+export function telephonesDuFormulaire(f: Pick<SyndicForm, 'telephones' | 'cabinet'>): string[] {
+  return f.cabinet !== undefined ? f.cabinet.filter((k) => k.sorte === 'telephone').map((k) => k.valeur) : f.telephones;
+}
+export function emailsDuFormulaire(f: Pick<SyndicForm, 'email' | 'cabinet'>): string[] {
+  return f.cabinet !== undefined ? f.cabinet.filter((k) => k.sorte === 'email').map((k) => k.valeur.trim()).filter((x) => x !== '') : [f.email];
+}
+
+
+/* ══ 🔴🔴 Arno (28/11/2026, décision « 2A ») — « CE QUI CHANGE », AVANT « ENREGISTRER » ═════════════════════════════════════════════════════════════
+ * Dans la fenêtre de la fiche syndic, quelle que soit la page d'où elle s'ouvre : la liste, en mots, de ce que l'enregistrement va écrire — le nom,
+ * l'adresse, la note, chaque téléphone / e-mail du cabinet ajouté, retiré ou changé, chaque contact ajouté, modifié, retiré (avec les copropriétés où il
+ * était affecté) ou parti, chaque copropriété rattachée ou retirée. Comparé sur la SAISIE (les chiffres d'un numéro, l'adresse telle qu'écrite). PUR. */
+export function changementsSyndic(avant: SyndicForm, apres: SyndicForm): string[] {
+  const a = versSaisie(avant); const b = versSaisie(apres);
+  const out: string[] = [];
+  const t = (x: string | null | undefined) => (x ?? '').replace(/\s+/g, ' ').trim();
+  const guill = (x: string) => (x === '' ? '(vide)' : `« ${x} »`);
+  if (t(a.nom) !== t(b.nom)) out.push(`Nom : ${guill(t(a.nom))} → ${guill(t(b.nom))}`);
+  const adr = (s: SyndicSaisi) => [t(s.adresse), [t(s.codePostal), t(s.ville)].filter((x) => x !== '').join(' ')].filter((x) => x !== '').join(', ');
+  if (adr(a) !== adr(b)) out.push(`Adresse : ${guill(adr(a))} → ${guill(adr(b))}`);
+  if (t(a.note) !== t(b.note)) out.push(t(b.note) === '' ? 'Note retirée' : t(a.note) === '' ? `Note ajoutée : ${guill(t(b.note))}` : `Note : ${guill(t(a.note))} → ${guill(t(b.note))}`);
+  // les coordonnées du cabinet
+  const cab = (s: SyndicSaisi): CoordonneeSaisie[] => s.coordonneesCabinet ?? [
+    ...[s.telephone, s.telephone2].filter((x) => x !== '').map((valeur) => ({ id: null, sorte: 'telephone' as const, libelle: LIBELLE_DEFAUT_CABINET.telephone, valeur })),
+    ...(s.email !== '' ? [{ id: null, sorte: 'email' as const, libelle: LIBELLE_DEFAUT_CABINET.email, valeur: s.email }] : [])];
+  const motK = (k: CoordonneeSaisie) => `${k.sorte === 'email' ? k.valeur : telephoneLisible(k.valeur)}${k.libelle ? ` (${k.libelle})` : ''}`;
+  const meme = (x: CoordonneeSaisie, y: CoordonneeSaisie) => (x.id != null && y.id != null ? x.id === y.id
+    : x.sorte === y.sorte && (x.sorte === 'email' ? x.valeur.toLowerCase() === y.valeur.toLowerCase() : x.valeur === y.valeur));
+  const ka = cab(a); const kb = cab(b);
+  for (const k of kb) {
+    const v = ka.find((x) => meme(x, k));
+    const mot = k.sorte === 'email' ? 'E-mail du cabinet' : 'Téléphone du cabinet';
+    if (v === undefined) out.push(`${mot} ajouté : ${motK(k)}`);
+    else if (v.valeur !== k.valeur || t(v.libelle) !== t(k.libelle)) out.push(`${mot} modifié : ${motK(v)} → ${motK(k)}`);
+  }
+  for (const k of ka) if (!kb.some((x) => meme(k, x))) out.push(`${k.sorte === 'email' ? 'E-mail du cabinet' : 'Téléphone du cabinet'} retiré : ${motK(k)}`);
+  // les contacts
+  const nomC = (c: ContactSaisi) => prenomNomCivil(c.civilite ?? null, c.prenom, c.nom) || t(c.titre) || 'un contact';
+  const libelleCopro = (cle: string) => [...avant.immeubles, ...apres.immeubles].find((i) => cleImmeuble(i.libelle) === cle)?.libelle ?? cle;
+  const actifsA = a.contacts.filter((c) => c.parti !== true); const actifsB = b.contacts.filter((c) => c.parti !== true);
+  for (const c of b.contacts.filter((x) => x.parti === true)) out.push(`Ne travaille plus ici : ${nomC(c)}`);
+  for (const c of actifsB) {
+    if (c.id == null) { out.push(`Contact ajouté : ${nomC(c)}`); continue; }
+    const v = actifsA.find((x) => x.id === c.id);
+    if (v === undefined) { if (c.reintegre === true) out.push(`Contact réintégré : ${nomC(c)}`); continue; }
+    if (JSON.stringify({ ...v, immeubles: [...v.immeubles].sort() }) !== JSON.stringify({ ...c, immeubles: [...c.immeubles].sort() })) out.push(`Contact modifié : ${nomC(c)}`);
+  }
+  for (const c of actifsA) {
+    if (c.id == null || b.contacts.some((x) => x.id === c.id)) continue;
+    const copros = c.immeubles.map(libelleCopro);
+    out.push(`Contact retiré de la fiche : ${nomC(c)}${copros.length > 0 ? ` (affecté à ${copros.join(', ')} : ces affectations seront retirées)` : ''}`);
+  }
+  // les copropriétés
+  const cles = (s: SyndicSaisi) => new Set(s.immeubles.map((i) => cleImmeuble(i.libelle)));
+  const ca = cles(a); const cb = cles(b);
+  for (const i of b.immeubles) if (!ca.has(cleImmeuble(i.libelle))) out.push(`Copropriété rattachée : ${i.libelle}`);
+  for (const i of a.immeubles) if (!cb.has(cleImmeuble(i.libelle))) out.push(`Copropriété retirée : ${i.libelle}`);
+  return out;
 }

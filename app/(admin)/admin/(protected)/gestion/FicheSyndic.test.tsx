@@ -150,13 +150,25 @@ let passerAlerteCoord = true;
  * choix coupent ce passage (`passerChoixAjout = false`).
  */
 let passerChoixAjout = true;
+/** 🔴 (Arno, 28/11/2026, décision « 2A ») le « Valider » de la fiche montre d'abord « Ce qui change » : les épreuves qui ne portent pas sur le
+ *  récapitulatif le confirment d'elles-mêmes (« Enregistrer »), comme on le ferait à l'écran ; `passerRecap = false` le laisse ouvert. */
+let passerRecap = true;
 const cliquer = async (el: Element): Promise<void> => {
+  const valideLaFiche = (el as HTMLElement).textContent?.trim() === 'Valider' && el.closest('.fsy-contact-edit') === null;
   const valideUnContact = (el as HTMLElement).textContent?.trim() === 'Valider' && el.closest('.fsy-contact-edit') !== null;
   const ajoute = (el as HTMLElement).textContent?.trim() === '+ Ajouter un contact';
   await act(async () => { (el as HTMLElement).click(); }); await calmer();
   if (ajoute && passerChoixAjout) {
     const un = [...document.querySelectorAll('.fsy-choix-ajout button')].find((x) => x.textContent?.trim() === 'Contact du syndic de copropriété') as HTMLElement | undefined;
     if (un) { await act(async () => { un.click(); }); await calmer(); }
+  }
+  if (valideLaFiche && passerRecap) {
+    // le récapitulatif SEUL (sans la question « fiche partagée », que ses épreuves examinent) : « Enregistrer »
+    const r = document.querySelector('[data-fsy-recap]');
+    if (r && r.querySelector('.fsy-recap') && !r.querySelector('.fsy-question')) {
+      const e = [...r.querySelectorAll('button')].find((x) => x.textContent === 'Enregistrer') as HTMLElement | undefined;
+      if (e) { await act(async () => { e.click(); }); await calmer(); }
+    }
   }
   if (!passerAlerteCoord || !valideUnContact) return;
   const b = [...document.querySelectorAll('.fsy-alerte-coord button')].find((x) => x.textContent === 'Valider quand même') as HTMLElement | undefined;
@@ -231,18 +243,54 @@ describe('la fiche syndic — Annuler / Valider, pied toujours là', () => {
   });
 });
 
+describe('🔴🔴 « 2A » (Arno, 28/11/2026) — « Ce qui change », avant « Enregistrer », dans cette fenêtre', () => {
+  it('« Valider » montre la liste de ce qui change ; « Revenir » : rien n’est envoyé ; « Enregistrer » : PUT avec la liste du cabinet, puis ferme', async () => {
+    passerRecap = false;
+    try {
+      const onFerme = await ouvrir();
+      await taper(champ('Nom du cabinet *'), '_TEST Cabinet 2');
+      await cliquer(document.querySelector('[data-ajouter-cabinet="telephone"]') as Element);
+      await taper(document.querySelector('input[aria-label="Second téléphone standard"]') as HTMLInputElement, '0611223344');
+      await cliquer(bouton('Valider'));
+      const recap = document.querySelector('[data-fsy-recap]') as HTMLElement;
+      expect(recap.querySelector('.fsy-recap-titre')?.textContent).toBe('Ce qui change');
+      const lignes = [...recap.querySelectorAll('[data-fsy-recap-ligne]')].map((l) => l.textContent);
+      expect(lignes).toContain('Téléphone du cabinet ajouté : 06 11 22 33 44 (Standard)');
+      expect(lignes.some((l) => l?.startsWith('Nom : '))).toBe(true);
+      expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
+      await cliquer(boutonDans(recap, 'Revenir'));
+      expect(document.querySelector('[data-fsy-recap]')).toBeNull();
+      expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
+      expect(onFerme).not.toHaveBeenCalled();
+      await cliquer(bouton('Valider'));
+      await cliquer(boutonDans(document.querySelector('[data-fsy-recap]'), 'Enregistrer'));
+      const put = appels.find((x) => x.methode === 'PUT');
+      expect((put?.corps as { coordonneesCabinet?: { valeur: string }[] }).coordonneesCabinet?.map((k) => k.valeur)).toContain('0611223344');
+      expect(onFerme).toHaveBeenCalledTimes(1);
+    } finally { passerRecap = true; }
+  });
+});
+
 describe('les téléphones du standard', () => {
-  it('par paires pendant la frappe ; « + » ajoute un second numéro, deux au plus', async () => {
+  // 🔴🔴 (Arno, 28/11/2026, décision « 1A », 524) — CE QU'IL Y AVAIT : « + » ajoutait un second numéro, deux au plus. Désormais une LISTE : autant de
+  //    téléphones et d'e-mails du cabinet qu'il en faut, chacun avec son libellé (« Standard », « Contact » par défaut).
+  it('par paires pendant la frappe ; « + téléphone » / « + e-mail » ajoutent autant de lignes qu’il en faut, libellées ; « × » en retire une', async () => {
     await ouvrir();
     const premier = document.querySelector('input[aria-label="Téléphone standard"]') as HTMLInputElement;
     await taper(premier, '0613861877');
     expect(premier.value).toBe('06 13 86 18 77');
-    await cliquer(document.querySelector('button[aria-label="Ajouter un second numéro de standard"]') as Element);
-    expect(document.querySelectorAll('.fsy-ligne-tel')).toHaveLength(2);
-    expect(document.querySelector('button[aria-label="Ajouter un second numéro de standard"]')).toBeNull();
+    for (let i = 0; i < 2; i++) await cliquer(document.querySelector('[data-ajouter-cabinet="telephone"]') as Element);
+    expect(document.querySelectorAll('[data-coord-cabinet="telephone"]')).toHaveLength(3);
     const second = document.querySelector('input[aria-label="Second téléphone standard"]') as HTMLInputElement;
     await taper(second, '+33612345678');
     expect(second.value).toBe('+33 6 12 34 56 78');
+    await taper(document.querySelector('input[aria-label="Téléphone standard 3"]') as HTMLInputElement, '0140000001');
+    expect((document.querySelectorAll('[data-coord-cabinet="telephone"]')[2].querySelector('select') as HTMLSelectElement).value).toBe('Standard');
+    await cliquer(document.querySelector('[data-ajouter-cabinet="email"]') as Element);
+    const mails = document.querySelectorAll('[data-coord-cabinet="email"]');
+    expect((mails[mails.length - 1].querySelector('select') as HTMLSelectElement).value).toBe('Contact');
+    await cliquer(document.querySelectorAll('[data-coord-cabinet="telephone"]')[1].querySelector('button.fsy-mini') as Element);
+    expect(document.querySelectorAll('[data-coord-cabinet="telephone"]')).toHaveLength(2);
   });
 });
 

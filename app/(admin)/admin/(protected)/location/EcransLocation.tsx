@@ -14,8 +14,10 @@ import { libelleEnGestion } from '../../../../lib/location/lotsVacants';
 import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
 import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
 import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
-import { prenomNomCivil } from '../../../../lib/gestion/syndics';
+import { coordonneesDuCabinet, LIBELLE_DEFAUT_CABINET, prenomNomCivil } from '../../../../lib/gestion/syndics';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
+import { FicheSyndic } from '../gestion/FicheSyndic';
+import { createPortal } from 'react-dom';
 import { adresseHistoriqueDuBien } from '../../../../lib/gestion/ficheRattachement';
 
 /**
@@ -207,12 +209,17 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
 /** La fiche d'un syndic dans la Location : les données de la Gestion, en lecture (aucune copie).
  *  🔴🔴 (Arno, 27/11/2026, 22h17) ses e-mails ne sont plus en lecture seule : « Écrire depuis gestion@ » (le module de la boîte Gestion, fenêtre
  *  flottante) quand le compte a le DROIT D'ENVOI — la règle de 7b5715a6 ; sans lui, l'adresse reste telle quelle. */
-export function FicheSyndicLocationVue({ id }: { id: number }) {
+/** 🔴🔴 Arno (28/11/2026, 14h00, points 2 à 4) — « Modifier » ouvre LA fenêtre de la fiche syndic de la Gestion (aucune copie, une seule base, les mêmes
+ *  écritures et contrôles) ; `peutModifier` : le droit de la Gestion (administrateur toujours), contrôlé aussi par le serveur. */
+export const MENTION_MODIFIER_SYNDIC = 'Modification réservée aux comptes qui ont le droit « Gestion ».';
+export function FicheSyndicLocationVue({ id, peutModifier = false }: { id: number; peutModifier?: boolean }) {
   const { etat, rafraichir } = useLecture<FicheSyndicLocation>(`syndic=${id}`);
   /* 🔴🔴 Arno (28/11/2026, 13h18, point 3) — « quand je referme cette fenêtre j'arrive sur un autre écran : il faut revenir sur l'écran du syndic d'où l'on
      vient » : la fiche copropriété s'ouvre EN FENÊTRE, ici même (la même que partout) ; « Fermer », « × » ou « Valider » rendent la fiche syndic au même
      endroit (la page n'a pas changé), relue pour montrer ce qui a été modifié. */
   const [coproOuverte, setCoproOuverte] = useState<string | null>(null);
+  /** la fenêtre de modification (celle de la Gestion), ouverte depuis le bloc Coordonnées ou le bloc Contacts */
+  const [modification, setModification] = useState<'coordonnees' | 'contacts' | null>(null);
   /** 🔴 (Arno, 28/11/2026, 13h36) les copropriétés dont la liste des biens en gestion est dépliée (repliées par défaut) */
   const [biensDeplies, setBiensDeplies] = useState<number[]>([]);
   // noté au départ vers une fiche (propriétaire, locataire, historique) et rendu au retour : la page retrouve sa hauteur, donc son défilement (eac573f7)
@@ -227,33 +234,41 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
     : (emails: string[]) => { if (emails.length > 0) ecrire.onEcrire?.(emails[0], { syndicId: id, lotId: null, autres: emails.slice(1) }); };
   /* 🔴🔴 Arno (28/11/2026, 12h17, point 2) — « mettre le numéro de téléphone et le mail sur des lignes séparées, pas en enfilade, autant de lignes que de
      téléphones et de mails ; dans le prolongement de chaque ligne un bouton copier ; un bouton "Écrire depuis gestion@" en face de chaque adresse mail ». */
-  const lignesCoordonnees = (tels: readonly string[], mails: readonly string[]) => (
+  // 🔴 (Arno, 28/11/2026, 524) une valeur, ou une valeur et son libellé (dit devant, s'il n'est pas celui par défaut du cabinet)
+  type Valeur = string | { valeur: string; libelle?: string | null };
+  const val = (x: Valeur) => (typeof x === 'string' ? x : x.valeur);
+  const lib = (x: Valeur, defaut: string) => { const l = typeof x === 'string' ? '' : (x.libelle ?? '').trim(); return l !== '' && l !== defaut ? l : null; };
+  const lignesCoordonnees = (tels: readonly Valeur[], mails: readonly Valeur[]) => (
     <ul className="loc-coord-lignes">
-      {tels.map((t, i) => {
+      {tels.map((x, i) => {
+        const t = val(x); const l = lib(x, LIBELLE_DEFAUT_CABINET.telephone);
         const lisible = telephoneLisible(t); const lien = lienAppel(t);
         return (
           <li key={`t${i}-${t}`} data-ligne-tel={lisible}>
-            <span className="loc-coord-valeur">{lien !== null ? <a href={lien}>{lisible}</a> : lisible}</span>
+            <span className="loc-coord-valeur">{l !== null && <span className="loc-muet">{l} : </span>}{lien !== null ? <a href={lien}>{lisible}</a> : lisible}</span>
             {/* 🔴 (Arno, 28/11/2026, 13h18, point 1) « Copier » dans la colonne de celui des e-mails : la place de la case et d'« Écrire » reste vide à droite */}
             <span className="loc-coord-actions"><BoutonCopier valeur={lisible} quoi={`le numéro ${lisible}`} />
               {ecrire.onEcrire !== undefined && <PlaceEcrireVide />}</span>
           </li>);
       })}
-      {mails.map((m, i) => (
+      {mails.map((x, i) => { const m = val(x); const l = lib(x, LIBELLE_DEFAUT_CABINET.email); return (
         <li key={`m${i}-${m}`} data-ligne-mail={m.trim()}>
-          <span className="loc-coord-valeur">{m.trim()}</span>
+          <span className="loc-coord-valeur">{l !== null && <span className="loc-muet">{l} : </span>}{m.trim()}</span>
           <span className="loc-coord-actions">
             <BoutonCopier valeur={m.trim()} quoi={`l’adresse ${m.trim()}`} />
             {ecrire.onEcrire !== undefined && m.includes('@') && <CaseMail email={m} />}
             {boutonEcrire(m)}
           </span>
-        </li>))}
+        </li>); })}
     </ul>);
   if (etat.etat !== 'ok') {
     return <div className="loc-page"><style>{CSS_LOCATION_ECRANS}</style><EnTeteLocation titre="Syndic" /><EtatLecture etat={etat} /></div>;
   }
   const s = etat.data;
-  const telsStandard = [s.telephone, s.telephone2].filter((x): x is string => !!x && x.trim() !== '');
+  // 🔴 (Arno, 28/11/2026, 524) toute la liste du cabinet (sinon, les colonnes d'avant)
+  const cabinet = coordonneesDuCabinet(s);
+  const telsStandard = cabinet.filter((k) => k.sorte === 'telephone');
+  const mailsCabinet = cabinet.filter((k) => k.sorte === 'email');
   const adresse = adressePostaleSyndic(s);
   return (
     <FournisseurSelectionMails selection={selection}>
@@ -262,12 +277,18 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
       <EnTeteLocation titre={s.nom} sous={<span className="loc-pastille">Syndic</span>} />
       {ecrire.fenetres}
       {coproOuverte !== null && <FicheCopropriete immeuble={coproOuverte} onFerme={() => { setCoproOuverte(null); rafraichir(); }} />}
+      {modification !== null && typeof document !== 'undefined' && createPortal(
+        <FicheSyndic syndicId={id} departContacts={modification === 'contacts'} onFerme={() => { setModification(null); rafraichir(); }}
+          {...(ecrire.onEcrire !== undefined ? { onEcrire: ecrire.onEcrire } : {})} />,
+        document.querySelector('.svv-adm-root') ?? document.body)}
       {/* 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « réorganiser ce premier bloc qui est plein de vide et exploite mal l'espace ; le rendre plus cohérent ;
           l'adresse postale du syndic doit être présente » : deux colonnes à l'ordinateur (gauche : adresse complète, puis note ; droite : téléphones, puis
           e-mails, une ligne par valeur), marges serrées ; au téléphone, empilé : adresse, téléphones, e-mails, note. */}
       <section className="loc-bloc" data-coordonnees-syndic>
         {/* 🔴 Arno (28/11/2026, 14h00, point 1) « Coordonnées » → « Coordonnées du syndic » ; « Téléphone » → « Téléphone standard » ; « E-mail » → « E-mail contact » */}
-        <h3>Coordonnées du syndic</h3>
+        <div className="loc-bloc-tete"><h3>Coordonnées du syndic</h3>
+          {peutModifier ? <button type="button" className="svv-btn svv-btn-outline gst-btn loc-modifier-syndic" data-modifier-syndic="coordonnees"
+            onClick={() => setModification('coordonnees')}>Modifier</button> : <span className="loc-muet loc-mention-droit" data-mention-droit>{MENTION_MODIFIER_SYNDIC}</span>}</div>
         <dl className="loc-coord-bloc">
           <div className="loc-coord-zone loc-coord-zone--adresse" data-zone="adresse"><dt className="loc-muet">Adresse</dt><dd>
             {adresse.lignes.length === 0 ? <span className="loc-muet">non renseignée</span>
@@ -277,7 +298,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
           <div className="loc-coord-zone loc-coord-zone--tels" data-zone="telephones"><dt className="loc-muet">Téléphone standard</dt><dd>
             {telsStandard.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees(telsStandard, [])}</dd></div>
           <div className="loc-coord-zone loc-coord-zone--mails" data-zone="emails"><dt className="loc-muet">E-mail contact</dt><dd>
-            {(s.email ?? '').trim() === '' ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], [s.email as string])}</dd></div>
+            {mailsCabinet.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], mailsCabinet)}</dd></div>
           <div className="loc-coord-zone loc-coord-zone--note" data-zone="note"><dt className="loc-muet">Note</dt><dd>{s.note ?? <span className="loc-muet">non renseignée</span>}</dd></div>
         </dl>
       </section>
@@ -420,6 +441,11 @@ function PlaceEcrireVide() {
 const CSS_COORDONNEES_SYNDIC = `
 .loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center}
 .loc-coord-lignes > li{display:contents}
+/* 🔴 (Arno, 28/11/2026, 14h00) « Modifier » en haut à droite du bloc */
+.loc-bloc-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;margin:0 0 10px}
+.loc-bloc-tete > h3{margin:0}
+.loc-modifier-syndic{min-height:44px;width:auto;margin:0}
+.loc-mention-droit{font-size:.82rem}
 .loc-coord-valeur{min-width:0;overflow-wrap:anywhere}
 /* 🔴 (Arno, 28/11/2026, 12h54, point 2) « justifier à droite » : « Copier », la case, « Écrire depuis gestion@ » regroupés sur le bord DROIT du bloc,
    à la même place d'une ligne à l'autre (un téléphone : « Copier » seul, à droite) ; au téléphone, sous la valeur, toujours à droite */

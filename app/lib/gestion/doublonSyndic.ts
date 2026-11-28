@@ -220,13 +220,17 @@ export const MOT_CREER_MALGRE_DOUBLON = 'Non, c’est un autre syndic — créer
  */
 export function comparableDeLaSaisie(f: {
   nom: string; adresse: string; codePostal: string; ville: string; email: string; telephones: readonly string[];
+  /** 🔴 (Arno, 28/11/2026, 524) la liste du cabinet, quand le formulaire la porte : elle remplace `telephones` et `email` */
+  cabinet?: readonly { sorte: string; valeur: string }[];
   contacts: readonly { coordonnees: readonly { sorte: string; valeur: string }[] }[];
 }, id: number | null = null): SyndicComparable {
   const coords = f.contacts.flatMap((c) => c.coordonnees);
+  const cabEmails = f.cabinet !== undefined ? f.cabinet.filter((k) => k.sorte === 'email').map((k) => k.valeur) : [f.email];
+  const cabTels = f.cabinet !== undefined ? f.cabinet.filter((k) => k.sorte === 'telephone').map((k) => k.valeur) : [...f.telephones];
   return {
     id, nom: f.nom, adresse: f.adresse, codePostal: f.codePostal, ville: f.ville,
-    emails: [f.email, ...coords.filter((k) => k.sorte === 'email').map((k) => k.valeur)],
-    telephones: [...f.telephones, ...coords.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)],
+    emails: [...cabEmails, ...coords.filter((k) => k.sorte === 'email').map((k) => k.valeur)],
+    telephones: [...cabTels, ...coords.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)],
   };
 }
 
