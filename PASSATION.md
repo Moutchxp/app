@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (groupes toujours, repères empilés par date, tuiles centrées, « Locataires » sur la ligne du nom, une seule mention du collaborateur ; avant : deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (fiche syndic : « Modifier », coordonnées du cabinet en liste — migration 524 —, « Ce qui change », « Retirer ce contact » journalisé ; groupes toujours, repères empilés par date, tuiles centrées, « Locataires » sur la ligne du nom, une seule mention du collaborateur ; avant : deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1853,10 +1853,40 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - ⚠️ Ne pas lancer `npm test` dans un shell où `.env` est chargé : les essais du stockage (pieceEntrante) échouent alors (constaté, puis vert en shell propre).
   - ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 14h00 (suite) — fiche syndic : « Modifier » (points 2 à 4) après les décisions « 1A » et « 2A » ; migration 524
+- Décisions d'Arno (28/11/2026) : les deux « Modifier » de la fiche syndic Location ouvrent LA fenêtre de la Gestion (aucune copie), celui des contacts
+  directement sur les contacts ; sans droit Gestion, ni bouton, mais une mention. **1A** : migration **524** (la 523 reste à la 361), coordonnées du
+  cabinet en liste libellée (« Standard », « Contact » par défaut). **2A** : récapitulatif « Ce qui change » avant « Enregistrer », dans cette fenêtre,
+  quelle que soit la page.
+- **`e6f4e81a`** (point 2) — migration `524_gestion_syndic_coordonnees_cabinet.sql` (table `gestion_syndic_coordonnee_cabinet`, recopie des 2 téléphones
+  et de l'e-mail, rien d'effacé, retrait = `retire_le`, rejouable) ; les colonnes `telephone`, `telephone_2`, `email` restent tenues à jour (premières
+  valeurs). Fenêtre : « + téléphone », « + e-mail », « × », libellés en menus ; « Ce qui change » ; « Modifier » sur « Coordonnées du syndic » (Location).
+  Sans la table : comme avant, et refus avant écriture au-delà de 2 téléphones / 1 e-mail.
+- **`3e392de7`** (point 3) — « Modifier » sur « Contacts du syndic » (fenêtre ouverte sur les contacts). « Supprimer ce contact » renommé « Retirer ce
+  contact » (mot d'Arno, même geste) : la confirmation liste ses copropriétés et dit « Ses mails et son historique restent. ». Journal : une ligne
+  `syndic_contact_retire` par copropriété, une ligne `syndic_contact_retrait_fiche` au contact (entité « annuaire ») qui les nomme.
+- **`d973f447`** (point 4) — une table dérivée commune `sqlCoordonneesCabinet` (`app/lib/gestion/coordonneesCabinetRepo.ts`), lue par tous les
+  lecteurs : anti-doublon, Gestion › Syndics, recherche Location, parties syndicales, destinataires d'envoi (20 %, « Écrire depuis gestion@ »),
+  suggestions de destinataires, « ancien contact », biens des clients, contacts d'un bien (tâches), tuile « syndic connu ». Droit : la route PUT de
+  la Gestion exige le droit Gestion (épreuve `syndicDroitGestion.test.ts`).
+- **524 en recette** : épreuve sur une copie jetable de la recette (`.captures/migration-524/epreuve-copie-recette.log` : 11 valeurs recopiées à
+  l'identique, colonnes intactes, 2e et 3e passes sans effet, plan vide après, refus de la table) ; appliquée deux fois sur `svav_recette` ; inscrite
+  au registre (origine `mise_a_jour`, commit `e6f4e81a`).
+- 🔴 **Épreuve sur une copie de la PRODUCTION (état 522) : À LANCER PAR ARNO** (je ne touche pas la production) :
+  `bash .captures/migration-524/copier-prod.sh`, puis `bash .captures/migration-524/epreuve.sh > .captures/migration-524/epreuve-copie-prod.log`,
+  puis me dire « copie faite » (je lis le journal et j'efface la copie).
+- Chrome (recette, syndic _TEST 54, ordinateur et 390 px, clair et sombre) : adresse remplie par les suggestions, 3 téléphones et 2 e-mails enregistrés ;
+  contact « Essai _TEST CONTACT » ajouté, affecté à deux copropriétés _TEST, puis retiré (3 lignes au journal) ; Gestion › Syndics le retrouve par son
+  3e téléphone et son 2e e-mail. Aucun mail envoyé. Captures `.captures/syndic-modifier/`.
+- Contrôles : `npm test` VERT (1 908 fichiers, 28 533 tests, 21 ignorés), shell sans `.env` ; `tsc` = 0. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84`, `8fd08db0` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+🔴 **LA PROCHAINE MISE EN PRODUCTION EMPORTE LA 524** (`e6f4e81a`, coordonnées du cabinet en liste) — épreuve sur copie de la production à faire avant.
+⚠️ Conséquence pour la 361 : l'outil refuse une migration numérotée SOUS la dernière inscrite. En **523**, la 361 passe seulement AVEC la 524 (même
+mise à jour) ou avant elle ; une fois la 524 inscrite en production, elle devra prendre la **525** (épreuve `migrationsEnAttente.test.ts`).
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84`, `8fd08db0`, `e6f4e81a` (**avec la migration 524**), `3e392de7`, `d973f447` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
