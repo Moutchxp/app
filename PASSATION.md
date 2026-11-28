@@ -1685,10 +1685,24 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome localhost:3000, accueil et pleine page, 1440 et 390 px, clair et sombre. Aucune requête non GET : rien validé, rien envoyé.
   - Captures `.captures/preavis-ligne-noms/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 10h13 — une mention par rendez-vous non effectué (`8c76ec11`)
+- **`8c76ec11`** — deux rendez-vous non effectués : en face de CHACUN, « confié à Prénom NOM » et le cartouche de son statut, même personne et même
+  statut compris. **Remplace la fusion de f2cbaae9 et 7fbd64d3**. `mentionsCommunes` et `pva-col-commune` sont retirées (plus d'usage).
+  - « Locataires : … » reste sur la ligne des noms (45b9cf5a), un par état différent.
+  - Pré-visite effectuée (compte rendu envoyé) : sa rangée et « Compte rendu pré-visite à faire » disparaissent, ainsi que « RDV pré-visite fixé »
+    (règle d'état actuelle) : il reste « RDV état des lieux fixé ». Sans état des lieux planifié : « Pré-visite effectuée », groupe « Sans ».
+    Ce comportement existait déjà (`rdvsDeLigne`) ; il est maintenant prouvé par un essai.
+  - État des lieux : sa rangée reste jusqu'à la sortie validée ; ensuite la ligne quitte la liste (`o.sortie IS NULL`), comme avant.
+  - Mesuré à 1440 px, bail 544 : deux « confié à Arnaud JOREL · Confirmé », chacun en face de sa date. À 390 px, chaque paire reste sous sa date.
+    La pré-visite effectuée a été simulée au navigateur seulement : une seule rangée (État des lieux) et un seul statut.
+- Contrôles : `npm test` VERT (1 897 fichiers, 28 400 tests, 21 ignorés ; `.captures/preavis-missions-par-rdv/npm-test.txt`) ; `tsc` = 0.
+  - Chrome localhost:3000, 1440 et 390 px, clair et sombre. Aucune requête non GET : rien validé, rien envoyé.
+  - Captures `.captures/preavis-missions-par-rdv/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a`, `8c76ec11` et leurs passations, non poussés. **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
