@@ -287,10 +287,12 @@ describe('🔴🔴 13h36 — le total à droite, et la liste des biens en gestio
     await rendre();
     await act(async () => { (container.querySelector('[data-deplier-biens="157"]') as HTMLButtonElement).click(); });
     const lignes = [...container.querySelectorAll('[data-bien-gestion]')];
-    expect(lignes.map((l) => [l.querySelector('[data-proprietaires]')?.textContent, l.querySelector('[data-locataires]')?.textContent])).toEqual([
-      ['DURANT Stéphane / DURANT Claire' + 'lot 12 · bât. B · étage 3', 'MARTIN Léa / BERCIER Paul'],
-      ['SCI Les Tilleuls', 'Vacant'],
-      ['JOREL Arnaud' + 'étage 1', 'ESSAI Paul']]);
+    // 🔴 (13h50) le libellé « Propriétaires : » / « Locataires : » est en tête de chaque groupe (visible au téléphone seulement)
+    const sansMot = (e: Element | null) => [...(e?.childNodes ?? [])].filter((n) => !(n instanceof Element && n.classList.contains('loc-copro-gestion-mot'))).map((n) => n.textContent).join('');
+    expect(lignes.map((l) => [sansMot(l.querySelector('[data-noms-proprietaires]')), l.querySelector('.loc-copro-gestion-reperes')?.textContent ?? null, sansMot(l.querySelector('[data-noms-locataires]'))])).toEqual([
+      ['DURANT Stéphane / DURANT Claire', 'lot 12 · bât. B · étage 3', 'MARTIN Léa / BERCIER Paul'],
+      ['SCI Les Tilleuls', null, 'Vacant'],
+      ['JOREL Arnaud', 'étage 1', 'ESSAI Paul']]);
     // les liens, écrits comme le texte : propriétaire → sa fiche ; locataire → sa fiche (bail et colocataires) ; « Historique » → l'historique de CE bien
     expect([...lignes[0].querySelectorAll('a.loc-lien-discret')].map((a) => a.getAttribute('href'))).toEqual([
       '/admin/location/proprietaire/70', '/admin/location/proprietaire/71', '/admin/location/locataire/80', '/admin/location/locataire/81']);
@@ -302,5 +304,28 @@ describe('🔴🔴 13h36 — le total à droite, et la liste des biens en gestio
     expect(css).toContain('@media (max-width:560px){.loc-copro-gestion{grid-template-columns:minmax(0,1fr)}');
     // « Fiches des biens » reste
     expect(container.querySelector('[data-biens-copro]')).not.toBeNull();
+  });
+});
+
+/* ══ 🔴 Arno (28/11/2026, 13h50) — « il faut une colonne intitulée Propriétaires et une colonne Locataires » ══ */
+describe('🔴 13h50 — les intitulés des colonnes de la liste dépliée', () => {
+  const RESUME = { detail: { total: 1, parType: [{ type: 'logement', n: 1 }] }, copros: [{ id: 157, cle: '43 avenue marceau', nom: null,
+    adresses: [{ libelle: '43 Avenue Marceau', principale: true, biens: 1, teteIds: [1] }], detail: { total: 1, parType: [{ type: 'logement', n: 1 }] },
+    biens: [{ teteId: 1, lotIds: [1] }] }],
+    detailBiens: { 1: { lotId: 1, lot: null, batiment: null, etage: null, proprietaires: [{ id: 70, nom: 'DURANT Stéphane' }, { id: 71, nom: 'DURANT Claire' }], locataires: [] } } };
+  it('une ligne d’intitulés au pluriel, en tête, sur la grille (au-dessus de la gauche et du milieu, rien au-dessus de « Historique ») ; au téléphone, un libellé devant chaque groupe', async () => {
+    syndic = { ...BASE, resumeCopros: RESUME };
+    await rendre();
+    await act(async () => { (container.querySelector('[data-deplier-biens="157"]') as HTMLButtonElement).click(); });
+    const liste = container.querySelector('[data-biens-gestion]')!;
+    const tete = liste.firstElementChild!;
+    expect(tete.hasAttribute('data-entete-biens')).toBe(true);
+    expect([...tete.children].map((x) => [x.className, x.textContent])).toEqual([['svv-label', 'PROPRIÉTAIRES'], ['svv-label', 'LOCATAIRES'], ['', '']]);
+    // deux propriétaires sur UNE ligne, séparés par « / »
+    expect(liste.querySelector('[data-noms-proprietaires]')?.textContent).toBe('Propriétaires : DURANT Stéphane / DURANT Claire');
+    expect(liste.querySelector('[data-noms-locataires]')?.textContent).toBe('Locataires : Vacant');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-copro-gestion-mot{display:none}');
+    expect(css).toContain('.loc-copro-gestion > li.loc-copro-gestion-entete{display:none} .loc-copro-gestion-mot{display:inline}}'); // au téléphone
   });
 });

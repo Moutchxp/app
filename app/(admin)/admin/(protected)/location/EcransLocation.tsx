@@ -338,6 +338,11 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
                       </p>
                       {deplie && details !== undefined && (
                         <ul className="loc-copro-gestion" data-biens-gestion={c.id}>
+                          {/* 🔴 Arno (28/11/2026, 13h50) — « il faut une colonne intitulée Propriétaires et une colonne Locataires, car on ne sait pas qui est
+                              qui » : les intitulés, sur la grille (alignés sur leurs colonnes) ; au téléphone, chaque groupe de noms porte son libellé */}
+                          <li className="loc-copro-gestion-entete" data-entete-biens aria-hidden="true">
+                            <span className="svv-label">PROPRIÉTAIRES</span><span className="svv-label">LOCATAIRES</span><span />
+                          </li>
                           {r.biens.map((b) => {
                             const d = details[b.teteId];
                             if (d === undefined) return null;
@@ -346,13 +351,15 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
                             return (
                               <li key={b.teteId} data-bien-gestion={b.teteId}>
                                 <span className="loc-copro-gestion-proprios" data-proprietaires>
+                                  <span className="loc-copro-gestion-noms" data-noms-proprietaires><span className="loc-copro-gestion-mot svv-label">Propriétaires : </span>
                                   {d.proprietaires.length === 0 ? <span className="loc-muet">propriétaire inconnu</span> : d.proprietaires.map((x, i) => (
-                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/proprietaire/${x.id}`}>{x.nom}</a></span>))}
+                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/proprietaire/${x.id}`}>{x.nom}</a></span>))}</span>
                                   {reperes.length > 0 && <span className="loc-copro-gestion-reperes">{reperes.join(' · ')}</span>}
                                 </span>
                                 <span className="loc-copro-gestion-locataires" data-locataires>
+                                  <span className="loc-copro-gestion-noms" data-noms-locataires><span className="loc-copro-gestion-mot svv-label">Locataires : </span>
                                   {d.locataires.length === 0 ? <span data-vacant>Vacant</span> : d.locataires.map((x, i) => (
-                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/locataire/${x.id}`}>{x.nom}</a></span>))}
+                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/locataire/${x.id}`}>{x.nom}</a></span>))}</span>
                                 </span>
                                 <span className="loc-copro-gestion-histo">{histo !== null && <a className="svv-btn svv-btn-primary gst-btn loc-copro-historique" href={histo} data-historique-bien={d.lotId}
                                   title="L’historique de ce bien">Historique</a>}</span>
@@ -451,6 +458,8 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-copro-gestion > li{display:contents}
 .loc-copro-gestion > li > span{padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0;overflow-wrap:anywhere}
 .loc-copro-gestion-proprios{display:flex;flex-direction:column;gap:1px}
+.loc-copro-gestion > li.loc-copro-gestion-entete > span{border-top:0;padding:4px 0 2px}
+.loc-copro-gestion-mot{display:none}
 .loc-copro-gestion-reperes{font-size:.78rem;color:var(--color-svv-muted)}
 .loc-copro-gestion-histo{display:flex;justify-content:flex-end}
 .loc-copro-historique{min-height:32px;padding:2px 12px;width:auto;margin:0}
@@ -460,7 +469,9 @@ const CSS_COORDONNEES_SYNDIC = `
 @media (max-width:560px){.loc-copro-gestion{grid-template-columns:minmax(0,1fr)}
   .loc-copro-gestion > li > span{border-top:0;padding:1px 0}
   .loc-copro-gestion > li > span:first-child{border-top:1px solid var(--color-svv-line);padding-top:6px}
-  .loc-copro-gestion > li > span:last-child{padding-bottom:6px}}
+  .loc-copro-gestion > li > span:last-child{padding-bottom:6px}
+  .loc-copro-gestion > li.loc-copro-gestion-entete{display:none}
+  .loc-copro-gestion-mot{display:inline}}
 .loc-copro-biens{margin:0;font-size:.82rem}
 .loc-copro-collabs{display:flex;flex-direction:column;gap:2px;font-size:.88rem}
 .loc-copro-collabs > p{margin:0}
