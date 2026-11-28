@@ -305,7 +305,10 @@ export function FicheSyndicLocationVue({ id, peutModifier = false }: { id: numbe
       {ecrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={ecrirePlusieurs} />}
       <section className="loc-bloc">
         {/* 🔴 Arno (28/11/2026, 14h00, point 1) « Contacts » → « Contacts du syndic » */}
-        <h3>Contacts du syndic <span className="loc-pastille">{liste(s.contacts).length}</span></h3>
+        <div className="loc-bloc-tete"><h3>Contacts du syndic <span className="loc-pastille">{liste(s.contacts).length}</span></h3>
+          {/* 🔴 (Arno, 28/11/2026, 14h00, point 3) « Modifier » : LA fenêtre de la Gestion, ouverte directement sur les contacts */}
+          {peutModifier ? <button type="button" className="svv-btn svv-btn-outline gst-btn loc-modifier-syndic" data-modifier-syndic="contacts"
+            onClick={() => setModification('contacts')}>Modifier</button> : <span className="loc-muet loc-mention-droit" data-mention-droit>{MENTION_MODIFIER_SYNDIC}</span>}</div>
         {liste(s.contacts).length === 0 ? <p className="loc-muet">Aucun contact.</p> : (
           <ul className="loc-liste">
             {liste(s.contacts).map((c) => (

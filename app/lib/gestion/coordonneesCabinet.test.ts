@@ -129,3 +129,19 @@ describe('l’écriture (enregistrerSyndic, la porte unique de la Gestion) : ajo
     expect(versSaisie(f).coordonneesCabinet).toEqual([{ id: 1, sorte: 'telephone', libelle: 'Standard', valeur: '0140000000' }]);
   });
 });
+
+describe('🔴 « Ce qui change » des contacts (Arno, 28/11/2026, 14h00, point 3)', () => {
+  const avecContact = (immeubles: string[]) => versFormulaire({ ...FICHE(), coproprietes: [
+    { id: 1, cle: '41 rue x', libelle: '41 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-01-01', lots: [] },
+    { id: 2, cle: '42 rue x', libelle: '42 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-01-01', lots: [] }],
+    contacts: [{ id: 91, titre: null, prenom: 'Essai', nom: '_TEST Contact', civilite: null, tousImmeubles: false, immeubles, coordonnees: [] }] } as unknown as FicheSyndic);
+  it('affecté / plus affecté : dit copropriété par copropriété, sans « Contact modifié » quand rien d’autre ne change', () => {
+    const avant = avecContact(['41 rue x']);
+    const apres = { ...avant, contacts: avant.contacts.map((c) => ({ ...c, immeubles: ['42 rue x'] })) };
+    expect(changementsSyndic(avant, apres)).toEqual(['Contact Essai _TEST CONTACT affecté à 42 rue X', 'Contact Essai _TEST CONTACT n’est plus affecté à 41 rue X']);
+  });
+  it('retiré de la fiche : avec ses affectations, qui seront retirées', () => {
+    const avant = avecContact(['41 rue x', '42 rue x']);
+    expect(changementsSyndic(avant, { ...avant, contacts: [] })).toEqual(['Contact retiré de la fiche : Essai _TEST CONTACT (affecté à 41 rue X, 42 rue X : ces affectations seront retirées)']);
+  });
+});

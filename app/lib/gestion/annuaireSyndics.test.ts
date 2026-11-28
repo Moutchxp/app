@@ -1309,7 +1309,10 @@ describe('les écrans', () => {
   it('contacts repliés, « Valider ce contact », « Modifier » ; second standard ; liste des biens ; suppression confirmée', () => {
     const src = lire('FicheSyndic.tsx');
     // LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — CE QU'IL DISAIT AVANT : 'Valider ce contact' (devenu « Valider » du contact).
-    expect(src).not.toMatch(/>\s*Retirer ce contact\s*</); // le lien a disparu (accord d'Arno) ; seul un commentaire le cite
+    // 🔴 (Arno, 28/11/2026, 14h00, point 3) CE QU'IL DISAIT AVANT : aucun « >Retirer ce contact< » dans la source (le lien du bloc « Nouveau contact »
+    //    avait disparu, accord d'Arno). Le mot revient, mais seulement comme nouveau nom de « Supprimer ce contact » d'un contact ENREGISTRÉ : le bloc
+    //    « Nouveau contact » n'en a toujours pas (épreuve d'écran « NOUVEAU CONTACT : … sans « Retirer ce contact » », FicheSyndic.test.tsx).
+    expect(src.match(/>\s*Retirer ce contact\s*</g) ?? []).toHaveLength(2);
     // LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — CE QU'IL DISAIT AVANT : 'Catalogue des contacts', 'Autres contacts du
     // cabinet', 'Contacts pour cet immeuble'. Le titre redevient « Autres contacts » ; le reste passe dans le « Catalogue ».
     // (LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE : « Catalogue des contacts DU SYNDIC » est le nouveau titre du bloc
@@ -1317,7 +1320,8 @@ describe('les écrans', () => {
     expect(src).not.toMatch(/>\s*(Catalogue des contacts\s*<|Contacts pour cet immeuble|Autres contacts du cabinet)/);
     expect(src).toContain('Catalogue des contacts du syndic');
     // LOT SYNDIC-MODALE-DEUX-BLOCS — « Autres contacts » devient « Contacts de cet immeuble » / « Contacts du cabinet ».
-    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cette copropriété', 'Contacts du syndic', 'Ajouter un contact syndic à cette copropriété',
+    // (Arno, 28/11/2026, 14h00, point 3) CE QU'IL DISAIT AVANT : 'Supprimer ce contact' — renommé « Retirer ce contact »
+    for (const mot of ['Retirer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cette copropriété', 'Contacts du syndic', 'Ajouter un contact syndic à cette copropriété',
       'Gérer ce syndic', 'Coordonnées et contacts du syndic', 'Syndic de l’immeuble · ', 'Catalogue',
       'Ajouter à cette copropriété', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : 'Biens qui recevront ce syndic', 'déjà rattachée à',

@@ -1,7 +1,7 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7d — le format unique de l'adresse du cabinet
-import { journaliserLienSyndic } from './journalSyndicCopro';
+import { journaliserLienSyndic, journaliserRetraitContacts } from './journalSyndicCopro';
 import { statutBienDisponible } from './statutBienRepo';
 import { normaliserTexte } from './annuaire';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
@@ -577,7 +577,7 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur, ecran);
     await enregistrerAdressesSecondaires(q, saisie, auteur);
-    await enregistrerContacts(q, syndicId, saisie, auteur);
+    await enregistrerContacts(q, syndicId, saisie, auteur, ecran);
     if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
     // LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l'immeuble voyage avec la fiche, mais ne dépend PAS du syndic.
     if (saisie.contactsImmeuble) await enregistrerContactsImmeuble(q, saisie.contactsImmeuble, auteur);
@@ -607,7 +607,7 @@ async function enregistrerNoteBien(q: RequeteTx, syndicId: number, lotId: number
   }
 }
 
-async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
+async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur, ecran = 'la fiche syndic'): Promise<void> {
   // LOT SYNDIC-CONTACT-PARTI — le catalogue = les contacts NI retirés NI partis ; les partis sont lus à part (pour une
   // réintégration) et ne sont jamais « retirés » parce qu'absents de la saisie.
   const { rows: existants } = await q<{ id: string; parti: boolean; parti_le: string | null }>(
@@ -692,6 +692,8 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
   }
   const retires = [...ids].filter((x) => !gardes.has(x));
   if (retires.length > 0) {
+    // 🔴🔴 (Arno, 28/11/2026, 14h00, point 3) « Retirer ce contact » : au journal, avec ses affectations retirées (lues AVANT de les retirer)
+    await journaliserRetraitContacts(q, { syndicId, contactIds: retires, ecran }, auteur);
     await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`,
       [retires, auteur.libelle]);
     // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — ses coordonnées partent avec lui : son e-mail redevient libre (index 327).

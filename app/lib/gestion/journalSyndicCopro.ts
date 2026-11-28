@@ -103,15 +103,17 @@ async function ecrireLigneCopropriete(q: RequeteTx, c: { id: string; cle: string
 
 // ══ 🔴 (Arno, 20/11/2026) LES CONTACTS DU SYNDIC RATTACHÉS À UNE COPROPRIÉTÉ — chaque rattachement, création, détachement : UNE ligne ═══════════════
 
-export type NatureContact = 'rattache' | 'cree' | 'detache';
+// 🔴 (Arno, 28/11/2026, 14h00, point 3) « retire » : « Retirer ce contact » de la fiche du syndic — chacune de ses affectations retirées a sa ligne
+export type NatureContact = 'rattache' | 'cree' | 'detache' | 'retire';
 export const ACTION_CONTACT: Readonly<Record<NatureContact, string>> = {
-  rattache: 'syndic_contact_rattache', cree: 'syndic_contact_cree_rattache', detache: 'syndic_contact_detache',
+  rattache: 'syndic_contact_rattache', cree: 'syndic_contact_cree_rattache', detache: 'syndic_contact_detache', retire: 'syndic_contact_retire',
 };
 
 /** La phrase du journal d'un contact du syndic. PUR. */
 export function phraseContact(nature: NatureContact, contact: string, syndic: string, copro: string, ecran: string, motif: string | null): string {
   const depuis = ` (depuis ${ecran}${motif ? ` — ${motif}` : ''})`;
   if (nature === 'detache') return `Contact ${contact} (syndic ${syndic}) détaché de la copropriété ${copro} — il reste dans l’annuaire du syndic${depuis}`;
+  if (nature === 'retire') return `Contact ${contact} (syndic ${syndic}) retiré de la fiche du syndic : son affectation à la copropriété ${copro} est retirée — ses mails et son historique restent${depuis}`;
   if (nature === 'cree') return `Contact ${contact} créé dans l’annuaire du syndic ${syndic} et rattaché à la copropriété ${copro}${depuis}`;
   return `Contact ${contact} (syndic ${syndic}) rattaché à la copropriété ${copro}${depuis}`;
 }
@@ -130,8 +132,42 @@ export async function journaliserContactsSyndic(q: RequeteTx, g: { coproId: stri
        FROM gestion_syndic_contact WHERE id = ANY($1::bigint[]) ORDER BY id`, [[...g.contactIds]]);
   for (const x of ct) {
     const nom = x.nom || `n° ${x.id}`;
-    await ecrireLigneCopropriete(q, c, { action: ACTION_CONTACT[g.nature], avant: g.nature === 'detache' ? nom : null, apres: g.nature === 'detache' ? null : nom,
+    const sort = g.nature === 'detache' || g.nature === 'retire';
+    await ecrireLigneCopropriete(q, c, { action: ACTION_CONTACT[g.nature], avant: sort ? nom : null, apres: sort ? null : nom,
       phrase: phraseContact(g.nature, nom, syndic, copro, g.ecran, g.motif ?? null), champ: 'contact syndic', ecran: g.ecran }, auteur);
+  }
+}
+
+/**
+ * ══ 🔴🔴 Arno (28/11/2026, 14h00, point 3) — « RETIRER CE CONTACT » DE LA FICHE DU SYNDIC, AU JOURNAL ═══════════════════════════════════════════════════
+ * Le retrait d'un contact se journalise, avec les affectations qu'il retire : une ligne à chaque copropriété où il était affecté (sur sa fiche), et une
+ * ligne au contact lui-même (entité « annuaire ») qui les nomme toutes. Rien n'est effacé : ses mails et son historique restent. À appeler AVANT de
+ * retirer les affectations (elles sont lues en cours). Dans la transaction de l'appelant.
+ */
+export const ACTION_CONTACT_RETIRE_FICHE = 'syndic_contact_retrait_fiche';
+/** La phrase de la ligne du contact. PUR. */
+export function phraseRetraitContact(contact: string, syndic: string, copros: readonly string[], ecran: string): string {
+  const aff = copros.length === 0 ? 'aucune affectation en cours' : `affectation${copros.length > 1 ? 's' : ''} retirée${copros.length > 1 ? 's' : ''} : ${copros.join(' ; ')}`;
+  return `Contact ${contact} retiré de la fiche du syndic ${syndic} — ${aff} ; ses mails et son historique restent (depuis ${ecran})`;
+}
+export async function journaliserRetraitContacts(q: RequeteTx, g: { syndicId: number; contactIds: readonly number[]; ecran: string }, auteur: Auteur): Promise<void> {
+  if (g.contactIds.length === 0) return;
+  const { rows: aff } = await q<{ contact: string; copro: string; libelle: string; cp: string | null; commune: string | null }>(
+    `SELECT a.contact_id::text AS contact, c.id::text AS copro, c.libelle, c.code_postal AS cp, c.commune
+       FROM gestion_syndic_contact_copropriete a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE a.contact_id = ANY($1::bigint[]) AND a.retire_le IS NULL ORDER BY a.contact_id, c.libelle, c.id`, [[...g.contactIds]]);
+  const syndic = (await nomSyndic(q, g.syndicId)) ?? '';
+  const { rows: ct } = await q<{ id: string; nom: string }>(
+    `SELECT id::text, btrim(concat_ws(' ', civilite, prenom, upper(nom), CASE WHEN nullif(btrim(titre), '') IS NULL THEN NULL ELSE '(' || btrim(titre) || ')' END)) AS nom
+       FROM gestion_syndic_contact WHERE id = ANY($1::bigint[]) ORDER BY id`, [[...g.contactIds]]);
+  for (const x of ct) {
+    const nom = x.nom || `n° ${x.id}`;
+    const siennes = aff.filter((a) => a.contact === x.id);
+    for (const a of siennes) await journaliserContactsSyndic(q, { coproId: a.copro, syndicId: g.syndicId, nature: 'retire', contactIds: [Number(x.id)], ecran: g.ecran }, auteur);
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
+       VALUES ('annuaire', $1, '${ACTION_CONTACT_RETIRE_FICHE}', $2, $3, $4, $5)`,
+      [x.id, nom, phraseRetraitContact(nom, syndic, siennes.map((a) => adresseImmeuble(a.libelle, a.cp, a.commune)), g.ecran), auteur.id, auteur.libelle]);
   }
 }
 

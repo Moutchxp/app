@@ -1498,7 +1498,12 @@ export function changementsSyndic(avant: SyndicForm, apres: SyndicForm): string[
     if (c.id == null) { out.push(`Contact ajouté : ${nomC(c)}`); continue; }
     const v = actifsA.find((x) => x.id === c.id);
     if (v === undefined) { if (c.reintegre === true) out.push(`Contact réintégré : ${nomC(c)}`); continue; }
-    if (JSON.stringify({ ...v, immeubles: [...v.immeubles].sort() }) !== JSON.stringify({ ...c, immeubles: [...c.immeubles].sort() })) out.push(`Contact modifié : ${nomC(c)}`);
+    // (Arno, 28/11/2026, 14h00, point 3) le reste du contact, puis ses affectations, dites copropriété par copropriété
+    if (JSON.stringify({ ...v, immeubles: [] }) !== JSON.stringify({ ...c, immeubles: [] })) out.push(`Contact modifié : ${nomC(c)}`);
+    const plus = c.immeubles.filter((k) => !v.immeubles.includes(k)).map(libelleCopro);
+    const moins = v.immeubles.filter((k) => !c.immeubles.includes(k)).map(libelleCopro);
+    if (plus.length > 0) out.push(`Contact ${nomC(c)} affecté à ${plus.join(', ')}`);
+    if (moins.length > 0) out.push(`Contact ${nomC(c)} n’est plus affecté à ${moins.join(', ')}`);
   }
   for (const c of actifsA) {
     if (c.id == null || b.contacts.some((x) => x.id === c.id)) continue;

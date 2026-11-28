@@ -566,7 +566,7 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
     expect(ouvert.querySelectorAll('input')).toHaveLength(0);
     const tel = ouvert.querySelector('.fsy-contact-coord')?.textContent ?? '';
     expect(tel).toBe('Portable : 06 13 86 18 77Copier');
-    for (const t of ['Modifier', 'Supprimer ce contact', 'Fermer']) expect(boutonDans(ouvert, t)).toBeTruthy();
+    for (const t of ['Modifier', 'Retirer ce contact', 'Fermer']) expect(boutonDans(ouvert, t)).toBeTruthy();
     await cliquer(ouvert.querySelector('.fsy-contact-tete-btn') as Element);
     expect(document.querySelector('.fsy-contact-ouvert')).toBeNull();
     expect(document.querySelector('button.fsy-contact-replie')).not.toBeNull();
@@ -609,12 +609,14 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
     expect(document.querySelector('.fsy-contact-ouvert')).not.toBeNull();
   });
 
-  it('« Supprimer ce contact » : « Supprimer Léa DURAND ? » → retiré de la fiche (enregistré par Valider)', async () => {
+  // 🔴 (Arno, 28/11/2026, 14h00, point 3) — CE QU'IL DISAIT AVANT : « Supprimer ce contact » : « Supprimer Léa DURAND ? », « Oui, supprimer ». Le geste
+  //    est le même, sous le nom « Retirer ce contact », et la confirmation nomme les copropriétés où il est affecté.
+  it('« Retirer ce contact » : « Retirer Léa DURAND de la fiche du syndic ? » → retiré de la fiche (enregistré par Valider)', async () => {
     await ouvrir();
     await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Supprimer ce contact'));
-    expect(document.body.textContent).toContain('Supprimer Léa DURAND ?');
-    await cliquer(bouton('Oui, supprimer'));
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Retirer ce contact'));
+    expect(document.body.textContent).toContain('Retirer Léa DURAND de la fiche du syndic ?');
+    await cliquer(bouton('Oui, retirer'));
     expect(document.querySelector('.fsy-contact-ouvert, .fsy-contact-replie')).toBeNull();
     await cliquer(boutonDans(pied(), 'Valider'));
     expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: unknown[] }).contacts).toEqual([]);
@@ -1777,7 +1779,7 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
     expect(boutons[1].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-parti fsy-pousse-gauche');
     boutons.splice(1, 1);
     expect(boutons[1].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn');
-    expect(o.textContent).not.toContain('Supprimer ce contact');
+    expect(o.textContent).not.toContain('Retirer ce contact');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.gst-btn.fsy-detacher{color:var(--color-svv-red)}');
   });
@@ -1832,12 +1834,12 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
     expect(put().contacts.find((x) => x.nom === 'Douze')?.immeubles.sort()).toEqual(['12 rue x', '3 av y']);
   });
 
-  it('écran « Syndics » (sans bien) : « Supprimer ce contact » inchangé, pas de « Détacher »', async () => {
+  it('écran « Syndics » (sans bien) : « Retirer ce contact » (CE QU’IL DISAIT AVANT : « Supprimer ce contact », renommé le 28/11/2026), pas de « Détacher »', async () => {
     servir(FICHE_24, 24);
     await ouvrir(vi.fn(), 24);
     const o = await ouvrirContact('Marie DOUZE');
     expect([...o.querySelectorAll('button')].some((b) => b.textContent?.includes('Détacher'))).toBe(false);
-    const sup = [...o.querySelectorAll('button')].find((b) => b.textContent === 'Supprimer ce contact') as HTMLButtonElement;
+    const sup = [...o.querySelectorAll('button')].find((b) => b.textContent === 'Retirer ce contact') as HTMLButtonElement;
     // LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT — CE QU'IL DISAIT AVANT : 'fsy-lien-bouton fsy-pousse-gauche'. Le
     // lien est inchangé ; le retrait à gauche passe à « Ne travaille plus ici », posé juste après lui.
     expect(sup.className).toBe('fsy-lien-bouton');
@@ -3031,7 +3033,7 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     await act(async () => { root.render(null); });
     await ouvrir60(null);
     o = await deplier('M. Mathis BERCIER');
-    expect([...o.querySelectorAll('.fsy-boutons button')].map((b) => b.textContent)).toEqual(['Supprimer ce contact', 'Ne travaille plus ici', 'Fermer', 'Modifier']);
+    expect([...o.querySelectorAll('.fsy-boutons button')].map((b) => b.textContent)).toEqual(['Retirer ce contact', 'Ne travaille plus ici', 'Fermer', 'Modifier']);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.fsy-parti,.fsy-parti:hover{background:var(--color-svv-surface);color:var(--color-svv-gray)}');
   });
@@ -3935,8 +3937,8 @@ describe('LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — à l’écran', () 
   it('après « Supprimer ce contact » : même nom, même téléphone → ni blocage ni avertissement', async () => {
     await ouvrir();
     await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Supprimer ce contact'));
-    await cliquer(bouton('Oui, supprimer'));
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Retirer ce contact'));
+    await cliquer(bouton('Oui, retirer'));
     await leaRevient();
     expect(alertes()).toEqual([]);
     expect(noms()).toEqual(['Léa DURAND']);
@@ -4198,3 +4200,48 @@ describe('🔴 la fiche syndic affiche les adresses de ses copropriétés', () =
   });
 });
 
+
+describe('🔴🔴 Arno (28/11/2026, 14h00, point 3) — les contacts depuis « Modifier » de la Location ; « Retirer ce contact »', () => {
+  it('« Retirer ce contact » : la question, LES COPROPRIÉTÉS où il est affecté, « ses mails et son historique restent » ; « Non » ne touche à rien', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Retirer ce contact'));
+    const q = document.querySelector('[data-fsy-retrait-contact]') as HTMLElement;
+    expect(q.querySelector('.fsy-parti-question')?.textContent).toBe('Retirer Léa DURAND de la fiche du syndic ?');
+    expect(q.textContent).toContain('Ses affectation');
+    expect([...q.querySelectorAll('[data-fsy-retrait-copros] li')].map((l) => l.textContent)).toEqual([expect.stringContaining('12 rue X')]);
+    expect(q.textContent).toContain('Ses mails et son historique restent.');
+    await cliquer(boutonDans(q, 'Non'));
+    expect(document.querySelector('[data-fsy-retrait-contact]')).toBeNull();
+    expect(document.querySelector('.fsy-contact-ouvert')).not.toBeNull();
+  });
+  it('« Oui, retirer » puis Valider : « Ce qui change » nomme le contact et ses affectations retirées ; il part au serveur hors de la saisie (retrait, jamais effacement)', async () => {
+    passerRecap = false;
+    try {
+      await ouvrir();
+      await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+      await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Retirer ce contact'));
+      await cliquer(bouton('Oui, retirer'));
+      await cliquer(bouton('Valider'));
+      const lignes = [...document.querySelectorAll('[data-fsy-recap-ligne]')].map((l) => l.textContent);
+      expect(lignes).toEqual([expect.stringMatching(/^Contact retiré de la fiche : Léa DURAND \(affecté à 12 rue X.* : ces affectations seront retirées\)$/)]);
+      await cliquer(boutonDans(document.querySelector('[data-fsy-recap]'), 'Enregistrer'));
+      expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: unknown[] }).contacts).toEqual([]);
+    } finally { passerRecap = true; }
+  });
+  it('ouverte « directement sur les contacts » (departContacts) : une fois lue, elle défile jusqu’au titre « Contacts du syndic », une seule fois', async () => {
+    const vu = vi.fn(function (this: Element) { void this; });
+    const avant = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vu;
+    try {
+      await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn(), departContacts: true })); });
+      await calmer();
+      const titre = document.querySelector('[data-fsy-titre-contacts]');
+      expect(titre?.textContent).toBe('Contacts du syndic');
+      expect(vu.mock.contexts).toContain(titre);
+      const n = vu.mock.contexts.filter((x) => x === titre).length;
+      await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+      expect(vu.mock.contexts.filter((x) => x === titre).length).toBe(n);
+    } finally { Element.prototype.scrollIntoView = avant; }
+  });
+});

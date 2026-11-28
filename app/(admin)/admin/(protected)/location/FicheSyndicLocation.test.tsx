@@ -383,3 +383,21 @@ describe('🔴🔴 14h00 point 2 (décisions « 1A » et « 2A ») — « Modifi
     expect(container.querySelector('[data-ligne-mail="service@exemple.test"]')?.textContent).toContain('Email service : ');
   });
 });
+
+describe('🔴🔴 14h00 point 3 — « Modifier » des contacts : LA fenêtre de la Gestion, ouverte directement sur les contacts', () => {
+  it('avec le droit Gestion : « Modifier » en haut à droite de « Contacts du syndic » ouvre la fiche de la Gestion sur ses contacts', async () => {
+    await rendre(true);
+    const b = container.querySelector('[data-modifier-syndic="contacts"]') as HTMLButtonElement;
+    expect(b?.textContent).toBe('Modifier');
+    expect(b.closest('.loc-bloc-tete')?.querySelector('h3')?.textContent).toContain('Contacts du syndic');
+    await act(async () => { b.click(); }); await calmer();
+    const f = document.querySelector('[data-fiche-syndic-double]');
+    expect(f?.getAttribute('data-fiche-syndic-double')).toBe('4');
+    expect(f?.getAttribute('data-depart-contacts')).toBe('true');
+  });
+  it('sans le droit Gestion : ni l’un ni l’autre bouton, la mention dans chacun des deux blocs', async () => {
+    await rendre(false);
+    expect(container.querySelectorAll('[data-modifier-syndic]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-mention-droit]')).toHaveLength(2);
+  });
+});

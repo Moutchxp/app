@@ -320,6 +320,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     });
   };
   const [etapePartage, setEtapePartage] = useState<string | null>(null);
+  /** 🔴 (Arno, 28/11/2026, 14h00, point 3) ouverte par « Modifier » des contacts : une fois la fiche lue, elle défile jusqu'aux contacts (une seule fois) */
+  const departContactsFait = useRef(false);
+  useEffect(() => {
+    if (!departContacts || departContactsFait.current || mode !== 'edition' || typeof document === 'undefined') return;
+    departContactsFait.current = true;
+    (document.querySelector('[data-fsy-titre-contacts]') as HTMLElement | null)?.scrollIntoView?.({ block: 'start' });
+  }, [departContacts, mode]);
   /** 🔴 (Arno, 28/11/2026, décision « 2A ») les lignes de « Ce qui change », montrées avec l'étape d'enregistrement */
   const [recap, setRecap] = useState<string[]>([]);
   const connus = useSyndicsConnus(mode === 'recherche' && depuisUnBien ? immeubleDepart : null, lotDepart, ancienSyndicId);
@@ -1127,7 +1134,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
           lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
       {/* LOT SYNDIC-TITRES-COPROPRIETE — « Contacts de cet immeuble » devient « Contacts de cette copropriété ». */}
       {/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — « Contacts de cette copropriété » devient : */}
-      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du syndic'}</h4>
+      <h4 className="fsy-sous-titre" data-fsy-titre-contacts>{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du syndic'}</h4>
       {contacts.liste}
       {/* 🔴 LOT 6 — la rubrique « Habitants et gardien de l'immeuble » a quitté la fiche syndic (fiche copropriété). */}
       {contacts.bouton}
@@ -1628,13 +1635,26 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     setEdition(null);
   };
 
-  const confirmerSuppression = (c: ContactForm) => (aSupprimer === c.cle ? (
-    <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Confirmer la suppression du contact">
-      <span>Supprimer {nomAffiche(c)} ?</span>
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setASupprimer(null)}>Non</button>
-      <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => supprimer(c.cle)}>Oui, supprimer</button>
-    </div>
-  ) : null);
+  /* 🔴🔴 (Arno, 28/11/2026, 14h00, point 3) — CE QU'IL Y AVAIT : « Supprimer Léa DURAND ? », « Non » / « Oui, supprimer ». Désormais « Retirer ce
+     contact » : la question, LES COPROPRIÉTÉS OÙ IL EST AFFECTÉ (une par ligne), et ce qui reste (ses mails, son historique). Le geste est le même : il
+     quitte la saisie, et le serveur le RETIRE (retire_le) au « Valider » de la fiche, au journal avec ses affectations — rien n'est effacé. */
+  const confirmerSuppression = (c: ContactForm) => {
+    if (aSupprimer !== c.cle) return null;
+    const copros = c.immeubles.map((k) => adresses.find((a) => a.cle === k)?.adresse ?? k);
+    return (
+      <div className="fsy-parti-confirmer fsy-retrait-contact" role="group" aria-label="Confirmer le retrait du contact" data-fsy-retrait-contact>
+        <p className="fsy-parti-question">Retirer {nomAffiche(c)} de la fiche du syndic ?</p>
+        <p className="fsy-parti-annonce">{copros.length === 0 ? 'Il n’est affecté à aucune copropriété.'
+          : `Ses affectation${copros.length > 1 ? 's' : ''} ser${copros.length > 1 ? 'ont' : 'a'} retirée${copros.length > 1 ? 's' : ''} :`}</p>
+        {copros.length > 0 && <ul className="fsy-parti-copros" data-fsy-retrait-copros>{copros.map((a, i) => <li key={`${i}-${a}`}>{a}</li>)}</ul>}
+        <p className="fsy-parti-annonce">Ses mails et son historique restent.</p>
+        <div className="fsy-confirmer fsy-confirmer--contact">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setASupprimer(null)}>Non</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => supprimer(c.cle)}>Oui, retirer</button>
+        </div>
+      </div>
+    );
+  };
 
   const rendre = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
     <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
@@ -2079,7 +2099,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
               Détacher de la copropriété
             </button>
           ) : (
-            <button type="button" className={`fsy-lien-bouton${onParti ? '' : ' fsy-pousse-gauche'}`} onClick={onSupprimer}>Supprimer ce contact</button>
+            <button type="button" className={`fsy-lien-bouton${onParti ? '' : ' fsy-pousse-gauche'}`} onClick={onSupprimer}>Retirer ce contact</button>
           )}
           {/* LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » : petit bouton blanc, texte gris foncé, À CÔTÉ. */}
           {onParti && (
@@ -2329,7 +2349,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
         </div>
       ) : (
         <div className="fsy-boutons fsy-boutons--contact">
-          {onSupprimer && <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>}
+          {onSupprimer && <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Retirer ce contact</button>}
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={annuler}>Annuler</button>
           {e.nouveau || change ? (
             <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => void valider()} disabled={bloque}
