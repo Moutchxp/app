@@ -4245,3 +4245,56 @@ describe('🔴🔴 Arno (28/11/2026, 14h00, point 3) — les contacts depuis « 
     } finally { Element.prototype.scrollIntoView = avant; }
   });
 });
+
+describe('🔴🔴 Arno (28/11/2026, 15h03) — la fenêtre « épurée » (ouverte depuis la fiche syndic de la Location)', () => {
+  const rendreFiche = async (epuree: boolean) => {
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn(), onEcrire: vi.fn(), epuree })); });
+    await calmer();
+  };
+  const actions = () => {
+    const f = document.querySelector('.fsy') as HTMLElement;
+    return {
+      copier: [...f.querySelectorAll('button')].filter((b) => b.textContent?.startsWith('Copier')).length,
+      cases: f.querySelectorAll('[data-case-mail]').length,
+      ecrire: [...f.querySelectorAll('button, a')].filter((b) => b.textContent === 'Écrire depuis gestion@').length,
+    };
+  };
+  const ouvrirLea = async (modifier: boolean) => {
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    if (modifier) await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+  };
+  it('ni « Copier », ni case, ni « Écrire depuis gestion@ » : coordonnées du cabinet, contact ouvert, contact en modification', async () => {
+    await rendreFiche(true);
+    expect(document.querySelector('[data-fsy-epuree]')).not.toBeNull();
+    expect(actions()).toEqual({ copier: 0, cases: 0, ecrire: 0 });
+    await ouvrirLea(false);
+    expect(actions()).toEqual({ copier: 0, cases: 0, ecrire: 0 });
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    expect(actions()).toEqual({ copier: 0, cases: 0, ecrire: 0 });
+  });
+  it('depuis la Gestion (sans « épurée ») : RIEN n’est retiré — l’écran Syndics de la Gestion n’a pas d’autre endroit où copier et écrire', async () => {
+    await rendreFiche(false);
+    expect(document.querySelector('[data-fsy-epuree]')).toBeNull();
+    const a = actions();
+    expect(a.copier).toBeGreaterThan(0);
+    expect(a.cases).toBeGreaterThan(0);
+    expect(a.ecrire).toBeGreaterThan(0);
+  });
+  it('une ligne = [Libellé | Valeur | ×] (× en dernier, hors du champ) ; « + téléphone », « + e-mail », « + note » sur la même ligne ; mêmes gestes', async () => {
+    await rendreFiche(true);
+    for (const l of document.querySelectorAll('[data-coord-cabinet]')) {
+      const enfants = [...l.children];
+      expect(enfants[0].querySelector('select')).not.toBeNull();
+      expect(enfants[enfants.length - 1].textContent).toBe('×');
+      expect(enfants[enfants.length - 1].classList.contains('fsy-mini')).toBe(true);
+    }
+    const ajouts = (document.querySelector('[data-coordonnees-cabinet] .fsy-ligne-ajouts') as HTMLElement);
+    expect([...ajouts.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ téléphone', '+ e-mail', '+ note']);
+    expect([...document.querySelectorAll('button')].filter((b) => b.textContent === '+ note')).toHaveLength(1);
+    await cliquer(ajouts.querySelector('[data-ajouter-note]') as Element);
+    expect(document.querySelector('textarea')).not.toBeNull();
+    const n = document.querySelectorAll('[data-coord-cabinet]').length;
+    await cliquer(document.querySelectorAll('[data-coord-cabinet]')[0].querySelector('button.fsy-mini') as Element);
+    expect(document.querySelectorAll('[data-coord-cabinet]')).toHaveLength(n - 1);
+  });
+});

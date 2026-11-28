@@ -24,8 +24,8 @@ vi.mock('../gestion/FicheCopropriete', async () => {
 // 🔴 (Arno, 28/11/2026, 14h00, points 2 à 4) LA fenêtre de la fiche syndic de la Gestion : un double qui dit ce qu'on lui a demandé
 vi.mock('../gestion/FicheSyndic', async () => {
   const { createElement } = await import('react');
-  return { FicheSyndic: ({ syndicId, departContacts, onFerme }: { syndicId: number; departContacts?: boolean; onFerme: () => void }) =>
-    createElement('div', { 'data-fiche-syndic-double': String(syndicId), 'data-depart-contacts': String(departContacts === true) },
+  return { FicheSyndic: ({ syndicId, departContacts, epuree, onFerme }: { syndicId: number; departContacts?: boolean; epuree?: boolean; onFerme: () => void }) =>
+    createElement('div', { 'data-fiche-syndic-double': String(syndicId), 'data-depart-contacts': String(departContacts === true), 'data-epuree': String(epuree === true) },
       createElement('button', { type: 'button', onClick: onFerme, 'data-fermer-fiche-syndic': '' }, 'Fermer')) };
 });
 import { FicheSyndicLocationVue } from './EcransLocation';
@@ -359,6 +359,11 @@ describe('🔴🔴 14h00 point 2 (décisions « 1A » et « 2A ») — « Modifi
     const f = document.querySelector('[data-fiche-syndic-double]');
     expect(f?.getAttribute('data-fiche-syndic-double')).toBe('4');
     expect(f?.getAttribute('data-depart-contacts')).toBe('false');
+    // 🔴 (Arno, 28/11/2026, 15h03) la fenêtre ouverte d'ici est « épurée » : ni « Copier » ni « Écrire » — la fiche Location les garde, elle
+    expect(f?.getAttribute('data-epuree')).toBe('true');
+    const ligne = container.querySelector('[data-ligne-mail="syndic@exemple.test"]') as HTMLElement;
+    expect(ligne.querySelector('[data-case-mail]')).not.toBeNull();
+    expect([...ligne.querySelectorAll('button')].some((b) => b.textContent?.startsWith('Copier'))).toBe(true);
     await act(async () => { (document.querySelector('[data-fermer-fiche-syndic]') as HTMLElement).click(); }); await calmer();
     expect(document.querySelector('[data-fiche-syndic-double]')).toBeNull();
     expect((global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(avant).some((c) => String(c[0]).includes('syndic=4'))).toBe(true);
@@ -394,6 +399,7 @@ describe('🔴🔴 14h00 point 3 — « Modifier » des contacts : LA fenêtre d
     const f = document.querySelector('[data-fiche-syndic-double]');
     expect(f?.getAttribute('data-fiche-syndic-double')).toBe('4');
     expect(f?.getAttribute('data-depart-contacts')).toBe('true');
+    expect(f?.getAttribute('data-epuree')).toBe('true');
   });
   it('sans le droit Gestion : ni l’un ni l’autre bouton, la mention dans chacun des deux blocs', async () => {
     await rendre(false);

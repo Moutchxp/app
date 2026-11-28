@@ -1,7 +1,7 @@
 'use client';
 
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   lotsDuPortefeuille,
   cleEmail, doublonsLocaux, emailsDe, motDoublon, type ContactAilleurs,
@@ -81,7 +81,7 @@ import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi, contexteCopropriete = null, departContacts = false }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi, contexteCopropriete = null, departContacts = false, epuree = false }: {
   /**
    * TUILE LOCATION (Arno, 17/10/2026) — « location » : modale du formulaire « Ajouter un nouveau bien ». Un seul bouton de
    * création (pas de « Créer un nouveau syndic » en tête), l'encadré « déjà connu » à 3 boutons avec le détail en lecture
@@ -91,6 +91,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   variante?: 'gestion' | 'location' | 'copropriete';
   /** 🔴 (Arno, 28/11/2026, 14h00, point 3) ouverte par « Modifier » du bloc « Contacts du syndic » (Location) : la fiche s'ouvre sur les contacts. */
   departContacts?: boolean;
+  /** 🔴🔴 (Arno, 28/11/2026, 15h03, accord explicite pour CETTE fenêtre) « un formulaire épuré, clean, structuré et symétrique » : ouverte depuis la
+   *  fiche syndic de la LOCATION (qui garde « Copier », la case et « Écrire depuis gestion@ » sur ses propres lignes), la fenêtre n'a plus ces actions
+   *  et se range en grille régulière. Ouverte depuis la Gestion : inchangée — l'écran Syndics de la Gestion n'a aucun autre endroit où copier et écrire. */
+  epuree?: boolean;
   /**
    * 🔴 (Arno, 20/11/2026) « copropriete » : la modale « Copropriété » ouvre CETTE fenêtre (« même méthode qu'en copie 1 ») — la même recherche, le
    * même « Ajouter un syndic », la même création depuis les résultats avec la garde anti-doublon ; mais le CHOIX est rendu à la copropriété
@@ -510,7 +514,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       {/* Variante « location » : texte des boutons rouges en couleur de SURFACE (convention de la tuile Location), lisible sur
           le rouge clair du thème Sombre. La Gestion garde son style. */}
       {variante === 'location' && <style>{'.fsy--location .svv-btn-primary{color:var(--color-svv-surface)}'}</style>}
-      <div className={`fsy${variante === 'location' ? ' fsy--location' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
+      <EpureeContexte.Provider value={epuree}>
+      <div className={`fsy${variante === 'location' ? ' fsy--location' : ''}${epuree ? ' fsy-epuree' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}
+        {...(epuree ? { 'data-fsy-epuree': '' } : {})}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
           {/* 🔴🔴 (Arno, 17/11/2026 : « MÊME RÈGLE PARTOUT, recherche d'abord, création seulement depuis les résultats : le bouton « Créer un nouveau syndic »
@@ -646,6 +652,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           )}
         </div>
       </div>
+      </EpureeContexte.Provider>
       {/* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « Voir la fiche » : la fiche existante PAR-DESSUS, dans le même
           portail que la fenêtre (thème Sombre compris) ; en la fermant, on retrouve sa saisie intacte. */}
       {ficheVue !== null && typeof document !== 'undefined' && createPortal(
@@ -780,7 +787,12 @@ function LienTel({ tel }: { tel: string }) {
  * « Écrire depuis gestion@ » n'apparaît que pour un e-mail valide ; sans composeur disponible, c'est un `mailto:`.
  * « Copier » (qui a remplacé « Appeler ») n'apparaît que pour un numéro complet (10 chiffres au moins).
  */
+/** 🔴🔴 (Arno, 28/11/2026, 15h03) la fenêtre « épurée » (ouverte depuis la fiche syndic de la Location) : ni « Copier », ni case, ni « Écrire depuis
+ *  gestion@ » sur ses lignes — ces actions restent sur la fiche Location elle-même. Faux partout ailleurs. */
+const EpureeContexte = createContext(false);
+
 function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
+  if (useContext(EpureeContexte)) return null;
   const e = email.trim();
   if (!emailPlausible(e)) return null;
   // 🔴 (Arno, 28/11/2026, 12h17, point 2) « dans le prolongement de chaque ligne un bouton copier » ; la case pour écrire à plusieurs (avec le droit d'envoi)
@@ -807,7 +819,9 @@ function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: s
  * « × » pour la retirer, « + téléphone » / « + e-mail » pour en ajouter. Les mêmes actions qu'avant au bout de chaque ligne (« Copier », la case,
  * « Écrire depuis gestion@ »). Le premier téléphone et le premier e-mail gardent les noms d'avant (« Téléphone standard », « E-mail contact »).
  */
-function CoordonneesCabinetEdit({ form, setForm, onEcrire }: { form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void }) {
+function CoordonneesCabinetEdit({ form, setForm, onEcrire, ajoutNote = null }: { form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void;
+  /** (Arno, 28/11/2026, 15h03) fenêtre épurée : « + note » sur la même ligne que « + téléphone » et « + e-mail », de même taille */
+  ajoutNote?: React.ReactNode }) {
   const liste = form.cabinet ?? [];
   const maj = (cle: string, k: CoordonneeForm): void => setForm({ ...form, cabinet: liste.map((x) => (x.cle === cle ? k : x)) });
   const retirer = (cle: string): void => setForm({ ...form, cabinet: liste.filter((x) => x.cle !== cle) });
@@ -830,10 +844,11 @@ function CoordonneesCabinetEdit({ form, setForm, onEcrire }: { form: SyndicForm;
             <input type={tel ? 'tel' : 'email'} inputMode={tel ? 'tel' : undefined} value={k.valeur} placeholder={tel ? '01 23 45 67 89' : undefined}
               {...(nom !== null ? { 'aria-label': nom } : { 'aria-labelledby': 'fsy-email-generique' })}
               onChange={(ev) => maj(k.cle, { ...k, valeur: tel ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })} />
-            <button type="button" className="fsy-mini" aria-label={`Retirer ${tel ? 'ce numéro' : 'cette adresse'}${k.valeur ? ` (${k.valeur})` : ''}`} onClick={() => retirer(k.cle)}>×</button>
             {tel ? <ActionCopier tel={k.valeur} reserver={onEcrire !== undefined} /> : <ActionEcrire email={k.valeur} onEcrire={onEcrire} />}
           </span>
         </div>
+        {/* (Arno, 28/11/2026, 15h03) « × » en dernière colonne de la ligne, comme pour les coordonnées d'un contact */}
+        <button type="button" className="fsy-mini" aria-label={`Retirer ${tel ? 'ce numéro' : 'cette adresse'}${k.valeur ? ` (${k.valeur})` : ''}`} onClick={() => retirer(k.cle)}>×</button>
       </div>
     );
   };
@@ -846,13 +861,15 @@ function CoordonneesCabinetEdit({ form, setForm, onEcrire }: { form: SyndicForm;
       <div className="fsy-ligne-ajouts">
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')} data-ajouter-cabinet="telephone">+ téléphone</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')} data-ajouter-cabinet="email">+ e-mail</button>
+        {ajoutNote}
       </div>
     </div>
   );
 }
 
 function ActionCopier({ tel, reserver = false }: { tel: string; reserver?: boolean }) {
-  if (!telephoneComplet(tel)) return null;
+  const epuree = useContext(EpureeContexte);
+  if (epuree || !telephoneComplet(tel)) return null;
   // 🔴 (Arno, 28/11/2026, 13h18, point 1) « Copier » dans la colonne de celui des e-mails : avec le droit d'envoi, la place (invisible) de la case et
   //    d'« Écrire depuis gestion@ » reste à sa droite
   return (
@@ -996,6 +1013,10 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
   };
   const manques = tente ? adresseManquante(form) : [];
   const [noteOuverte, setNoteOuverte] = useState(false);
+  // 🔴 (Arno, 28/11/2026, 15h03) fenêtre épurée : « + note » rejoint « + téléphone » et « + e-mail » (même ligne, même taille) ; même geste
+  const epuree = useContext(EpureeContexte);
+  const noteDansLesAjouts = epuree && form.cabinet !== undefined;
+  const boutonNote = <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)} data-ajouter-note>+ note</button>;
   /** LOT SYNDIC-MODALE-DEUX-BLOCS — depuis un bien dont l'immeuble est une copropriété de la fiche ? Et laquelle. */
   const adresseDuBien = cleDepart !== null ? (adresses.find((x) => x.cle === cleDepart)?.adresse ?? null) : null;
   /*
@@ -1066,7 +1087,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
       <ChampRue form={form} setForm={setForm} manque={manques.includes('adresse')} libre={adresseLibre} setLibre={setAdresseLibre} />
       <ChampsCpVille form={form} setForm={setForm} manques={manques} libre={adresseLibre} />
 
-      {form.cabinet !== undefined ? <CoordonneesCabinetEdit form={form} setForm={setForm} onEcrire={onEcrire} /> : <>
+      {form.cabinet !== undefined ? <CoordonneesCabinetEdit form={form} setForm={setForm} onEcrire={onEcrire}
+        ajoutNote={epuree && !noteOuverte && (form.lotNote !== null ? form.noteBien : form.note).trim() === '' ? boutonNote : null} /> : <>
       <div className="fsy-champ fsy-champ--groupe">
         <span>Téléphone standard</span>
         {form.telephones.map((t, i) => (
@@ -1117,7 +1139,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
             onChange={(e) => { setNoteOuverte(true); setForm({ ...form, noteBien: e.target.value }); }} />
         </label>
       ) : (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)}>+ note</button>
+        noteDansLesAjouts ? null : boutonNote
       )) : noteOuverte || form.note.trim() !== '' ? (
         <label className="fsy-champ">
           <span>Note</span>
@@ -1127,7 +1149,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
             onChange={(e) => { setNoteOuverte(true); setForm({ ...form, note: e.target.value }); }} />
         </label>
       ) : (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)}>+ note</button>
+        noteDansLesAjouts ? null : boutonNote
       )}
 
       {/* 🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — « Contacts de cet immeuble » (depuis un bien) ou « Contacts du cabinet » (au
@@ -1389,6 +1411,7 @@ function Catalogue({ contacts, adresses, onSelectionner, aDeplier = null }: {
   /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — « Voir dans le catalogue » : la tuile à déplier (et à faire défiler). */
   aDeplier?: { cle: string; n: number } | null;
 }) {
+  const epuree = useContext(EpureeContexte);
   const [q, setQ] = useState('');
   /** Une seule tuile dépliée à la fois : en déplier une autre replie la précédente. */
   const [deplie, setDeplie] = useState<string | null>(null);
@@ -1432,10 +1455,11 @@ function Catalogue({ contacts, adresses, onSelectionner, aDeplier = null }: {
                   {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
                   <span>{k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur.trim()}</span>
                 </span>
+                {!epuree && (
                 <span className="fsy-action">
                   <BoutonCopier valeur={k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur.trim()}
                     quoi={k.sorte === 'telephone' ? 'le numéro' : 'l’adresse e-mail'} />
-                </span>
+                </span>)}
               </div>
             ))}
             {c.coordonnees.every((k) => k.valeur.trim() === '') && <p className="fsy-discret fsy-sans-marge">Aucun téléphone ni e-mail.</p>}
@@ -2799,5 +2823,47 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   .fsy-boutons .gst-btn{flex:1 1 auto;min-height:44px}
   .fsy-mini{min-width:44px;min-height:44px}
   .fsy-catalogue-recherche{font-size:16px;min-height:44px}
+}
+/* (Arno, 28/11/2026, 15h03) LA FENETRE EPUREE (ouverte depuis la fiche syndic de la Location) : une grille reguliere et symetrique.
+   Chaque telephone / e-mail sur UNE ligne : Libelle | Valeur | x, memes colonnes d'une ligne a l'autre, champs a la meme hauteur ;
+   les ajouts alignes et de meme taille ; adresse : rue pleine largeur, puis code postal + ville ; contacts : la meme grille ;
+   des espacements identiques entre les sections. A 390 px : le libelle au-dessus de la valeur, le x a droite. */
+.fsy-epuree{--fsy-h:40px;--fsy-col-libelle:12rem;--fsy-ecart:12px}
+.fsy-epuree .fsy-champ input,.fsy-epuree .fsy-champ select{height:var(--fsy-h);min-height:var(--fsy-h);box-sizing:border-box;width:100%}
+.fsy-epuree .fsy-cadre{gap:var(--fsy-ecart)}
+.fsy-epuree .fsy-cadre > .fsy-champ,.fsy-epuree .fsy-cadre > .fsy-bloc,.fsy-epuree .fsy-cadre > .fsy-duo,.fsy-epuree .fsy-cabinet{margin:0}
+.fsy-epuree .fsy-lien-adresse{min-height:28px}
+.fsy-epuree .fsy-cabinet{display:grid;row-gap:var(--fsy-ecart)}
+.fsy-epuree .fsy-coord-cabinet,.fsy-epuree .fsy-coord-edit{display:grid;grid-template-columns:minmax(0,var(--fsy-col-libelle)) minmax(0,1fr) var(--fsy-h);
+  column-gap:10px;row-gap:6px;align-items:end;margin:0}
+.fsy-epuree .fsy-coord-cabinet > label.fsy-champ:first-child,.fsy-epuree .fsy-coord-edit > label.fsy-champ:first-child{grid-column:1;grid-row:1}
+.fsy-epuree .fsy-coord-cabinet > label.fsy-champ + label.fsy-champ,.fsy-epuree .fsy-coord-edit > label.fsy-champ + label.fsy-champ{grid-column:1;grid-row:2}
+.fsy-epuree .fsy-coord-cabinet > .fsy-champ--large,.fsy-epuree .fsy-coord-edit > .fsy-champ--large{grid-column:2;grid-row:1}
+.fsy-epuree .fsy-coord-cabinet > .fsy-mini,.fsy-epuree .fsy-coord-edit > .fsy-mini{grid-column:3;grid-row:1;width:var(--fsy-h);height:var(--fsy-h);min-width:0;min-height:0;align-self:end}
+.fsy-epuree .fsy-coord-cabinet > .fsy-doublon-coord,.fsy-epuree .fsy-coord-edit > .fsy-doublon-coord{grid-column:1 / -1}
+.fsy-epuree .fsy-ligne-tel,.fsy-epuree .fsy-ligne-champ{display:block}
+.fsy-epuree .fsy-ligne-tel input,.fsy-epuree .fsy-ligne-champ input{width:100%}
+.fsy-epuree .fsy-ligne-ajouts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.fsy-epuree .fsy-ligne-ajouts > .gst-btn{width:100%;margin:0;height:var(--fsy-h);min-height:var(--fsy-h);align-self:stretch}
+.fsy-epuree .fsy-contact-edit .fsy-ligne-ajouts{grid-template-columns:repeat(2,minmax(0,1fr))}
+.fsy-epuree .fsy-duo:has(> .fsy-champ--cp){display:grid;grid-template-columns:minmax(0,var(--fsy-col-libelle)) minmax(0,1fr);gap:10px}
+.fsy-epuree .fsy-contact-edit{display:grid;row-gap:var(--fsy-ecart)}
+.fsy-epuree .fsy-contact-edit > .fsy-duo{display:grid;grid-template-columns:minmax(0,var(--fsy-col-libelle)) minmax(0,1fr);gap:10px;margin:0;align-items:end}
+.fsy-epuree .fsy-contact-edit > .fsy-duo.fsy-duo--civilite{grid-template-columns:minmax(0,var(--fsy-col-libelle)) minmax(0,1fr) minmax(0,1fr)}
+.fsy-epuree .fsy-contact-edit > .fsy-duo.fsy-coord-edit{grid-template-columns:minmax(0,var(--fsy-col-libelle)) minmax(0,1fr) var(--fsy-h)}
+.fsy-epuree .fsy-civilites{display:flex;gap:6px;min-height:var(--fsy-h);align-items:center}
+@media (max-width:640px){
+  .fsy-epuree{--fsy-h:44px}
+  .fsy-epuree .fsy-lien-adresse{min-height:44px}
+  .fsy-epuree .fsy-contact-edit > .fsy-duo{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fsy-epuree .fsy-coord-cabinet,.fsy-epuree .fsy-coord-edit,.fsy-epuree .fsy-contact-edit > .fsy-duo.fsy-coord-edit{grid-template-columns:minmax(0,1fr) var(--fsy-h)}
+  .fsy-epuree .fsy-coord-cabinet > label.fsy-champ:first-child,.fsy-epuree .fsy-coord-edit > label.fsy-champ:first-child{grid-column:1 / -1;grid-row:1}
+  .fsy-epuree .fsy-coord-cabinet > label.fsy-champ + label.fsy-champ,.fsy-epuree .fsy-coord-edit > label.fsy-champ + label.fsy-champ{grid-column:1 / -1;grid-row:2}
+  .fsy-epuree .fsy-coord-cabinet > .fsy-champ--large,.fsy-epuree .fsy-coord-edit > .fsy-champ--large{grid-column:1;grid-row:2}
+  .fsy-epuree .fsy-coord-cabinet > .fsy-mini,.fsy-epuree .fsy-coord-edit > .fsy-mini{grid-column:2;grid-row:2}
+  .fsy-epuree .fsy-coord-cabinet:has(> label.fsy-champ + label.fsy-champ) > .fsy-champ--large,.fsy-epuree .fsy-coord-edit:has(> label.fsy-champ + label.fsy-champ) > .fsy-champ--large{grid-row:3}
+  .fsy-epuree .fsy-coord-cabinet:has(> label.fsy-champ + label.fsy-champ) > .fsy-mini,.fsy-epuree .fsy-coord-edit:has(> label.fsy-champ + label.fsy-champ) > .fsy-mini{grid-row:3}
+  .fsy-epuree .fsy-contact-edit > .fsy-duo.fsy-duo--civilite{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .fsy-epuree .fsy-contact-edit > .fsy-duo.fsy-duo--civilite > .fsy-champ--civilite{grid-column:1 / -1}
 }
 `;

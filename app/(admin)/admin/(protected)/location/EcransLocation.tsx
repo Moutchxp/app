@@ -278,7 +278,7 @@ export function FicheSyndicLocationVue({ id, peutModifier = false }: { id: numbe
       {ecrire.fenetres}
       {coproOuverte !== null && <FicheCopropriete immeuble={coproOuverte} onFerme={() => { setCoproOuverte(null); rafraichir(); }} />}
       {modification !== null && typeof document !== 'undefined' && createPortal(
-        <FicheSyndic syndicId={id} departContacts={modification === 'contacts'} onFerme={() => { setModification(null); rafraichir(); }}
+        <FicheSyndic syndicId={id} epuree departContacts={modification === 'contacts'} onFerme={() => { setModification(null); rafraichir(); }}
           {...(ecrire.onEcrire !== undefined ? { onEcrire: ecrire.onEcrire } : {})} />,
         document.querySelector('.svv-adm-root') ?? document.body)}
       {/* 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « réorganiser ce premier bloc qui est plein de vide et exploite mal l'espace ; le rendre plus cohérent ;
