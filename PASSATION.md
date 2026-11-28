@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1627,10 +1627,30 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   (« En préavis », « Préavis échu — sortie à saisir », « Aucune pré-visite fixée »), le troisième est coupé par la hauteur maximale des repères
   (`.psl-cartouches{max-height:2.9rem;overflow:hidden}`). À décider par Arno.
 
+### 28/11/2026, 01h28 — décisions, locataires au-dessus de la mission, deux groupes (`15d6c01d`, `c48d160d`, `432e5f61`)
+- **Décisions d'Arno (28/11/2026), `15d6c01d`** :
+  - OUI : la pastille du menu de la Gestion et le repère « ● N en alerte » du bloc replié comptent aussi « Compte rendu pré-visite à faire » et « Sortie à
+    valider ». `compterPreavisEnAlerte(lignes, maintenant)` passe par `ligneEnAlerte` → `alertesRdv`, avec une ligne comptée une fois.
+    Au Chrome en recette : pastille 4 = repère 4.
+  - OUI : au téléphone, plus aucun repère coupé. La hauteur maximale de `.psl-cartouches` est retirée ; la ligne garde 10,5 / 14 rem comme MINIMUM.
+- **Point 1 (`c48d160d`)** — `pva-paire` devient une petite grille : « Locataires : … » en haut, « confié à Prénom NOM » + son état dessous.
+  - Les deux cartouches sont dans la même colonne, étirés à la même largeur (mesuré : mêmes bords, 896 → 1044 px). Cette disposition remplace celle de
+    22606467 ; la règle `paireCommune` est inchangée.
+  - À l'ordinateur aussi, 4,75 / 6,25 rem deviennent des MINIMUMS : les lignes ordinaires gardent 76 px, une ligne avec « Locataires » s'allonge (89 / 126 px).
+- **Point 2 (`432e5f61`)** — `grouperParRdv` : « Sans rendez-vous fixé (N) » d'abord, puis « Avec rendez-vous fixé (N) », où s'applique le tri RDV.
+  - Un groupe vide n'a pas de titre ; filtres et recherche portent sur les deux. Même composant : même ordre sur l'accueil Location, en pleine page et en Gestion.
+  - **Choix fait, à confirmer par Arno** : avec « Tri RDV désactivé », la liste reste comme avant, d'un seul tenant, dans l'ordre des tris du panneau et sans
+    groupes. Les groupes viennent avec le tri RDV, qui est le réglage par défaut.
+- Contrôles : `npm test` VERT (1 895 fichiers, 28 387 tests, 21 ignorés ; `.captures/preavis-groupes-paire/npm-test-complet-p2.txt`) ; `tsc` = 0.
+  - Chrome sur localhost:3000 (préavis de test), accueil Location + pleine page + Gestion, ordinateur et 390 px, clair et sombre. Aucune requête non GET :
+    rien validé, rien envoyé.
+  - Captures `.captures/preavis-groupes-paire/`. Aucune migration.
+  - ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61` et leurs passations, non poussés. **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
