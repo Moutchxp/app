@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1600,10 +1600,37 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Contrôles : `npm test` VERT (1 895 fichiers, 28 361 tests) ; `tsc` = 0. Chrome sur le préavis de test (bail 544), recette, ordinateur et 390 px, clair et sombre,
   toute écriture bloquée, rien planifié ni envoyé ; captures `.captures/location-titre-tuiles-confie/`. Aucune migration.
 
+### 28/11/2026, 01h04 et 01h07 — alertes sous leur rendez-vous, paire collaborateur + locataires (`b01b8d3a`, `22606467`)
+- **Décision d'Arno (28/11/2026)** : accepté, « · par Prénom NOM » retiré aussi du cartouche « État des lieux effectué ». C'était déjà le cas depuis `ad02d810`
+  (`cartoucheEdls`, frisePreavis.ts : « État des lieux effectué — le … », sans nom) : rien à changer.
+- **Point 1 (`b01b8d3a`)** — sur la ligne repliée, une pile alignée à droite, dans l'ordre fixe : « RDV pré-visite fixé », « Compte rendu pré-visite à faire »
+  (orange), « RDV état des lieux fixé », « Sortie à valider » (orange). Au plus 4 cartouches.
+  - Une seule source : `alertesRdv` (triRdvPreavis.ts) = `rdvsDeLigne` + `rdvDepasse`, la règle de la mention « date dépassée — … ». Une épreuve le vérifie.
+  - L'alerte disparaît au compte rendu (la pré-visite est effectuée) et à la sortie validée (la ligne quitte la liste).
+  - Même composant `CartoucheAlerte` (PrevisiteAccueil.tsx) que « Aucune pré-visite fixée », qui passe désormais par lui à l'identique.
+  - Plus serrée à 3 ou 4 cartouches ; seule une ligne qui en porte s'allonge (`pva-ligne--pile`). Les autres gardent leur hauteur constante.
+  - **« Alerte préavis »** (filtre et compteur, `ligneEnAlerte`) compte aussi ces deux alertes, une fois par ligne. **Non changés** : la pastille du menu de
+    la Gestion et le repère rouge du bloc replié (`compterPreavisEnAlerte` : 11e jour + « Personne n'a accepté »). **À décider par Arno** : y ajouter les
+    deux alertes, ou non.
+  - Deux jeux d'essai avaient une pré-visite « à venir » au 20/11/2026, désormais passée : repoussée en 2099 (PrevisiteAccueil.test.tsx, PreavisGestion.test.tsx).
+- **Point 2 (`22606467`)** — la paire `pva-paire` : « confié à Prénom NOM · Confirmé », puis « Locataires : … » juste après, sur la même ligne, même hauteur
+  (mesuré : 548-570 px pour les deux).
+  - Deux rendez-vous : une paire par rangée. Une seule, centrée, si tout est identique (`paireCommune`, qui s'appuie sur `mentionsCommunes` de f2cbaae9).
+    Même collaborateur mais locataires différents : la mission se lit sur chaque rangée, chacune avec ses locataires (c'était la cause du décalage vers le bas).
+  - À 390 px : « Locataires : … » passe à la ligne proprement, sans chevaucher « Ouvrir ».
+- Contrôles : `npm test` VERT (1 895 fichiers, 28 379 tests, 21 ignorés ; `.captures/alertes-rdv-paire/npm-test-complet-p2.txt`) ; `tsc` = 0.
+  - Chrome sur localhost:3000 (préavis de test), ordinateur et 390 px, clair et sombre. Toute requête non GET était bloquée, et aucune n'a été tentée.
+  - Le cas à 4 cartouches est vu en modifiant DANS LE NAVIGATEUR la réponse lue (état des lieux du bail 544 mis au 20/11). Rien n'a été écrit.
+  - Captures `.captures/alertes-rdv-paire/` (avant, p1, p1-quatre, p2, p2-quatre). Aucune migration.
+  - ⚠️ Preuve curl À FAIRE par Arno (composant client touché).
+- Constat, NON corrigé (existait avant, visible sur les captures « avant ») : au téléphone, sur les lignes « Sans rendez-vous fixé » à trois repères
+  (« En préavis », « Préavis échu — sortie à saisir », « Aucune pré-visite fixée »), le troisième est coupé par la hauteur maximale des repères
+  (`.psl-cartouches{max-height:2.9rem;overflow:hidden}`). À décider par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467` et leurs passations, non poussés. **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
