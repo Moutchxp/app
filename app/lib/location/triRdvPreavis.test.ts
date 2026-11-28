@@ -156,26 +156,6 @@ describe('🔴 01h04 — alertesRdv : « Compte rendu pré-visite à faire » et
   });
 });
 
-describe('🔴 01h07 — paireCommune : une paire (collaborateur + locataires) par rendez-vous ; une seule si tout est identique', async () => {
-  const { paireCommune } = await import('./triRdvPreavis');
-  const C = { qui: 'Arnaud JOREL', etat: 'confirme' as const };
-  it('tout identique : une seule paire', () => {
-    expect(paireCommune([C, { ...C }], ['Locataires : Confirmé', 'Locataires : Confirmé'])).toBe(true);
-    expect(paireCommune([C, { ...C }], [null, null])).toBe(true);
-    expect(paireCommune([null, null], ['Locataires : Confirmé', 'Locataires : Confirmé'])).toBe(true);
-  });
-  it('la mission identique mais pas les locataires (ou l’inverse) : une paire par rendez-vous', () => {
-    expect(paireCommune([C, { ...C }], [null, 'Locataires : Confirmé'])).toBe(false);
-    expect(paireCommune([C, { ...C }], ['Locataires : Confirmé', 'Locataires : En attente'])).toBe(false);
-    expect(paireCommune([C, { ...C, etat: 'attente' }], ['Locataires : Confirmé', 'Locataires : Confirmé'])).toBe(false);
-    expect(paireCommune([C, { qui: 'Claire TEST', etat: 'confirme' }], [null, null])).toBe(false);
-  });
-  it('rien à dire des deux côtés, ou un seul rendez-vous : pas de paire commune', () => {
-    expect(paireCommune([null, null], [null, null])).toBe(false);
-    expect(paireCommune([C], ['Locataires : Confirmé'])).toBe(false);
-  });
-});
-
 describe('🔴 01h28 — grouperParRdv : « Sans rendez-vous fixé » d’abord, puis « Avec rendez-vous fixé » (le tri RDV dans le second)', async () => {
   const { grouperParRdv, TITRE_GROUPE_RDV } = await import('./triRdvPreavis');
   const LS = [

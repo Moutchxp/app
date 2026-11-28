@@ -26,7 +26,7 @@ import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { dateAlerteSansPrevisite, dateDuStatut, dateEchu, ordonnerReperes } from '../../../../lib/location/reperesLigne';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
-import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -322,10 +322,13 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 /* 🔴🔴 Arno (28/11/2026, 01h28 puis 01h52) — LA COLONNE « CONFIÉ À » : elle couvre toute la hauteur du bloc replié, ligne du nom comprise.
                    « Locataires : … » est sur la PREMIÈRE ligne, au niveau du nom (« elle doit s'afficher sur la PREMIÈRE ligne, au même niveau que le nom du
                    locataire ») ; « confié à Prénom NOM · Confirmé » dessous, sur la rangée de son rendez-vous. Les cartouches dans la même colonne, de la
-                   même largeur (mêmes bords). Un mot des locataires par état différent ; la règle des doublons de f2cbaae9 (`paireCommune`) inchangée. */
+                   même largeur (mêmes bords). Un mot des locataires par état différent.
+                   🔴🔴 (Arno, 28/11/2026, 01h52, point 4) « il ne faut pas de doublon de confirmation de collaborateur ; ici supprimer la confirmation
+                   d'Arnaud JOREL du haut et laisser celle du bas » : même personne au même statut sur les deux rendez-vous → UNE mention, EN BAS (la
+                   rangée du dernier rendez-vous), même si les locataires diffèrent ; sinon une mention par rendez-vous. */
                 const ms = rdvs.map(missionDe);
                 const mots = rdvs.map((r) => (r.sorte === 'previsite' || r.sorte === 'edl' ? motCourtLocataires(l.reponsesRdv?.[r.sorte]) : null));
-                const commune = rdvs.length > 1 && paireCommune(ms, mots);
+                const commune = rdvs.length > 1 && mentionsCommunes(ms, mots).mission;
                 const locs = rdvs.reduce<{ mot: string; sortes: ('previsite' | 'edl')[] }[]>((acc, r, i) => {
                   const mot = mots[i];
                   if (mot == null || (r.sorte !== 'previsite' && r.sorte !== 'edl')) return acc;
@@ -1023,7 +1026,7 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-colconf .pva-etat-mission{grid-column:2}
   .pva-colconf > [data-rang="1"] > *{grid-row:2}
   .pva-colconf > [data-rang="2"] > *{grid-row:3}
-  .pva-colconf > .pva-col-commune > *{grid-row:2 / -1}
+  .pva-colconf > .pva-col-commune > *{grid-row:-2 / -1}
   .pva-locs{grid-column:2;grid-row:1}
   .pva-colconf > .pva-locs{justify-self:stretch;align-items:stretch}
   /* deux rendez-vous : les dates sur les rangees 2 et 3, celles de leur mission */

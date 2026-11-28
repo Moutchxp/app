@@ -196,17 +196,3 @@ export function mentionsCommunes(missions: readonly ({ qui: string; etat: EtatMi
     locataires: locataires.length === 2 && x != null && y != null && x === y,
   };
 }
-
-/**
- * 🔴🔴 (Arno, 28/11/2026, 01h07) « le cartouche qui concerne le locataire s'affiche dans la continuité de la même ligne que celle du cartouche "Confirmé"
- * qui concerne le collaborateur » : sur une ligne à deux rendez-vous, une PAIRE (mission + locataires) par rendez-vous, chacune sur sa rangée ; UNE
- * seule paire quand TOUT est identique — même personne au même statut (`mentionsCommunes`), même mot des locataires, ou rien des deux côtés — et
- * qu'il y a quelque chose à dire. Sinon une paire par rendez-vous (la mission peut alors se lire deux fois : c'est la ligne de chacun). PUR.
- */
-export function paireCommune(missions: readonly ({ qui: string; etat: EtatMission } | null)[], locataires: readonly (string | null)[]): boolean {
-  if (missions.length !== 2 || locataires.length !== 2) return false;
-  const c = mentionsCommunes(missions, locataires);
-  const memeMission = c.mission || (missions[0] == null && missions[1] == null);
-  const memesLocataires = c.locataires || (locataires[0] == null && locataires[1] == null);
-  return memeMission && memesLocataires && !(missions[0] == null && locataires[0] == null);
-}

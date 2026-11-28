@@ -3954,7 +3954,31 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     await rendre(true);
     const conf = sel('A', '[data-colconf]');
     expect([...conf.querySelectorAll('.pva-locs [data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé', 'Locataires : En attente']);
-    expect([...conf.querySelectorAll('.pva-col-mission')].map((x) => x.getAttribute('data-rang'))).toEqual(['1', '2']);
+    expect([...conf.querySelectorAll('.pva-col-mission')].map((x) => x.getAttribute('data-rang'))).toEqual(['1', '2']); // même personne mais statuts différents (Confirmé / En attente) : une par rangée
+  });
+  // ══ 🔴🔴 Arno (28/11/2026, 01h52, point 4) — « supprimer la confirmation d'Arnaud JOREL du haut et laisser celle du bas » ══
+  it('🔴 01h52 — même collaborateur au même statut, locataires DIFFÉRENTS : une seule mention, EN BAS ; les « Locataires » restent', async () => {
+    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Arnaud Jorel', statut: 'acceptee' }]), edls: { ...EDLS('2099-02-03', 'acceptee'), confieA: 'Arnaud Jorel' },
+      reponsesRdv: { previsite: null, edl: { etat: 'confirme', main: false, par: 'x' } } } as never, LIGNES[1], LIGNES[2]];
+    await rendre(true);
+    const conf = sel('A', '[data-colconf]');
+    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Arnaud JOREL']);
+    const m = conf.querySelector('.pva-col-mission')!;
+    expect([m.className, m.getAttribute('data-mission-de'), m.hasAttribute('data-rang')]).toEqual(['pva-col-mission pva-col-commune', 'previsite edl', false]);
+    expect([...conf.querySelectorAll('[data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé']);
+    // les deux dates restent, chacune sur sa rangée
+    expect([...sel('A', '[data-col-rdv="deux"]').querySelectorAll('.pva-rdv-date')]).toHaveLength(2);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.pva-colconf > .pva-col-commune > *{grid-row:-2 / -1}'); // la rangée du dernier rendez-vous (en bas)
+    expect(css).toContain('.pva-colconf > .pva-col-commune{order:6}'); // au téléphone : après la seconde date
+  });
+  it('🔴 01h52 — deux états des locataires différents ET même collaborateur : une mention en bas, deux « Locataires » (un par état)', async () => {
+    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee'),
+      reponsesRdv: { previsite: { etat: 'confirme', main: false, par: 'x' }, edl: { etat: 'attente', main: false, par: null } } } as never, LIGNES[1], LIGNES[2]];
+    await rendre(true);
+    const conf = sel('A', '[data-colconf]');
+    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST']);
+    expect([...conf.querySelectorAll('.pva-locs [data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé', 'Locataires : En attente']);
   });
   it('la mention rouge « date dépassée » sur chaque rendez-vous concerné', async () => {
     lignes = lignes.map((l) => (l.cle === 'A' ? { ...l, previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') } : l));
