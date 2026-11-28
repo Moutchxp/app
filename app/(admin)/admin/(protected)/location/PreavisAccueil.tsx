@@ -213,10 +213,10 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   // la liste affichée : chronologique (🔴 16/11/2026 : les lignes « RDV … fixé » seulement, puis « Sans rendez-vous fixé (n) » par fin de
   // préavis), ou l'ordre des tris du panneau
   // 🔴🔴 (Arno, 28/11/2026, 01h28) DEUX GROUPES : « Sans rendez-vous fixé (N) » D'ABORD, puis « Avec rendez-vous fixé (N) » (le tri RDV s'applique dans ce
-  // second groupe) ; filtres et recherche portent sur les deux (`lignes`) ; un groupe vide n'a pas de titre. Tri RDV désactivé : l'ordre des tris du
-  // panneau, d'un seul tenant, comme avant
-  const affichage: (LignePreavisAccueil | { separateur: 'sans' | 'avec'; nombre: number })[] = triRdv === 'off' ? lignes
-    : grouperParRdv(lignes, triRdv).flatMap((g) => (g.lignes.length === 0 ? [] : [{ separateur: g.groupe, nombre: g.lignes.length }, ...g.lignes]));
+  // second groupe) ; filtres et recherche portent sur les deux (`lignes`) ; un groupe vide n'a pas de titre. 🔴🔴 Décision d'Arno (28/11/2026) : TOUJOURS,
+  // même « Tri RDV désactivé » (les tris du panneau s'appliquent alors à l'intérieur de chaque groupe)
+  const affichage: (LignePreavisAccueil | { separateur: 'sans' | 'avec'; nombre: number })[] = grouperParRdv(lignes, triRdv)
+    .flatMap((g) => (g.lignes.length === 0 ? [] : [{ separateur: g.groupe, nombre: g.lignes.length }, ...g.lignes]));
   return (
     <ContextePreavis.Provider value={contexte}>
     <section className={`pva${deplie ? '' : ' blr-bloc'}`} aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>

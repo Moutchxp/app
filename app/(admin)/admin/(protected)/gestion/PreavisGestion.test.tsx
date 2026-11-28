@@ -261,12 +261,13 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     expect(c.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (2)');
     expect(c.querySelector('[data-separateur-avec-rdv]')!.textContent).toBe('Avec rendez-vous fixé (1)');
   });
+  // 🔴🔴 décision d'Arno (28/11/2026) : les deux groupes TOUJOURS, même tri RDV désactivé : chaque tri du panneau s'applique À L'INTÉRIEUR de chaque groupe — A et C (sans rendez-vous) d'abord, B (rendez-vous fixé) ensuite
   it.each([
-    ['recu:asc', ['A', 'C', 'B']], ['recu:desc', ['B', 'C', 'A']],
-    ['fin:asc', ['A', 'B', 'C']], ['fin:desc', ['C', 'B', 'A']],
-    ['previsite:asc', ['B', 'A', 'C']], ['previsite:desc', ['B', 'A', 'C']],
-    ['edl:asc', ['A', 'B', 'C']], ['edl:desc', ['B', 'A', 'C']],
-    ['statut:asc', ['A', 'C', 'B']], ['statut:desc', ['B', 'A', 'C']],
+    ['recu:asc', ['A', 'C', 'B']], ['recu:desc', ['C', 'A', 'B']],
+    ['fin:asc', ['A', 'C', 'B']], ['fin:desc', ['C', 'A', 'B']],
+    ['previsite:asc', ['A', 'C', 'B']], ['previsite:desc', ['A', 'C', 'B']],
+    ['edl:asc', ['A', 'C', 'B']], ['edl:desc', ['A', 'C', 'B']],
+    ['statut:asc', ['A', 'C', 'B']], ['statut:desc', ['A', 'C', 'B']],
   ])('tri %s', async (cle, attendu) => {
     const c = await plein();
     await clic(c.querySelector(`[data-tri="${cle}"]`));
@@ -277,7 +278,7 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     await clic(c.querySelector('[data-tri="recu:desc"]'));
     expect(window.localStorage.getItem(CLE_TRI_PLEINE_PAGE)).toBe('recu:desc');
     const c2 = await plein();
-    expect(ordre(c2)).toEqual(['B', 'C', 'A']);
+    expect(ordre(c2)).toEqual(['C', 'A', 'B']); // le tri conservé, dans les deux groupes (décision d'Arno du 28/11/2026)
   });
   it('filtres par statut (pastilles), seuls ou cumulés', async () => {
     const c = await plein();

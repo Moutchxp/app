@@ -194,3 +194,11 @@ describe('🔴 01h28 — grouperParRdv : « Sans rendez-vous fixé » d’abord,
     expect(grouperParRdv([LS[0]], 'proches').map((g) => g.lignes.length)).toEqual([0, 1]);
   });
 });
+
+describe('🔴🔴 décision d’Arno (28/11/2026) — grouperParRdv, tri RDV désactivé : les deux groupes quand même, l’ordre reçu dans chacun', async () => {
+  const { grouperParRdv } = await import('./triRdvPreavis');
+  it('l’ordre reçu (celui du panneau), partagé en deux', () => {
+    const LS = [L('a1', { previsite: pv('programmee', '2026-12-20') }), L('s1', { previsite: pv('recu') }), L('a2', { previsite: pv('programmee', '2026-11-20') }), L('s2', { previsite: pv('alerte') })];
+    expect(grouperParRdv(LS, 'off').map((g) => [g.groupe, g.lignes.map((x) => x.cle)])).toEqual([['sans', ['s1', 's2']], ['avec', ['a1', 'a2']]]);
+  });
+});

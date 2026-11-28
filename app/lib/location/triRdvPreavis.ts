@@ -76,12 +76,14 @@ export function ordonnerParRdv<T extends LigneRdv>(lignes: readonly T[], mode: E
 /* ══ 🔴🔴 Arno (28/11/2026, 01h28) — DEUX GROUPES, « Sans rendez-vous fixé » D'ABORD ══════════════════════════════════════════════════════════════
    « Il y a 2 catégories de lignes : les locataires dont un RDV a été fixé et ceux sans RDV fixé. Afficher d'abord les locataires "Sans rendez-vous fixé",
    ensuite ceux "Avec rendez-vous fixé". » Les deux groupes, dans l'ORDRE D'AFFICHAGE : « Sans » (par fin de préavis la plus proche, comme avant), puis
-   « Avec » (le tri RDV : plus proches / plus lointains d'abord). Les groupes viennent avec le tri RDV, comme le séparateur d'avant ; « Tri RDV
-   désactivé » : la liste reste celle des tris du panneau, d'un seul tenant (inchangé). Le partage est celui de `rdvDuStatut` (un rendez-vous fixé, même
+   « Avec » (le tri RDV : plus proches / plus lointains d'abord). 🔴🔴 Décision d'Arno (28/11/2026) : les deux groupes TOUJOURS, même « Tri RDV
+   désactivé » — chaque groupe garde alors l'ordre reçu (celui des tris du panneau). Le partage est celui de `rdvDuStatut` (un rendez-vous fixé, même
    dépassé). Aucune ligne perdue. PUR. */
 export const TITRE_GROUPE_RDV: Record<'sans' | 'avec', string> = { sans: 'Sans rendez-vous fixé', avec: 'Avec rendez-vous fixé' };
-export function grouperParRdv<T extends LigneRdv>(lignes: readonly T[], mode: Exclude<ModeTriRdv, 'off'>): { groupe: 'sans' | 'avec'; lignes: T[] }[] {
-  const o = ordonnerParRdv(lignes, mode);
+export function grouperParRdv<T extends LigneRdv>(lignes: readonly T[], mode: ModeTriRdv): { groupe: 'sans' | 'avec'; lignes: T[] }[] {
+  const o = mode === 'off'
+    ? { sansRdv: lignes.filter((l) => rdvDuStatut(l) === null), avecRdv: lignes.filter((l) => rdvDuStatut(l) !== null) }
+    : ordonnerParRdv(lignes, mode);
   return [{ groupe: 'sans' as const, lignes: o.sansRdv }, { groupe: 'avec' as const, lignes: o.avecRdv }];
 }
 

@@ -792,7 +792,8 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, jour: '2098-01-01' }, etatDesLieuxLe: '2098-01-01' } : l));
     await rendre();
     clic('button[data-tri="edl:asc"]');
-    expect(ordre()).toEqual(['C', 'A', 'B']);
+    // 🔴🔴 décision d'Arno (28/11/2026) : les deux groupes TOUJOURS, même tri RDV désactivé — C (état des lieux planifié) est « avec rendez-vous fixé » : après A et B
+    expect(ordre()).toEqual(['A', 'B', 'C']);
   });
 });
 
@@ -3514,8 +3515,10 @@ describe('🔴🔴 Arno (15/11/2026) — tris repliés derrière l’icône « T
     expect(ordre()).toEqual(['B', 'A', 'C']); // le tri RDV s'applique DANS le second groupe
     act(() => b().click()); await attendre();
     expect([b().getAttribute('data-tri-rdv'), b().textContent]).toEqual(['off', 'Tri RDV désactivé']);
-    expect(container.querySelector('[data-separateur-sans-rdv]')).toBeNull();
-    expect(container.querySelector('[data-separateur-avec-rdv]')).toBeNull();
+    // 🔴🔴 décision d'Arno (28/11/2026) : les deux groupes TOUJOURS, même tri RDV désactivé
+    expect(container.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (1)');
+    expect(container.querySelector('[data-separateur-avec-rdv]')!.textContent).toBe('Avec rendez-vous fixé (2)');
+    expect(ordre()[0]).toBe('B');
     expect(ordre()).toHaveLength(3);
     act(() => b().click()); await attendre();
     expect(b().getAttribute('data-tri-rdv')).toBe('proches');
@@ -3603,9 +3606,12 @@ describe('🔴🔴 Arno (15/11/2026) — le listing sur DEUX lignes, colonnes fi
     act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre();
     expect(ordre()).toEqual(['A', 'C', 'B']); // plus lointains : le groupe sans RDV d'abord, inchangé ; puis l'état des lieux de 2099, puis le RDV dépassé
     act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre();
-    expect(container.querySelector('[data-separateur-sans-rdv]')).toBeNull(); // désactivé : ordre du panneau, sans séparateur
+    // 🔴🔴 décision d'Arno (28/11/2026) : les deux groupes TOUJOURS, même tri RDV désactivé (l'ordre du panneau à l'intérieur de chacun)
+    expect(container.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (1)');
+    expect(ordre()[0]).toBe('A');
     expect(ordre().sort()).toEqual(['A', 'B', 'C']);
-  });  // ══ 🔴🔴 Arno (28/11/2026, 01h28) — « Afficher d'abord les locataires "Sans rendez-vous fixé", ensuite ceux "Avec rendez-vous fixé" » ══
+  });
+  // ══ 🔴🔴 Arno (28/11/2026, 01h28) — « Afficher d'abord les locataires "Sans rendez-vous fixé", ensuite ceux "Avec rendez-vous fixé" » ══
   it('🔴 01h28 — deux groupes, titrés avec leur nombre ; un groupe vide n’a pas de titre ; les filtres portent sur les deux', async () => {
     lignes = [
       { ...LIGNES[0], previsite: PV('effectuee', '2020-01-10') },
