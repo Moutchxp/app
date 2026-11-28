@@ -124,6 +124,8 @@ export interface LotDeCopropriete {
   proprietaires?: string[]; triProprietaire?: string;
   /** 🔴 Arno (19/11/2026) — le statut de gestion (la définition partagée, `bienEnGestion`) : la date de fin et le statut du bien. */
   fin?: string | null; statut?: 'en_gestion' | 'ancienne_gestion' | 'location_seule';
+  /** 🔴 (Arno, 28/11/2026, 12h17, point 3) la clé de l'immeuble du lot (son adresse dans la copropriété : principale ou secondaire). */
+  cleImmeuble?: string;
 }
 
 /** Un immeuble connu : de l'annuaire (ses lots) et/ou déjà déclaré comme copropriété ; avec son syndic en cours. */
@@ -177,6 +179,8 @@ export interface FicheSyndic {
   /** Les copropriétés EN COURS, chacune avec ses lots. */
   coproprietes: Array<{
     id: number; cle: string; libelle: string; codePostal: string | null; commune: string | null; debut: string;
+    /** 🔴 (Arno, 28/11/2026, 12h17, point 3) le nom de la résidence, s'il existe. */
+    nom?: string | null;
     lots: LotDeCopropriete[];
     /** LOT COPRO-PLUSIEURS-ADRESSES — ses adresses secondaires en cours (ses `lots` comprennent les leurs). */
     adresses?: AdresseConnue[];

@@ -42,15 +42,38 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restore
 const calmer = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); }); };
 const rendre = async () => { await act(async () => { root.render(createElement(FicheSyndicLocationVue, { id: 4 })); }); await calmer(); };
 
-describe('🔴🔴 point 4 — les adresses d’une copropriété : jamais répétées', () => {
-  it('« 43 Avenue Marceau · 43 avenue Marceau · 43 avenue Marceau · 80 rue de Normandie · 80 rue de Normandie » → deux adresses, chaque bien garde son lien', async () => {
+describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré par copropriété, ses adresses jamais répétées, « N lots », le total', () => {
+  const RESUME = { detail: { total: 4, parType: [{ type: 'logement', n: 3 }, { type: 'parking', n: 1 }] }, copros: [{ id: 157, cle: '43 avenue marceau', nom: 'Résidence Marceau',
+    adresses: [{ libelle: '43 Avenue Marceau', principale: true, biens: 2, teteIds: [1, 2] }, { libelle: '80 rue de Normandie', principale: false, biens: 2, teteIds: [4, 5] }],
+    detail: { total: 4, parType: [{ type: 'logement', n: 3 }, { type: 'parking', n: 1 }] } }] };
+  it('le compteur, puis l’encadré : nom, adresses (une fois chacune) avec « N lots », total ; chaque bien garde son lien', async () => {
+    syndic = { ...BASE, resumeCopros: RESUME };
     await rendre();
-    const adresses = [...container.querySelectorAll('[data-adresse-copro]')];
-    expect(adresses).toHaveLength(2);
-    expect(adresses[0].textContent).toContain('43 Avenue Marceau');
-    expect(adresses[1].textContent).toContain('80 rue de Normandie');
-    expect([...container.querySelectorAll('[data-adresses-copro] a')].map((a) => a.getAttribute('href')))
-      .toEqual([1, 2, 3, 4, 5].map((i) => `/admin/location/bien/${i}`));
+    expect(container.querySelector('[data-copros-suivies] h3')?.textContent).toBe('Copropriétés suivies : 1 · 4 lots en gestion dont 3 logements et 1 parking');
+    const e = container.querySelector('[data-copro="43 avenue marceau"]')!;
+    expect(e.querySelector('[data-copro-nom]')?.textContent).toBe('Résidence Marceau');
+    expect([...e.querySelectorAll('[data-adresse-copro]')].map((x) => [x.getAttribute('data-adresse-copro'), x.querySelector('[data-lots-adresse]')?.textContent]))
+      .toEqual([['43 Avenue Marceau', '2 lots'], ['80 rue de Normandie', '2 lots']]);
+    expect(e.querySelector('[data-copro-total]')?.textContent).toBe('Total : 4 lots en gestion dont 3 logements et 1 parking');
+    expect([...e.querySelectorAll('[data-biens-copro] a')].map((a) => a.getAttribute('href'))).toEqual([1, 2, 3, 4, 5].map((i) => `/admin/location/bien/${i}`));
+  });
+  it('un clic sur l’encadré ouvre la fiche copropriété ; un clic sur le lien d’un bien ouvre le bien', async () => {
+    syndic = { ...BASE, resumeCopros: RESUME };
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    await rendre();
+    await act(async () => { (container.querySelector('[data-copro-nom]') as HTMLElement).click(); });
+    expect(assign).toHaveBeenCalledWith('/admin/location/coproprietes?ouvrir=43%20avenue%20marceau');
+    assign.mockClear();
+    await act(async () => { const a = container.querySelector('[data-biens-copro] a') as HTMLAnchorElement; a.addEventListener('click', (ev) => ev.preventDefault()); a.click(); });
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+  it('sans résumé (lecture des lots impossible) : les adresses de la copropriété, sans compte ; rien de cassé', async () => {
+    await rendre();
+    expect([...container.querySelectorAll('[data-adresse-copro]')].map((x) => x.getAttribute('data-adresse-copro'))).toEqual(['43 Avenue Marceau']);
+    expect(container.querySelector('[data-lots-adresse]')).toBeNull();
+    expect(container.querySelector('[data-copros-suivies] h3')?.textContent).toBe('Copropriétés suivies : 1');
   });
 });
 

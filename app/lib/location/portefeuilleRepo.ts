@@ -43,6 +43,8 @@ import type { LoyerMensuel } from './conditionsEntree';
 import { honorairesGestionDisponible } from '../gestion/schema';
 import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens } from './entretienAnnexeRepo';
+import { resumerCoprosSyndic, type FicheSyndicLocation } from './adressesCoproSyndic';
+import { lireLotsPourVacance } from './lotsVacantsRepo';
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
  *
@@ -987,6 +989,13 @@ export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocat
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */
-export async function ficheSyndicLocation(id: number): Promise<FicheSyndic | null> {
-  return ficheSyndic(id);
+export async function ficheSyndicLocation(id: number): Promise<FicheSyndicLocation | null> {
+  const f = await ficheSyndic(id);
+  if (f === null) return null;
+  // 🔴 (Arno, 28/11/2026, 12h17, point 3) le décompte par biens des copropriétés suivies (lecture seule) ; lecture impossible : la fiche sans lui
+  try {
+    return { ...f, resumeCopros: resumerCoprosSyndic(f.coproprietes, await lireLotsPourVacance()) };
+  } catch {
+    return f;
+  }
 }

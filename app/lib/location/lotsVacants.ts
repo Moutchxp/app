@@ -136,11 +136,24 @@ export function detailVacants(biens: readonly BienPourVacance[]): DetailVacants 
 }
 /** « a », « a et b », « a, b et c ». PUR. */
 const enumerer = (x: readonly string[]): string => (x.length <= 1 ? x.join('') : `${x.slice(0, -1).join(', ')} et ${x[x.length - 1]}`);
+/** « 15 dont 10 logements, 3 parkings et 2 caves » ; un seul type : « 10 logements » ; aucun : « 0 ». PUR. */
+export function detailEnMots(d: DetailVacants): string {
+  if (d.total === 0 || d.parType.length === 0) return String(d.total);
+  const parts = d.parType.map((x) => nombreEtType(x.n, x.type));
+  return d.parType.length === 1 ? parts[0] : `${d.total} dont ${enumerer(parts)}`;
+}
 /** « Lots vacants : 15 dont 10 logements, 3 parkings et 2 caves » ; un seul type : « Lots vacants : 10 logements » ; aucun : « Lots vacants : 0 ». PUR. */
 export function libelleVacants(d: DetailVacants): string {
-  if (d.total === 0 || d.parType.length === 0) return `Lots vacants : ${d.total}`;
+  return `Lots vacants : ${detailEnMots(d)}`;
+}
+/**
+ * 🔴 (Arno, 28/11/2026, 12h17, point 3) le même décompte, pour les lots EN GESTION : « 14 lots en gestion dont 10 logements et 4 parkings » ; un seul
+ * type : « 3 logements en gestion » ; aucun : « 0 lot en gestion ». PUR.
+ */
+export function libelleEnGestion(d: DetailVacants): string {
+  if (d.total === 0 || d.parType.length === 0) return `${d.total} lot en gestion`;
   const parts = d.parType.map((x) => nombreEtType(x.n, x.type));
-  return d.parType.length === 1 ? `Lots vacants : ${parts[0]}` : `Lots vacants : ${d.total} dont ${enumerer(parts)}`;
+  return d.parType.length === 1 ? `${parts[0]} en gestion` : `${nombreEtType(d.total, 'lot')} en gestion dont ${enumerer(parts)}`;
 }
 
 /** « Location (Lots vacants : 15 dont 10 logements et 5 parkings) » ; sans détail (lecture impossible) : « Location ». PUR. */

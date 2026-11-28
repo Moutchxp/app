@@ -3,14 +3,14 @@
 import { LienRetour } from '../_composants/NavigationRetour';
 import { FiltreOrigineACompleter } from './FiltreOrigineACompleter';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
-import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 import { TableauBordSuivi } from './TableauBordSuivi';
 import { PAGE_PARAMETRES } from './parametresAdresse';
 import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi';
 import { useEffect, useState } from 'react';
 import { useContexteRedaction } from '../gestion/useContexteRedaction';
 import { useEcrireFlottant } from '../gestion/EcrireFlottant';
-import { biensParAdresse } from '../../../../lib/location/adressesCoproSyndic';
+import type { FicheSyndicLocation } from '../../../../lib/location/adressesCoproSyndic';
+import { libelleEnGestion } from '../../../../lib/location/lotsVacants';
 import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
 import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
 import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
@@ -205,7 +205,7 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
  *  🔴🔴 (Arno, 27/11/2026, 22h17) ses e-mails ne sont plus en lecture seule : « Écrire depuis gestion@ » (le module de la boîte Gestion, fenêtre
  *  flottante) quand le compte a le DROIT D'ENVOI — la règle de 7b5715a6 ; sans lui, l'adresse reste telle quelle. */
 export function FicheSyndicLocationVue({ id }: { id: number }) {
-  const { etat } = useLecture<FicheSyndic>(`syndic=${id}`);
+  const { etat } = useLecture<FicheSyndicLocation>(`syndic=${id}`);
   const ecrire = useEcrireFlottant(useContexteRedaction());
   const boutonEcrire = (email: string | null | undefined) => (ecrire.onEcrire === undefined || !email || !email.includes('@') ? null
     : <> <button type="button" className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic" onClick={() => ecrire.onEcrire?.(email.trim(), { syndicId: id, lotId: null })}
@@ -274,25 +274,38 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
           </ul>
         )}
       </section>
-      <section className="loc-bloc">
-        <h3>Copropriétés suivies <span className="loc-pastille">{liste(s.coproprietes).length}</span></h3>
+      {/* 🔴🔴 Arno (28/11/2026, 12h17, point 3) — « le nombre de copropriétés que ce syndic gère dans notre portefeuille, puis la liste des copropriétés : un
+          bloc par copropriété avec en première position le nom de la résidence s'il existe, ensuite l'adresse principale, ensuite les adresses
+          complémentaires, et en face de chaque adresse le nombre de lots en gestion à cette adresse, avec le total des lots en gestion de la copropriété ».
+          Le décompte par BIENS (ad11dca5 / a5107e9c), biens en gestion seulement ; un clic sur l'encadré ouvre la fiche copropriété. Les liens vers
+          chaque bien (point 4) restent, en bas de l'encadré. */}
+      <section className="loc-bloc" data-copros-suivies>
+        <h3>Copropriétés suivies : {liste(s.coproprietes).length}
+          {s.resumeCopros !== undefined && <span className="loc-muet loc-copros-compte" data-copros-compte> · {libelleEnGestion(s.resumeCopros.detail)}</span>}</h3>
         {liste(s.coproprietes).length === 0 ? <p className="loc-muet">Aucune copropriété en cours.</p> : (
-          <ul className="loc-liste">
-            {liste(s.coproprietes).map((c) => (
-              <li key={c.id} style={{ display: 'block' }}>
-                <p style={{ margin: '0 0 4px' }}><strong>{c.libelle}</strong> <span className="loc-muet">{[c.codePostal, c.commune].filter((x) => x).join(' ')}</span></p>
-                {/* 🔴🔴 Arno (28/11/2026, 12h17, point 4) — chaque adresse UNE fois (clé de la 522) ; ses biens la suivent, chacun avec son lien */}
-                <p className="loc-muet" style={{ margin: 0 }} data-adresses-copro={c.cle}>
-                  {liste(c.lots).length === 0 ? 'aucun bien de l’annuaire' : biensParAdresse(liste(c.lots)).map((g, i) => (
-                    <span key={g.cle || `sans-${i}`} data-adresse-copro={g.cle}>{i > 0 ? ' · ' : ''}
-                      {g.lots.length === 1 ? <a href={`/admin/location/bien/${g.lots[0].id}`}>{g.adresse || `bien ${g.lots[0].numero}`}</a> : <>
-                        {g.adresse || 'sans adresse'} ({g.lots.map((l, j) => (
-                          <span key={l.id}>{j > 0 ? ', ' : ''}<a href={`/admin/location/bien/${l.id}`}>bien {l.numero.startsWith('app-') ? `n° ${l.id}` : l.numero}</a></span>))})</>}
-                    </span>
-                  ))}
-                </p>
-              </li>
-            ))}
+          <ul className="loc-copros">
+            {liste(s.coproprietes).map((c) => {
+              const r = s.resumeCopros?.copros.find((x) => x.id === c.id) ?? null;
+              const adresses = r?.adresses ?? [{ libelle: c.libelle, principale: true, biens: -1, teteIds: [] }, ...liste(c.adresses).map((a) => ({ libelle: a.libelle, principale: false, biens: -1, teteIds: [] }))];
+              const ouvrir = () => { window.location.assign(`/admin/location/coproprietes?ouvrir=${encodeURIComponent(c.cle)}`); };
+              return (
+                <li key={c.id} className="loc-copro" data-copro={c.cle} role="link" tabIndex={0} title="Ouvrir la fiche de la copropriété"
+                  onClick={(e) => { if ((e.target as HTMLElement).closest('a')) return; ouvrir(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('a')) ouvrir(); }}>
+                  {r?.nom && <p className="loc-copro-nom" data-copro-nom>{r.nom}</p>}
+                  <ul className="loc-copro-adresses" data-adresses-copro={c.cle}>
+                    {adresses.map((a, i) => (
+                      <li key={`${i}-${a.libelle}`} data-adresse-copro={a.libelle} className={a.principale ? 'loc-copro-principale' : undefined}>
+                        <span className="loc-copro-adresse">{a.libelle}{i === 0 ? <span className="loc-muet">{[c.codePostal, c.commune].filter((x) => x).length > 0 ? ` · ${[c.codePostal, c.commune].filter((x) => x).join(' ')}` : ''}</span> : null}</span>
+                        {a.biens >= 0 && <span className="loc-copro-n" data-lots-adresse={a.biens}>{a.biens} lot{a.biens > 1 ? 's' : ''}</span>}
+                      </li>))}
+                  </ul>
+                  {r !== null && <p className="loc-copro-total" data-copro-total>Total : {libelleEnGestion(r.detail)}</p>}
+                  {liste(c.lots).length === 0 ? <p className="loc-muet loc-copro-biens">aucun bien de l’annuaire</p> : (
+                    <p className="loc-muet loc-copro-biens" data-biens-copro={c.cle}>Fiches des biens : {liste(c.lots).map((l, j) => (
+                      <span key={l.id}>{j > 0 ? ', ' : ''}<a href={`/admin/location/bien/${l.id}`}>bien {l.numero.startsWith('app-') ? `n° ${l.id}` : l.numero}</a></span>))}</p>)}
+                </li>);
+            })}
           </ul>
         )}
       </section>
@@ -313,5 +326,18 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-grille > .loc-coord-pleine{grid-column:1 / -1}
 .loc-liste > li.loc-contact-syndic{display:block}
 .loc-contact-syndic > .loc-coord-lignes{margin-top:4px}
+/* 🔴 (Arno, 28/11/2026, 12h17, point 3) un ENCADRÉ par copropriété, bien dissocié des autres : bord, fond, espacement */
+.loc-copros{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.loc-copro{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-field);cursor:pointer}
+.loc-copro:hover,.loc-copro:focus-visible{border-color:var(--color-svv-ink);outline:none}
+.loc-copro-nom{margin:0;font-weight:800;font-size:1rem;color:var(--color-svv-ink)}
+.loc-copro-adresses{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.loc-copro-adresses > li{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+.loc-copro-adresse{min-width:0;overflow-wrap:anywhere}
+.loc-copro-principale .loc-copro-adresse{font-weight:700}
+.loc-copro-n{flex:0 0 auto;white-space:nowrap;font-weight:700;color:var(--color-svv-ink)}
+.loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-weight:700;color:var(--color-svv-ink)}
+.loc-copro-biens{margin:0;font-size:.82rem}
+.loc-copros-compte{font-size:.9rem;font-weight:400}
 @media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px}}
 `;

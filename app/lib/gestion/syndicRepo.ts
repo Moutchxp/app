@@ -129,7 +129,7 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
     const proprios = r.proprietaires ?? [];
     g.lots.push({
       id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune, type: r.type,
-      fin: r.fin, ...(r.statut !== null ? { statut: r.statut } : {}),
+      fin: r.fin, ...(r.statut !== null ? { statut: r.statut } : {}), cleImmeuble: cle,
       proprietaires: proprios.map((x) => x.affiche), triProprietaire: proprios[0] ? normaliserTexte(proprios[0].tri) : undefined,
     });
     m.set(cle, g);
@@ -374,10 +374,10 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
        FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact c ON c.id = k.contact_id
       WHERE c.syndic_id = $1 AND c.retire_le IS NULL AND c.parti_le IS NULL AND k.retire_le IS NULL ORDER BY k.rang, k.id`, [id]);
   const { rows: liens } = await query<{
-    id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null;
+    id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null; nom: string | null;
     debut: string; fin: string | null; fin_motif: string | null;
   }>(
-    `SELECT c.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, cs.debut::text, cs.fin::text, cs.fin_motif
+    `SELECT c.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, nullif(btrim(c.nom), '') AS nom, cs.debut::text, cs.fin::text, cs.fin_motif
        FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
       WHERE cs.syndic_id = $1 ORDER BY cs.fin IS NOT NULL, c.libelle, cs.debut DESC`, [id]);
   const parCle = await lotsParImmeuble();
@@ -411,7 +411,7 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
       const adresses = secondaires.filter((a) => a.coproCle === l.cle).map((a) => ({
         cle: a.cle, libelle: a.libelle, codePostal: parCle.get(a.cle)?.codePostal ?? a.codePostal, commune: parCle.get(a.cle)?.commune ?? a.commune }));
       return {
-        id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut,
+        id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut, nom: l.nom ?? null,
         lots: [...(g?.lots ?? []), ...adresses.flatMap((a) => parCle.get(a.cle)?.lots ?? [])],
         codePostal: g?.codePostal ?? l.code_postal, commune: g?.commune ?? l.commune, adresses,
       };
