@@ -1783,10 +1783,23 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome, Location › syndic 2 et 54, Gestion › Syndics › TEST ARNAUD, 1440 et 390 px, clair et sombre. Aucun mail envoyé, aucune requête d'écriture.
   - Captures `.captures/fiche-syndic-coordonnees/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 12h54 — fiche syndic : bloc Coordonnées (`ba30896b`) et actions à droite (`377ac55e`)
+- Décision d'Arno : la ligne « Fiches des biens : bien n° … » reste en bas de chaque encadré de copropriété.
+- **`ba30896b`** — Location › fiche syndic, bloc « Coordonnées » en deux colonnes serrées : adresse complète puis note ; téléphones puis e-mails. À 390 px, empilé.
+  - Rue, code postal ou ville manquant : « Adresse incomplète — à compléter » en orange, avec un lien `/admin/gestion?ecran=syndics&syndic=N`
+    (EcranSyndics ouvre désormais le syndic désigné par l'adresse). Rien n'est inventé.
+  - La fiche Gestion est un formulaire : sa disposition est inchangée.
+  - Recette, 7 syndics sans rue : 49, 50, 54, 55, 56, 57, 58.
+  - Production : `bash .captures/maj/0-controles-syndics-sans-rue-lecture-seule.sh` (lecture seule, À LANCER PAR ARNO ; essai recette : 7).
+- **`377ac55e`** — « Copier », case, « Écrire depuis gestion@ » regroupés au bord DROIT, même position d'une ligne à l'autre (Location ; la Gestion l'était déjà, gardé par essai).
+- Contrôles : `npm test` VERT après chaque point (dernier : 1 902 fichiers, 28 485 tests, 21 ignorés) ; `tsc` = 0.
+  - Chrome, syndics 56, 49 et 2, Location et Gestion, 1440 et 390 px, clair et sombre. Aucun mail, aucune requête d'écriture.
+  - Captures `.captures/fiche-syndic-coordonnees-2/` (fichiers temporaires dans `.captures/`, effacés). ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
