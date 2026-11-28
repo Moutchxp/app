@@ -110,7 +110,11 @@ function saisir(el: Element | null, v: string): void {
 }
 
 describe('🔴 Règle 1 — les pastilles de statut, avec compteur ; filtrer ; trier', () => {
+  /* 🔴 (28/11/2026) « Alerte préavis » compte aussi une pré-visite DÉPASSÉE sans compte rendu (Arno, 01h04) : le rendez-vous du jeu d'essai (20/11/2026)
+     est désormais passé ; ces deux épreuves portent sur le 11e jour, leur rendez-vous est donc repoussé dans l'avenir. */
+  const aVenir = (): void => { lignes = lignes.map((l) => (l.previsite?.rdv ? { ...l, previsite: { ...l.previsite, rdv: { ...l.previsite.rdv, jour: '2099-11-20' } } } : l)); };
   it('les compteurs dans l’ordre d’Arno ; « Alerte préavis » présente parce qu’il y en a une', async () => {
+    aVenir();
     await rendre();
     const p = [...container.querySelectorAll('[data-filtre-previsite]')].map((b) => b.textContent);
     // 🔴 (15/11/2026) les statuts de ligne (arbre d'Arno, 1 à 4) ; « Alerte préavis » en plus (repère, pas un statut)
@@ -118,6 +122,7 @@ describe('🔴 Règle 1 — les pastilles de statut, avec compteur ; filtrer ; t
   });
   it('aucune alerte : la pastille « Alerte préavis » n’apparaît pas', async () => {
     lignes = lignes.filter((l) => l.cle !== 'A');
+    aVenir();
     await rendre();
     expect(container.querySelector('[data-filtre-previsite="alerte"]')).toBeNull();
   });

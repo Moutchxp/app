@@ -3876,6 +3876,60 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([...sel('A', '[data-col-rdv="deux"]').querySelectorAll('[data-rdv-depassee]')].map((x) => [x.getAttribute('data-rdv-depassee'), x.textContent]))
       .toEqual([['previsite', 'date dépassée — compte rendu à faire'], ['edl', 'date dépassée — sortie à valider']]);
   });
+  // ══ 🔴🔴 Arno (28/11/2026, 01h04) — « un message d'alerte doit être sous le cartouche qui y est lié […] au maximum 4 cartouches » ══
+  const pile = (cle: string) => [...container.querySelectorAll(`[data-ligne-preavis="${cle}"] [data-cartouches-ligne] [data-statut-ligne], [data-ligne-preavis="${cle}"] [data-cartouches-ligne] [data-alerte-rdv]`)]
+    .map((x) => x.textContent);
+  it('🔴 01h04 — 0, 1, 2, 3 et 4 cartouches, dans l’ordre : RDV pré-visite fixé, son alerte, RDV état des lieux fixé, son alerte', async () => {
+    lignes = [
+      { ...LIGNES[0], cle: 'Q4', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') },              // les deux passés : 4
+      { ...LIGNES[1], cle: 'Q3', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2099-02-03') },              // pré-visite passée : 3
+      { ...LIGNES[2], cle: 'Q2', previsite: PV('effectuee', '2020-01-05'), edls: EDLS('2020-01-20', 'acceptee') },   // état des lieux passé : 2
+      { ...LIGNES[0], cle: 'Q1', previsite: PV('programmee', '2099-01-10') },                                         // à venir : 1, sans alerte
+      { ...LIGNES[1], cle: 'Q0', previsite: null, edls: null },                                                       // aucun cartouche de rendez-vous
+    ] as never;
+    await rendre(true);
+    expect(pile('Q4')).toEqual(['RDV pré-visite fixé', 'Compte rendu pré-visite à faire', 'RDV état des lieux fixé', 'Sortie à valider']);
+    expect(pile('Q3')).toEqual(['RDV pré-visite fixé', 'Compte rendu pré-visite à faire', 'RDV état des lieux fixé']);
+    expect(pile('Q2')).toEqual(['RDV état des lieux fixé', 'Sortie à valider']);
+    expect(pile('Q1')).toEqual(['RDV pré-visite fixé']);
+    expect(container.querySelectorAll('[data-ligne-preavis="Q0"] [data-alerte-rdv]')).toHaveLength(0);
+    // empilés dans UNE pile (les lignes sans alerte : comme avant, sans pile) ; serrée à trois ou quatre ; la ligne s'allonge s'il le faut
+    expect(sel('Q4', '[data-pile-rdv]').getAttribute('data-pile-rdv')).toBe('4');
+    expect(sel('Q4', '[data-pile-rdv]').className).toBe('psl-pile psl-pile--serree');
+    expect(sel('Q2', '[data-pile-rdv]').className).toBe('psl-pile');
+    expect(container.querySelector('[data-ligne-preavis="Q1"] [data-pile-rdv]')).toBeNull();
+    expect(sel('Q4', '.pva-ligne').className).toBe('pva-ligne pva-ligne--deux-rdv pva-ligne--pile');
+    expect(sel('Q1', '.pva-ligne').className).toBe('pva-ligne');
+    // le même composant, la même forme que « Aucune pré-visite fixée »
+    for (const a of container.querySelectorAll('[data-alerte-rdv]')) expect(a.className).toBe('pvv-cartouche pvv-cartouche--alerte');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.psl-pile{display:flex;flex-direction:column;align-items:flex-end;');
+    expect(css).toContain('.pva-ligne--deux-rdv.pva-ligne--pile{height:auto;');
+  });
+  it('🔴 01h04 — l’alerte disparaît dès l’étape suivante : compte rendu fait (pré-visite effectuée), sortie validée (la ligne quitte la liste)', async () => {
+    lignes = [{ ...LIGNES[0], cle: 'Q', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2099-02-03') }, LIGNES[1]] as never;
+    await rendre(true);
+    expect(pile('Q')).toEqual(['RDV pré-visite fixé', 'Compte rendu pré-visite à faire', 'RDV état des lieux fixé']);
+    act(() => root.unmount()); root = createRoot(container);
+    lignes = [{ ...LIGNES[0], cle: 'Q', previsite: PV('effectuee', '2020-01-10'), edls: EDLS('2020-02-03') }, LIGNES[1]] as never;
+    await rendre(true);
+    expect(pile('Q')).toEqual(['RDV état des lieux fixé', 'Sortie à valider']);
+    act(() => root.unmount()); root = createRoot(container);
+    lignes = [LIGNES[1]] as never; // sortie validée : la ligne n'est plus un préavis actif
+    await rendre(true);
+    expect(container.querySelectorAll('[data-alerte-rdv]')).toHaveLength(0);
+  });
+  it('🔴 01h04 — « Alerte préavis » : le compteur et le filtre comptent ces deux alertes (une ligne à deux alertes : une fois)', async () => {
+    lignes = [
+      { ...LIGNES[0], cle: 'Q4', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') },
+      { ...LIGNES[1], cle: 'Q2', previsite: PV('effectuee', '2020-01-05'), edls: EDLS('2020-01-20', 'acceptee') },
+      { ...LIGNES[2], cle: 'Q1', previsite: PV('programmee', '2099-01-10') },
+    ] as never;
+    await rendre(true);
+    expect(container.querySelector('[data-compteur-previsite="alerte"]')!.textContent).toBe('2');
+    clic('[data-filtre-previsite="alerte"]'); await attendre();
+    expect(ordre().sort()).toEqual(['Q2', 'Q4']);
+  });
   it('FILTRES : la ligne comptée et visible dans les deux ; « Tous » ne la compte qu’une fois', async () => {
     await rendre(true);
     const n = (f: string) => container.querySelector(`[data-compteur-previsite="${f}"]`)!.textContent;

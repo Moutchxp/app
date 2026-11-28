@@ -66,3 +66,34 @@ describe('après « Valider la sortie » (statut 5)', () => {
     expect(issueSortie(bail, [11])).toEqual({ vacant: false, restants: ['B'] });
   });
 });
+
+/* ══ 🔴🔴 Arno (28/11/2026, 01h04) — « Alerte préavis » compte aussi les deux alertes de rendez-vous dépassé ══ */
+describe('🔴 01h04 — le filtre « Alerte préavis » et son compteur : 11e jour, compte rendu à faire, sortie à valider', () => {
+  const MAINT = '2026-11-28 01:10';
+  const pvr = (statut: 'programmee' | 'effectuee', jour: string) => ({ statut, rdv: { jour, heure: '10:00' } });
+  const LIGNES: FaitsLigne[] = [
+    { previsite: pv('alerte') },                                                       // 11e jour
+    { previsite: pvr('programmee', '2026-11-13') },                                    // compte rendu à faire
+    { previsite: pvr('effectuee', '2026-11-10'), edls: { ...EDLS, jour: '2026-11-18' } }, // sortie à valider
+    { previsite: pvr('programmee', '2026-11-16'), edls: { ...EDLS, jour: '2026-11-20' } }, // les deux : comptée UNE fois
+    { previsite: pvr('programmee', '2026-12-10') },                                    // à venir : pas d'alerte
+    { previsite: pvr('effectuee', '2026-11-10'), edls: { ...EDLS, jour: '2026-12-04' } }, // à venir : pas d'alerte
+  ];
+  it('le compteur : 4 lignes en alerte sur 6 (une ligne à deux alertes ne compte qu’une fois)', () => {
+    expect(filtresLignes(LIGNES, MAINT).find((f) => f.filtre === 'alerte')).toEqual({ filtre: 'alerte', libelle: 'Alerte préavis', nombre: 4 });
+  });
+  it('le filtre : les mêmes 4 lignes', () => {
+    expect(LIGNES.map((l) => lignePasseFiltre(l, new Set(['alerte']), MAINT))).toEqual([true, true, true, true, false, false]);
+  });
+  it('sans moment présent (appel d’avant) : la seule règle du 11e jour, comme avant', () => {
+    expect(filtresLignes(LIGNES).find((f) => f.filtre === 'alerte')?.nombre).toBe(1);
+    expect(LIGNES.map((l) => lignePasseFiltre(l, new Set(['alerte'])))).toEqual([true, false, false, false, false, false]);
+  });
+  it('après le compte rendu (effectuée) puis la sortie validée : plus d’alerte', () => {
+    expect(lignePasseFiltre({ previsite: pvr('effectuee', '2026-11-13') }, new Set(['alerte']), MAINT)).toBe(false);
+    expect(lignePasseFiltre({ previsite: pvr('effectuee', '2026-11-10'), edls: { ...EDLS, jour: '2026-11-18' }, sortieValidee: true }, new Set(['alerte']), MAINT)).toBe(false);
+  });
+  it('un état des lieux sans jour lisible n’est pas un rendez-vous (aucune alerte inventée)', () => {
+    expect(lignePasseFiltre({ previsite: pvr('effectuee', '2026-11-10'), edls: { tacheId: 1 } }, new Set(['alerte']), MAINT)).toBe(false);
+  });
+});

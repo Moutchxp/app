@@ -60,11 +60,19 @@ export function detailPrevisite(p: PrevisiteAffiche | null | undefined): string 
   return LIBELLE_STATUT_PREVISITE[p.statut];
 }
 
+/**
+ * Le cartouche ORANGE d'alerte de la ligne. 🔴🔴 (Arno, 28/11/2026, 01h04) UN composant pour « Aucune pré-visite fixée », « Compte rendu pré-visite à
+ * faire » et « Sortie à valider » : même forme, même couleur, le mot toujours écrit.
+ */
+export function CartoucheAlerte({ texte, donnees }: { texte: string; donnees: Record<string, string> }) {
+  return <span className="pvv-cartouche pvv-cartouche--alerte" {...donnees}>{texte}</span>;
+}
+
 /** Les cartouches de la ligne : « Aucune pré-visite fixée » (alerte), « Personne n'a accepté la pré-visite ». */
 export function CartouchesPrevisite({ p }: { p: PrevisiteAffiche | null | undefined }) {
   if (!p) return null;
   return <>
-    {p.statut === 'alerte' && <span className="pvv-cartouche pvv-cartouche--alerte" data-cartouche-previsite="alerte">{CARTOUCHE_ALERTE}</span>}
+    {p.statut === 'alerte' && <CartoucheAlerte texte={CARTOUCHE_ALERTE} donnees={{ 'data-cartouche-previsite': 'alerte' }} />}
     {p.statut === 'programmee' && p.tousRefusent && <span className="pvv-cartouche pvv-cartouche--refus" data-cartouche-previsite="tous-refusent">{ALERTE_TOUS_REFUSENT}</span>}
   </>;
 }
@@ -79,9 +87,10 @@ export function CartoucheStatutLigne({ statut }: { statut: StatutLigne }) {
  * filtres « Préavis reçu / Pré-visite programmée / effectuée / refusée-absente » (accord d'Arno), sans perdre de ligne. « Alerte préavis »
  * reste en plus (il n'est pas un statut), seulement s'il y en a. Plusieurs à la fois.
  */
-export function FiltresStatutLigne({ lignes, filtre, onChange, fin }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<FiltreLigne>; onChange: (f: Set<FiltreLigne>) => void;
-  /** 🔴 (15/11/2026) au bout de la rangée : l'icône « Tris » */ fin?: ReactNode }) {
-  const filtres = filtresLignes(lignes);
+export function FiltresStatutLigne({ lignes, filtre, onChange, fin, maintenant }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<FiltreLigne>; onChange: (f: Set<FiltreLigne>) => void;
+  /** 🔴 (15/11/2026) au bout de la rangée : l'icône « Tris » */ fin?: ReactNode;
+  /** 🔴🔴 (Arno, 28/11/2026) « AAAA-MM-JJ HH:MM » à Paris : « Alerte préavis » compte aussi les rendez-vous dépassés (`alertesRdv`) */ maintenant?: string }) {
+  const filtres = filtresLignes(lignes, maintenant);
   const basculer = (s: FiltreLigne): void => { const n = new Set(filtre); if (n.has(s)) n.delete(s); else n.add(s); onChange(n); };
   return (
     <div className="pva-tri pvv-pastilles" role="group" aria-label="Filtrer par statut" data-pastilles-previsite data-filtres-statut>

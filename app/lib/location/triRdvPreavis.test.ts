@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIBELLE_TRI_RDV, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, rdvDuStatut, type LigneRdv } from './triRdvPreavis';
+import { ALERTE_DU_RDV, alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_TRI_RDV, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, rdvDuStatut, type LigneRdv } from './triRdvPreavis';
 
 /** 🔴🔴 Arno (15/11/2026) — le tri chronologique des rendez-vous de la liste des préavis. */
 const MAINTENANT = '2026-11-15 18:00';
@@ -119,5 +119,39 @@ describe('🔴🔴 Arno (28/11/2026, 00h45) — pas de doublon de mention sur un
     expect(mentionsCommunes([null, null], ['Locataires : Confirmé', 'Locataires : Confirmé']).locataires).toBe(true);
     expect(mentionsCommunes([null, null], ['Locataires : Confirmé', 'Locataires : En attente']).locataires).toBe(false);
     expect(mentionsCommunes([null, null], [null, 'Locataires : Confirmé']).locataires).toBe(false);
+  });
+});
+
+/* ══ 🔴🔴 Arno (28/11/2026, 01h04) — les alertes sous leur rendez-vous : 0, 1 ou 2 alertes (donc 1 à 4 cartouches avec les statuts) ══ */
+describe('🔴 01h04 — alertesRdv : « Compte rendu pré-visite à faire » et « Sortie à valider », la règle de la mention « date dépassée »', () => {
+  const MAINT = '2026-11-28 01:10';
+  const e = (jour: string, heure = '10:00') => ({ jour, heure });
+  it('aucun rendez-vous, ou des rendez-vous à venir : aucune alerte', () => {
+    expect(alertesRdv({ previsite: pv('recu') }, MAINT)).toEqual([]);
+    expect(alertesRdv({ previsite: pv('alerte') }, MAINT)).toEqual([]);
+    expect(alertesRdv({ previsite: pv('programmee', '2026-11-29') }, MAINT)).toEqual([]);
+    expect(alertesRdv({ previsite: pv('programmee', '2026-11-29'), edls: e('2026-12-04') }, MAINT)).toEqual([]);
+  });
+  it('la pré-visite passée, compte rendu pas fait : « Compte rendu pré-visite à faire » ; fait (effectuée) ou refusée : plus rien', () => {
+    expect(alertesRdv({ previsite: pv('programmee', '2026-11-13', '23:40') }, MAINT)).toEqual(['compte_rendu']);
+    expect(alertesRdv({ previsite: pv('effectuee', '2026-11-13', '23:40') }, MAINT)).toEqual([]);
+    expect(alertesRdv({ previsite: pv('refusee', '2026-11-13', '23:40') }, MAINT)).toEqual([]);
+    expect(LIBELLE_ALERTE_RDV.compte_rendu).toBe('Compte rendu pré-visite à faire');
+  });
+  it('l’état des lieux passé, sortie pas validée : « Sortie à valider » ; sortie validée : plus rien', () => {
+    expect(alertesRdv({ previsite: pv('effectuee', '2026-11-10'), edls: e('2026-11-18', '11:30') }, MAINT)).toEqual(['sortie']);
+    expect(alertesRdv({ previsite: pv('effectuee', '2026-11-10'), edls: e('2026-11-18', '11:30'), sortieValidee: true }, MAINT)).toEqual([]);
+    expect(LIBELLE_ALERTE_RDV.sortie).toBe('Sortie à valider');
+  });
+  it('les deux passés : les deux alertes, pré-visite d’abord ; seule la pré-visite passée : une seule', () => {
+    expect(alertesRdv({ previsite: pv('programmee', '2026-11-16', '09:53'), edls: e('2026-11-20') }, MAINT)).toEqual(['compte_rendu', 'sortie']);
+    expect(alertesRdv({ previsite: pv('programmee', '2026-11-16', '09:53'), edls: e('2026-12-04') }, MAINT)).toEqual(['compte_rendu']);
+  });
+  it('même seuil que la mention rouge « date dépassée — … » (une seule source : rdvsDeLigne + rdvDepasse)', () => {
+    for (const l of [{ previsite: pv('programmee', '2026-11-28', '01:09') }, { previsite: pv('programmee', '2026-11-28', '01:10') }, { previsite: pv('programmee', '2026-11-28', '01:11') },
+      { previsite: pv('effectuee', '2026-11-01'), edls: e('2026-11-28', '01:09') }, { previsite: pv('effectuee', '2026-11-01'), edls: e('2026-11-28', '01:11') }] as LigneRdv[]) {
+      const mentions = colonnesRdv(l, MAINT).filter((c) => 'depassee' in c && c.depassee !== null).map((c) => ALERTE_DU_RDV[c.sorte as 'previsite' | 'edl']);
+      expect(alertesRdv(l, MAINT)).toEqual(mentions);
+    }
   });
 });

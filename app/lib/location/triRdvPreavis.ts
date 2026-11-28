@@ -111,6 +111,23 @@ export function colonneRdv(l: LigneRdv, maintenant: string): ColonneRdv {
   return { sorte: 'aucun', texte: AUCUN_RDV_FIXE };
 }
 
+/* ══ 🔴🔴 Arno (28/11/2026, 01h04) — LES ALERTES SOUS LEUR RENDEZ-VOUS (ligne repliée) ══════════════════════════════════════════════════════
+   « le RDV de pré-visite a été fixé, la date est dépassée, et il n'y a pas le cartouche orange qui attire l'attention pour compléter le compte rendu
+   de pré-visite […] Faire pareil si un RDV d'état des lieux a été fixé et que sa date est dépassée sans que la sortie soit validée ». MÊME règle que
+   la mention rouge « date dépassée — … » de la colonne rendez-vous (`rdvsDeLigne` + `rdvDepasse`, une seule source) : la pré-visite programmée dont
+   la date est passée → « Compte rendu pré-visite à faire » (disparaît dès le compte rendu : la pré-visite n'est plus programmée) ; l'état des lieux
+   planifié dont la date est passée → « Sortie à valider » (disparaît dès la sortie validée : la ligne quitte la liste). Ordre : pré-visite, puis
+   état des lieux. PUR. */
+export type AlerteRdv = 'compte_rendu' | 'sortie';
+export const LIBELLE_ALERTE_RDV: Record<AlerteRdv, string> = { compte_rendu: 'Compte rendu pré-visite à faire', sortie: 'Sortie à valider' };
+/** L'alerte que porte un rendez-vous dépassé de cette sorte. */
+export const ALERTE_DU_RDV: Record<'previsite' | 'edl', AlerteRdv> = { previsite: 'compte_rendu', edl: 'sortie' };
+/** Les alertes de la ligne (aucune : liste vide). Une sortie déjà validée n'a plus d'alerte « Sortie à valider ». PUR. */
+export function alertesRdv(l: LigneRdv & { sortieValidee?: boolean }, maintenant: string): AlerteRdv[] {
+  return rdvsDeLigne(l).filter((r) => rdvDepasse(r, maintenant)).map((r) => ALERTE_DU_RDV[r.sorte])
+    .filter((a) => !(a === 'sortie' && l.sortieValidee === true));
+}
+
 /* 🔴 (15/11/2026) LA MÉMOIRE DU TRI RDV, VERSIONNÉE : seul le format courant est relu ; une valeur d'un format ancien ou invalide est
    ignorée et le défaut (« RDV : plus proches d'abord ») s'applique. */
 export const VERSION_MEMOIRE_TRI_RDV = 2;

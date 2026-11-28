@@ -24,12 +24,12 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
-import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
-import { colonnesRdv, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
-import { BlocPrevisite, CadreFenetreRdv, PresentationRdv, CartoucheStatutLigne, CartouchesPrevisite, cssFenetreRdv, CSS_PREVISITE, EnteteFenetreRdv, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
+import { BlocPrevisite, CadreFenetreRdv, PresentationRdv, CartoucheAlerte, CartoucheStatutLigne, CartouchesPrevisite, cssFenetreRdv, CSS_PREVISITE, EnteteFenetreRdv, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
@@ -176,7 +176,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   /* 🔴🔴 Arno (15/11/2026) — les filtres et leurs compteurs portent EXACTEMENT sur les lignes affichées : la liste (après la recherche) est
      la base ; chaque compteur = ses lignes de ce statut, « Tous » = le total ; les préavis de TEST visibles sont comptés comme les autres. */
   const affichables = plein ? chercherPreavis(toutes, recherche) : toutes;
-  const lignes = affichables.filter((x) => lignePasseFiltre(x, filtre));
+  // 🔴🔴 (Arno, 28/11/2026, 01h04) le moment présent à Paris : les rendez-vous dépassés (mention, cartouches d'alerte, filtre « Alerte préavis »)
+  const maintenant = maintenantParis();
+  const lignes = affichables.filter((x) => lignePasseFiltre(x, filtre, maintenant));
   // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
   const alertes = compterPreavisEnAlerte(lignes);
   // 🔴 Arno (14/11/2026, 473) — les préavis de TEST (les vôtres seulement) n'entrent dans aucun compteur ni pastille
@@ -244,7 +246,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
             </label>
           )}
           {d!.previsite !== true && <div className="pva-tri pva-tri--seul">{iconeTris}</div>}
-          {d!.previsite === true && <FiltresStatutLigne lignes={affichables} filtre={filtre} onChange={choisirFiltre} fin={iconeTris} />}
+          {d!.previsite === true && <FiltresStatutLigne lignes={affichables} filtre={filtre} onChange={choisirFiltre} fin={iconeTris} maintenant={maintenant} />}
           {/* 🔴 (15/11/2026) le panneau des tris s'ouvre SOUS la rangée « Statut » */}
           <div className="pva-panneau-tris" hidden={!trisOuverts} data-panneau-tris={trisOuverts ? 'ouvert' : 'replie'}>
           <div className="pva-tris" role="group" aria-label="Trier les préavis">
@@ -300,7 +302,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 const adresse = l.adresse ?? `Bien ${l.lotId}`;
                 const fin = `Fin de préavis ${dateFrPreavis(l.dateMax)}`;
                 // 🔴 (16/11/2026) un rendez-vous par statut : deux (pré-visite puis état des lieux) quand les deux sont fixés
-                const rdvs = colonnesRdv(l, maintenantParis());
+                const rdvs = colonnesRdv(l, maintenant);
+                // 🔴🔴 (Arno, 28/11/2026, 01h04) les alertes de rendez-vous dépassé : sous leur cartouche, la ligne s'allonge s'il le faut
+                const alertes = alertesRdv(l, maintenant);
                 const rdv = rdvs[0];
                 // 🔴 (15/11/2026) la mission du rendez-vous affiché : « confié à Prénom NOM » + l'état de la tâche
                 const missionDe = (r: typeof rdv) => (r.sorte === 'previsite' || r.sorte === 'edl' ? missionDeLigne(l, r.sorte) : null);
@@ -324,7 +328,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 const estOuverte = ouverte === l.cle;
                 return (
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
-                    <div className={`pva-ligne${rdvs.length > 1 ? ' pva-ligne--deux-rdv' : ''}`}>
+                    <div className={`pva-ligne${rdvs.length > 1 ? ' pva-ligne--deux-rdv' : ''}${alertes.length > 0 ? ' pva-ligne--pile' : ''}`}>
                       <div className="pva-textes" title={`${noms} — ${detail}`}>
                         <span className="pva-l1">
                           <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
@@ -364,7 +368,19 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                           échu » reste affichée à côté ; un état des lieux refusé par le collègue garde son repère « EDLS à réattribuer ». */}
                       <span className="psl-cartouches" data-cartouches-ligne>
                         {/* 🔴 (16/11/2026) deux statuts côte à côte quand la pré-visite et l'état des lieux sont fixés tous les deux */}
-                        {statutsLigne(l).map((s) => <CartoucheStatutLigne key={s} statut={s} />)}
+                        {(() => {
+                          /* 🔴🔴 Arno (28/11/2026, 01h04) — « un message d'alerte doit être sous le cartouche qui y est lié » : la pile, dans cet ordre,
+                             alignée à droite — « RDV pré-visite fixé », « Compte rendu pré-visite à faire », « RDV état des lieux fixé », « Sortie à
+                             valider » (au plus quatre). Sans alerte : les statuts comme avant. */
+                          const statuts = statutsLigne(l);
+                          if (alertes.length === 0) return statuts.map((s) => <CartoucheStatutLigne key={s} statut={s} />);
+                          const lie: Record<'compte_rendu' | 'sortie', StatutLigne> = { compte_rendu: 'rdv_previsite', sortie: 'rdv_edl' };
+                          const alerteHtml = (a: (typeof alertes)[number]) => <CartoucheAlerte key={`alerte-${a}`} texte={LIBELLE_ALERTE_RDV[a]} donnees={{ 'data-alerte-rdv': a }} />;
+                          const pile = statuts.flatMap((s) => [<CartoucheStatutLigne key={s} statut={s} />, ...alertes.filter((a) => lie[a] === s).map(alerteHtml)]);
+                          // une alerte sans son statut (jamais attendu) reste affichée, au bout de la pile
+                          pile.push(...alertes.filter((a) => !statuts.includes(lie[a])).map(alerteHtml));
+                          return <span className={`psl-pile${pile.length > 2 ? ' psl-pile--serree' : ''}`} data-pile-rdv={pile.length}>{pile}</span>;
+                        })()}
                         {statutPreavis(l, jour) === 'echu' && <MentionPreavis p={l} jour={jour} court />}
                         {l.edls?.statut === 'refusee' && <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span>}
                         {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
@@ -891,6 +907,13 @@ export const CSS_PREAVIS_ACCUEIL = `
    jamais sous le bouton « Ouvrir » */
 .psl-cartouches{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 6px;min-width:0}
 .pvv-cartouches{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
+/* 🔴🔴 Arno (28/11/2026, 01h04) — la PILE des rendez-vous et de leurs alertes : l'une sous l'autre, alignées a droite, dans l'ordre (pre-visite,
+   son alerte, etat des lieux, son alerte) ; a trois ou quatre, plus serrees ; la ligne qui la porte s'allonge s'il le faut (jamais rien de coupe) */
+.psl-pile{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:0}
+.psl-pile--serree{gap:2px}
+.psl-pile--serree > .psl-statut,.psl-pile--serree > .pvv-cartouche{font-size:.74rem;line-height:1.15;padding:1px 8px}
+.pva-ligne--pile{height:auto;min-height:4.75rem}
+.pva-ligne--deux-rdv.pva-ligne--pile{height:auto;min-height:6.25rem}
 .pva-textes{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pva-noms,.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .pva-noms{font-weight:800;color:var(--color-svv-ink)}
@@ -979,6 +1002,11 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-col-rdv--deux > .pva-rdv-item,.pva-col-rdv--deux > .pva-col-mission,.pva-col-rdv--deux > .pva-col-loc,.pva-col-rdv--deux > [data-rang],.pva-col-rdv--deux > .pva-col-commune{grid-row:auto;grid-column:auto}
   .pva-ligne--deux-rdv{height:14rem;grid-template-columns:minmax(0,1fr) auto}
   .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
+  /* 🔴 (28/11/2026) la pile : jamais coupee au telephone, la ligne s'allonge d'autant (les lignes sans alerte gardent leur hauteur) */
+  .pva-ligne--pile{height:auto;min-height:10.5rem}
+  .pva-ligne--deux-rdv.pva-ligne--pile{height:auto;min-height:14rem}
+  .pva-ligne--pile .psl-cartouches{max-height:none;overflow:visible}
+  .psl-cartouches .psl-pile > .psl-statut,.psl-cartouches .psl-pile > .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px}
   .pva-col-details{display:none}
   /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
   .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}

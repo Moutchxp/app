@@ -63,7 +63,8 @@ beforeEach(() => {
   try { window.localStorage.clear(); } catch { /* sans stockage */ }
   lignes = [
     ligne('A', 21, 'ALERTE Alice', '1 rue Alpha, Paris', '2026-09-01', '2026-12-01', pv({ statut: 'alerte' }), '2026-12-02'),
-    ligne('B', 31, 'BERNARD Bob', '2 rue Beta, Lyon', '2026-10-15', '2027-01-15', pv({ statut: 'programmee', rdv: { jour: '2026-11-20', heure: '10:00', dureeMinutes: 60 }, tacheId: 500 }), '2027-01-10'),
+    // 🔴 (28/11/2026) une pré-visite À VENIR (le 20/11/2026 d'avant est passé : elle serait « Compte rendu pré-visite à faire », une alerte — Arno, 01h04)
+    ligne('B', 31, 'BERNARD Bob', '2 rue Beta, Lyon', '2026-10-15', '2027-01-15', pv({ statut: 'programmee', rdv: { jour: '2099-11-20', heure: '10:00', dureeMinutes: 60 }, tacheId: 500 }), '2027-01-10'),
     ligne('C', 41, 'CHARLES Carla', '3 rue Gamma, Nice', '2026-10-01', '2027-02-01', pv({ statut: 'alerte' })),
   ];
   global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
