@@ -10,6 +10,7 @@ import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi
 import { useEffect, useState } from 'react';
 import { useContexteRedaction } from '../gestion/useContexteRedaction';
 import { useEcrireFlottant } from '../gestion/EcrireFlottant';
+import { biensParAdresse } from '../../../../lib/location/adressesCoproSyndic';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -246,9 +247,14 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
             {liste(s.coproprietes).map((c) => (
               <li key={c.id} style={{ display: 'block' }}>
                 <p style={{ margin: '0 0 4px' }}><strong>{c.libelle}</strong> <span className="loc-muet">{[c.codePostal, c.commune].filter((x) => x).join(' ')}</span></p>
-                <p className="loc-muet" style={{ margin: 0 }}>
-                  {liste(c.lots).length === 0 ? 'aucun bien de l’annuaire' : liste(c.lots).map((l, i) => (
-                    <span key={l.id}>{i > 0 ? ' · ' : ''}<a href={`/admin/location/bien/${l.id}`}>{l.adresse ?? `bien ${l.numero}`}</a></span>
+                {/* 🔴🔴 Arno (28/11/2026, 12h17, point 4) — chaque adresse UNE fois (clé de la 522) ; ses biens la suivent, chacun avec son lien */}
+                <p className="loc-muet" style={{ margin: 0 }} data-adresses-copro={c.cle}>
+                  {liste(c.lots).length === 0 ? 'aucun bien de l’annuaire' : biensParAdresse(liste(c.lots)).map((g, i) => (
+                    <span key={g.cle || `sans-${i}`} data-adresse-copro={g.cle}>{i > 0 ? ' · ' : ''}
+                      {g.lots.length === 1 ? <a href={`/admin/location/bien/${g.lots[0].id}`}>{g.adresse || `bien ${g.lots[0].numero}`}</a> : <>
+                        {g.adresse || 'sans adresse'} ({g.lots.map((l, j) => (
+                          <span key={l.id}>{j > 0 ? ', ' : ''}<a href={`/admin/location/bien/${l.id}`}>bien {l.numero.startsWith('app-') ? `n° ${l.id}` : l.numero}</a></span>))})</>}
+                    </span>
                   ))}
                 </p>
               </li>
