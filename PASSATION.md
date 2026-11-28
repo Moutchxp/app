@@ -1796,10 +1796,18 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome, syndics 56, 49 et 2, Location et Gestion, 1440 et 390 px, clair et sombre. Aucun mail, aucune requête d'écriture.
   - Captures `.captures/fiche-syndic-coordonnees-2/` (fichiers temporaires dans `.captures/`, effacés). ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 13h06 — « Copropriétés suivies » : le décompte à droite (`955821f5`)
+- **`955821f5`** — en-tête : « Copropriétés suivies : N » à gauche, le décompte à droite, sans « · ».
+  - Même bord droit que les « N lots » des encadrés (`padding-right:15px` = bordure 1 px + 14 px) et même police (classe `loc-copro-n`).
+  - À 390 px, le décompte passe sous le titre, à droite, coupé entre les mots.
+  - Mesuré : 1388 px à 1440 px, 338 px à 390 px ; 16 px, graisse 700. Cas à plusieurs types injecté au navigateur seulement (aucun en recette).
+- Contrôles : `npm test` VERT (1 902 fichiers, 28 485 tests, 21 ignorés) ; `tsc` = 0. Chrome, syndics 56 et 54, 1440 et 390 px, clair et sombre.
+  - Captures `.captures/fiche-syndic-compte/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
