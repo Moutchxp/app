@@ -6,6 +6,7 @@ import {
 import { chargerAnnuaireAdresses } from './adressesRepo';
 import { SQL_MESSAGE_DE_L_ENVOI } from './envoiCiblesRepo';
 import { envoiPartiesDisponibles } from './schema';
+import { sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 
 /**
  * MODULE « GESTION » — LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS : LES PARTIES D'UN MAIL QUE NOUS ENVOYONS.
@@ -103,14 +104,16 @@ export function partiesDesDestinataires(
 
 /** Les adresses des syndics (générique), de leurs contacts EN COURS et des carnets d'immeuble. LECTURE SEULE. */
 export async function chargerAdressesExternes(): Promise<AdresseExterne[]> {
+  // 🔴 (Arno, 28/11/2026, 524) chaque e-mail du CABINET (toute sa liste), pas seulement le premier
+  const cab = await sqlCoordonneesCabinet();
   const { rows } = await query<{
     email: string; sorte: AdresseExterne['sorte']; syndic_id: string | null; contact_id: string | null;
     copro_contact_id: string | null; libelle: string;
   }>(
-    `SELECT lower(btrim(s.email)) AS email, 'syndic' AS sorte, s.id::text AS syndic_id, NULL::text AS contact_id,
+    `SELECT lower(btrim(c.valeur)) AS email, 'syndic' AS sorte, s.id::text AS syndic_id, NULL::text AS contact_id,
             NULL::text AS copro_contact_id, 'e-mail du syndic ' || s.nom AS libelle
-       FROM gestion_syndic s
-      WHERE s.supprime_le IS NULL AND coalesce(btrim(s.email), '') <> ''
+       FROM ${cab} c JOIN gestion_syndic s ON s.id = c.syndic_id
+      WHERE s.supprime_le IS NULL AND c.sorte = 'email'
      UNION ALL
      SELECT lower(btrim(k.valeur)), 'syndic_contact', s.id::text, ct.id::text, NULL::text,
             'contact du syndic ' || s.nom

@@ -7,6 +7,7 @@ import { lirePartenairesInternes } from './partenaires';
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
 import { chercherBiens } from './rechercheBienRepo';
 import { cleImmeuble } from './syndics';
+import { sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 
 /**
  * ══ 🔴🔴 LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — LES BIENS DE CHAQUE ADRESSE CLIENTE. LECTURE SEULE. ════════
@@ -93,10 +94,11 @@ export async function biensDesClients(adresses: readonly string[]): Promise<Bien
               SELECT 1 FROM gestion_syndic_contact_copropriete x
                WHERE x.contact_id = ct.id AND x.copropriete_id = cs.copropriete_id AND x.retire_le IS NULL))
      UNION ALL
-     SELECT lower(btrim(s.email)), 'syndic', s.nom, cs.copropriete_id::text
-       FROM gestion_syndic s
+     SELECT lower(btrim(cab.valeur)), 'syndic', s.nom, cs.copropriete_id::text
+       FROM ${await sqlCoordonneesCabinet()} cab
+       JOIN gestion_syndic s ON s.id = cab.syndic_id
        JOIN gestion_copropriete_syndic cs ON cs.syndic_id = s.id AND cs.fin IS NULL
-      WHERE s.supprime_le IS NULL AND lower(btrim(s.email)) = ANY($1::text[])
+      WHERE s.supprime_le IS NULL AND cab.sorte = 'email' AND lower(btrim(cab.valeur)) = ANY($1::text[])
      UNION ALL
      SELECT lower(btrim(k.valeur)), 'immeuble', nullif(btrim(concat_ws(' ', ct.nom, ct.prenom)), ''), ct.copropriete_id::text
        FROM gestion_copropriete_contact_coordonnee k

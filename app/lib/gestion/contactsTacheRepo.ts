@@ -5,6 +5,7 @@ import { coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien } from '.
 import { coproprietesDesBiens } from './partiesSyndicRepo';
 import { libelleCategorieImmeuble } from './syndics';
 import { estFamille, type ContactSource, type CoordonneeContact, type FamilleContact } from './contactsTache';
+import { sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1-BIS — LES CONTACTS DU BIEN, POUR LA FENÊTRE D'UNE TÂCHE ═════════════════════════════════════
@@ -123,10 +124,14 @@ export async function contactsDuBienPourTache(lotId: number): Promise<ContactSou
 async function syndicEtImmeuble(lotCle: string): Promise<ContactSource[]> {
   const copros = [...new Set(((await coproprietesDesBiens([lotCle])).get(lotCle) ?? []).map((c) => c.id))];
   if (copros.length === 0) return [];
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du CABINET : toute sa liste, avec leurs libellés
+  const cab = await sqlCoordonneesCabinet();
   const [{ rows: cabinets }, { rows: contacts }, { rows: immeuble }] = await Promise.all([
     query<{ id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
-      telephone: string | null; telephone_2: string | null; email: string | null }>(
-      `SELECT DISTINCT s.id::text, s.nom, s.adresse, s.code_postal, s.ville, s.telephone, s.telephone_2, s.email
+      cabinet: { sorte: string; libelle: string | null; valeur: string }[] | null }>(
+      `SELECT DISTINCT s.id::text, s.nom, s.adresse, s.code_postal, s.ville,
+              (SELECT json_agg(json_build_object('sorte', c.sorte, 'libelle', c.libelle, 'valeur', c.valeur) ORDER BY c.rang)
+                 FROM ${cab} c WHERE c.syndic_id = s.id)::jsonb AS cabinet
          FROM gestion_copropriete_syndic cs JOIN gestion_syndic s ON s.id = cs.syndic_id
         WHERE cs.copropriete_id = ANY($1::bigint[]) AND cs.fin IS NULL AND s.supprime_le IS NULL
         ORDER BY s.nom`, [copros]),
@@ -155,17 +160,26 @@ async function syndicEtImmeuble(lotCle: string): Promise<ContactSource[]> {
   const lues = (l: { sorte: string; libelle: string | null; valeur: string }[] | null): CoordonneeContact[] =>
     (l ?? []).filter((k) => (k.sorte === 'telephone' || k.sorte === 'email') && net(k.valeur) !== '')
       .map((k) => ({ sorte: k.sorte as 'telephone' | 'email', libelle: net(k.libelle) || null, valeur: net(k.valeur), affichage: null }));
-  const standards = (s: (typeof cabinets)[number]): CoordonneeContact[] => [
-    ...(net(s.telephone) !== '' ? [{ sorte: 'telephone' as const, libelle: 'Standard', valeur: net(s.telephone), affichage: null }] : []),
-    ...(net(s.telephone_2) !== '' ? [{ sorte: 'telephone' as const, libelle: 'Standard 2', valeur: net(s.telephone_2), affichage: null }] : []),
-  ];
+  /* Les libellés d'avant restent pour le cas courant : « Standard », « Standard 2 » (puis 3…), « E-mail du cabinet » pour l'e-mail « Contact » ;
+     tout autre libellé de la liste est dit tel quel. */
+  const duCabinet = (s: (typeof cabinets)[number]): CoordonneeContact[] => {
+    let n = 0;
+    return (s.cabinet ?? []).filter((k) => (k.sorte === 'telephone' || k.sorte === 'email') && net(k.valeur) !== '').map((k) => {
+      const l = net(k.libelle);
+      if (k.sorte === 'telephone') {
+        const standard = l === '' || l === 'Standard';
+        if (standard) n += 1;
+        return { sorte: 'telephone' as const, libelle: standard ? (n === 1 ? 'Standard' : `Standard ${n}`) : l, valeur: net(k.valeur), affichage: null };
+      }
+      return { sorte: 'email' as const, libelle: l === '' || l === 'Contact' ? 'E-mail du cabinet' : l, valeur: net(k.valeur), affichage: null };
+    });
+  };
   const parId = new Map(cabinets.map((s) => [s.id, s]));
 
   const out: ContactSource[] = cabinets.map((s) => ({
     cle: `cabinet:${s.id}`, famille: 'syndic_immeuble', nom: net(s.nom), qualite: 'Cabinet du syndic', organisation: null,
     adresse: adressePostale(s.adresse, s.code_postal, s.ville),
-    coordonnees: [...standards(s),
-      ...(net(s.email) !== '' ? [{ sorte: 'email' as const, libelle: 'E-mail du cabinet', valeur: net(s.email), affichage: null }] : [])],
+    coordonnees: [...duCabinet(s).filter((k) => k.sorte === 'telephone'), ...duCabinet(s).filter((k) => k.sorte === 'email')],
   }));
   for (const c of contacts) {
     const s = parId.get(c.syndic_id);
@@ -174,7 +188,7 @@ async function syndicEtImmeuble(lotCle: string): Promise<ContactSource[]> {
       qualite: net(c.titre) || 'Contact du syndic', organisation: s ? net(s.nom) : null,
       adresse: s ? adressePostale(s.adresse, s.code_postal, s.ville) : null,
       // Les standards du cabinet suivent son contact : on appelle souvent le standard pour le joindre.
-      coordonnees: [...lues(c.coordonnees), ...(s ? standards(s).map((k) => ({ ...k, libelle: `${k.libelle} du cabinet` })) : [])],
+      coordonnees: [...lues(c.coordonnees), ...(s ? duCabinet(s).filter((k) => k.sorte === 'telephone').map((k) => ({ ...k, libelle: `${k.libelle} du cabinet` })) : [])],
     });
   }
   for (const c of immeuble) {

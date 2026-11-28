@@ -2,6 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7d — le format unique de l'adresse du cabinet
 import { journaliserLienSyndic, journaliserRetraitContacts } from './journalSyndicCopro';
+import { coordonneesCabinetDisponibles, lireCoordonneesCabinet, sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 import { statutBienDisponible } from './statutBienRepo';
 import { normaliserTexte } from './annuaire';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
@@ -56,12 +57,16 @@ function comparableDuSyndicSaisi(s: SyndicSaisi): SyndicComparable {
 /* ══ LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE ══ */
 /** L'annuaire des syndics non supprimés, avec les e-mails et téléphones de leurs contacts en poste. LECTURE SEULE. */
 export async function syndicsComparables(q: RequeteTx | typeof query = query): Promise<SyndicComparable[]> {
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du CABINET : toute sa liste
+  const cab = await sqlCoordonneesCabinet();
   const { rows } = await (q as typeof query)<{
     id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
-    email: string | null; telephone: string | null; telephone_2: string | null;
+    cab_emails: string[] | null; cab_tels: string[] | null;
     emails: string[] | null; telephones: string[] | null;
   }>(
-    `SELECT s.id::text, s.nom, s.adresse, s.code_postal, s.ville, s.email, s.telephone, s.telephone_2,
+    `SELECT s.id::text, s.nom, s.adresse, s.code_postal, s.ville,
+            (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'email') AS cab_emails,
+            (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'telephone') AS cab_tels,
             (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
                JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
               WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'email') AS emails,
@@ -73,8 +78,8 @@ export async function syndicsComparables(q: RequeteTx | typeof query = query): P
       ORDER BY s.id`);
   return rows.map((r) => ({
     id: Number(r.id), nom: r.nom, adresse: r.adresse ?? '', codePostal: r.code_postal ?? '', ville: r.ville ?? '',
-    emails: [r.email ?? '', ...(r.emails ?? [])].filter((x) => x.trim() !== ''),
-    telephones: [r.telephone ?? '', r.telephone_2 ?? '', ...(r.telephones ?? [])].filter((x) => x.trim() !== ''),
+    emails: [...(r.cab_emails ?? []), ...(r.emails ?? [])].filter((x) => x.trim() !== ''),
+    telephones: [...(r.cab_tels ?? []), ...(r.telephones ?? [])].filter((x) => x.trim() !== ''),
   }));
 }
 
@@ -297,11 +302,15 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
 export async function listerSyndics(): Promise<SyndicResume[]> {
   const parCle = await lotsParImmeuble();
   const secondairesListe = await adressesSecondaires();
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du CABINET : toute sa liste (le premier de chaque est celui qu'affiche l'écran Syndics)
+  const cab = await sqlCoordonneesCabinet();
   const { rows } = await query<{
-    id: string; nom: string; email: string | null; telephone: string | null; ville: string | null;
-    cles: string[] | null; emails: string[] | null; telephone_2?: string | null; tels?: string[] | null;
+    id: string; nom: string; ville: string | null;
+    cles: string[] | null; emails: string[] | null; tels?: string[] | null; cab_emails: string[] | null; cab_tels: string[] | null;
   }>(
-    `SELECT s.id::text, s.nom, s.email, s.telephone, s.telephone_2, s.ville,
+    `SELECT s.id::text, s.nom, s.ville,
+            (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'email') AS cab_emails,
+            (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'telephone') AS cab_tels,
             (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
                JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
               WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'telephone') AS tels,
@@ -319,15 +328,16 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
     // LOT COPRO-PLUSIEURS-ADRESSES — les biens de toutes les adresses de ses copropriétés.
     const toutes = [...cles, ...secondairesListe.filter((a) => cles.includes(a.coproCle)).map((a) => a.cle)];
     const nbBiens = toutes.reduce((n, c) => n + (parCle.get(c)?.lots.length ?? 0), 0);
-    const emails = [r.email ?? '', ...(r.emails ?? [])].filter((x) => x !== '');
+    const cabEmails = r.cab_emails ?? []; const cabTels = r.cab_tels ?? [];
+    const emails = [...cabEmails, ...(r.emails ?? [])].filter((x) => x !== '');
     const domaines = emails.map((e) => e.split('@')[1] ?? '');
     return {
-      id: Number(r.id), nom: r.nom, email: r.email, telephone: r.telephone, ville: r.ville,
+      id: Number(r.id), nom: r.nom, email: cabEmails[0] ?? null, telephone: cabTels[0] ?? null, ville: r.ville,
       nbCoproprietes: cles.length, nbBiens,
       // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville se cherche aussi : « foncia courbevoie ».
       cherchable: normaliserTexte([r.nom, r.ville ?? '', ...emails, ...domaines].join(' ')),
       // 🔴 (Arno, 17/11/2026) les téléphones se cherchent aussi : standards et contacts, en clé
-      telephones: [...new Set([r.telephone, r.telephone_2 ?? null, ...(r.tels ?? [])].map((t) => cleTelephone(t)).filter((t) => t.length >= 4))],
+      telephones: [...new Set([...cabTels, ...(r.tels ?? [])].map((t) => cleTelephone(t)).filter((t) => t.length >= 4))],
     };
   });
 }
@@ -339,26 +349,8 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
 /* ══ 🔴🔴 Arno (28/11/2026, 524) — LES COORDONNÉES DU CABINET, EN LISTE ══════════════════════════════════════════════════════════════════════════════
  * La table de la 524 (sondée une fois par processus : sans elle, les trois colonnes d'avant, comme avant). Lecture : les lignes NON retirées, dans
  * leur ordre. Écriture : même règle que les coordonnées des contacts — mise à jour, insertion, RETRAIT (retire_le, jamais d'effacement). */
-let cabinetDisponibleMemo: Promise<boolean> | null = null;
-export function coordonneesCabinetDisponibles(): Promise<boolean> {
-  cabinetDisponibleMemo ??= query<{ ok: boolean }>(`SELECT to_regclass('public.gestion_syndic_coordonnee_cabinet') IS NOT NULL AS ok`)
-    .then((r) => r.rows[0]?.ok === true).catch(() => { cabinetDisponibleMemo = null; return false; });
-  return cabinetDisponibleMemo;
-}
-/** Les coordonnées du cabinet de ces syndics (lignes non retirées), par syndic ; sans la 524 : rien (le lecteur déduit des colonnes). */
-export async function lireCoordonneesCabinet(syndicIds: readonly number[]): Promise<Map<number, CoordonneeCabinet[]>> {
-  const m = new Map<number, CoordonneeCabinet[]>();
-  if (syndicIds.length === 0 || !(await coordonneesCabinetDisponibles())) return m;
-  const { rows } = await query<{ id: string; syndic_id: string; sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }>(
-    `SELECT id::text, syndic_id::text, sorte, libelle, valeur FROM gestion_syndic_coordonnee_cabinet
-      WHERE syndic_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY syndic_id, rang, id`, [[...syndicIds]]);
-  for (const r of rows) {
-    const l = m.get(Number(r.syndic_id)) ?? [];
-    l.push({ id: Number(r.id), sorte: r.sorte, libelle: r.libelle, valeur: r.valeur });
-    m.set(Number(r.syndic_id), l);
-  }
-  return m;
-}
+// la sonde et la lecture vivent dans coordonneesCabinetRepo (une seule règle pour tous les lecteurs)
+export { coordonneesCabinetDisponibles, lireCoordonneesCabinet } from './coordonneesCabinetRepo';
 async function enregistrerCoordonneesCabinet(q: RequeteTx, syndicId: number, liste: readonly CoordonneeSaisie[], auteur: Auteur): Promise<void> {
   const { rows } = await q<{ id: string }>(
     `SELECT id::text FROM gestion_syndic_coordonnee_cabinet WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);

@@ -47,6 +47,7 @@ import { resumerCoprosSyndic, type FicheSyndicLocation } from './adressesCoproSy
 import { lireLotsPourVacance } from './lotsVacantsRepo';
 import { detaillerBiensCopro } from './adressesCoproSyndicRepo';
 import { aujourdhuiParis } from './reglagesDpe';
+import { sqlCoordonneesCabinet } from '../gestion/coordonneesCabinetRepo';
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
  *
@@ -164,21 +165,25 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
       ORDER BY ${ancien('p')}, ${pertinence('p.nom_normalise')}, p.nom_normalise, p.id LIMIT ${LIMITE + 1}`, params);
   // Les syndics de la Gestion : nom, téléphone (fiche ou contacts), e-mail (fiche ou contacts). Jamais leur adresse.
   const testsSyndic: string[] = [];
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du CABINET : toute sa liste
+  const cab = await sqlCoordonneesCabinet();
   if (t.mots.length > 0) testsSyndic.push(t.mots.map((_, i) => `lower(s.nom) LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND '));
   if (t.chiffres !== null) {
-    testsSyndic.push(`regexp_replace(concat_ws(' ', s.telephone, s.telephone_2), '\\D', '', 'g') LIKE '%' || $1 || '%'`);
+    testsSyndic.push(`EXISTS (SELECT 1 FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'telephone' AND regexp_replace(c.valeur, '\\D', '', 'g') LIKE '%' || $1 || '%')`);
     testsSyndic.push(`EXISTS (SELECT 1 FROM gestion_syndic_contact ct JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id
       WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND k.retire_le IS NULL AND k.sorte = 'telephone'
         AND regexp_replace(k.valeur, '\\D', '', 'g') LIKE '%' || $1 || '%')`);
   }
   if (t.email !== null) {
-    testsSyndic.push(`lower(coalesce(s.email, '')) LIKE '%' || $2 || '%'`);
+    testsSyndic.push(`EXISTS (SELECT 1 FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'email' AND lower(c.valeur) LIKE '%' || $2 || '%')`);
     testsSyndic.push(`EXISTS (SELECT 1 FROM gestion_syndic_contact ct JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id
       WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND k.retire_le IS NULL AND k.sorte = 'email' AND lower(k.valeur) LIKE '%' || $2 || '%')`);
   }
   const { rows: syn } = testsSyndic.length === 0 ? { rows: [] as Ligne[] }
     : await query<Ligne>(
-      `SELECT s.id::text, s.nom, nullif(coalesce(nullif(s.telephone, ''), s.telephone_2), '') AS telephone, nullif(s.email, '') AS email,
+      `SELECT s.id::text, s.nom,
+              (SELECT c.valeur FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'telephone' ORDER BY c.rang LIMIT 1) AS telephone,
+              (SELECT c.valeur FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'email' ORDER BY c.rang LIMIT 1) AS email,
               NULL::text AS adresse, s.ville AS detail, false AS ancien
          FROM gestion_syndic s
         WHERE ${NEUTRE} AND s.supprime_le IS NULL AND (${testsSyndic.map((x) => `(${x})`).join(' OR ')})

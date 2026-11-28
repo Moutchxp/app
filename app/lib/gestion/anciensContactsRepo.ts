@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import { etatDesCartes } from './partieCategorieRepo';
+import { sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 
 /**
  * ══ 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — « ANCIEN CONTACT » ════════════════════════════════════════════════════
@@ -27,7 +28,7 @@ export async function anciensContactsParmi(adresses: readonly string[]): Promise
          JOIN gestion_syndic s ON s.id = ct.syndic_id
         WHERE k.sorte = 'email'
        UNION ALL
-       SELECT lower(btrim(s.email)), s.supprime_le IS NULL FROM gestion_syndic s WHERE coalesce(btrim(s.email), '') <> ''
+       SELECT lower(btrim(c.valeur)), s.supprime_le IS NULL FROM ${await sqlCoordonneesCabinet()} c JOIN gestion_syndic s ON s.id = c.syndic_id WHERE c.sorte = 'email'
        UNION ALL
        SELECT lower(btrim(k.valeur)), (k.retire_le IS NULL AND ct.retire_le IS NULL)
          FROM gestion_copropriete_contact_coordonnee k

@@ -10,7 +10,8 @@ const appels: Array<{ sql: string; params: unknown[] }> = [];
 const repondre = (sql: string): { rows: unknown[] } => {
   if (sql.includes('FROM gestion_syndic s') && sql.includes('WHERE s.supprime_le IS NULL') && sql.includes('AS emails,')) {
     return { rows: [{ id: '4', nom: 'Cabinet FONCIA', adresse: '12 bis av. des Champs-Élysées', code_postal: '75008', ville: 'Paris',
-      email: 'contact@foncia.invalid', telephone: '0142000001', telephone_2: null, emails: null, telephones: null }] };
+      // 🔴 (28/11/2026, 524) les téléphones et e-mails du cabinet arrivent en liste (cab_emails, cab_tels) ; CE QU'IL Y AVAIT : email, telephone, telephone_2
+      cab_emails: ['contact@foncia.invalid'], cab_tels: ['0142000001'], emails: null, telephones: null }] };
   }
   if (sql.includes('INSERT INTO gestion_syndic ')) return { rows: [{ id: '11' }] };
   return { rows: [] };

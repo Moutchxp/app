@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const query = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => query(...a) }));
 const disponible = vi.fn();
+// 🔴 (28/11/2026, 524) les e-mails du cabinet viennent de la table dérivée commune ; ici, sans sonde (les réponses simulées restent dans leur ordre)
+vi.mock('./coordonneesCabinetRepo', () => ({ sqlCoordonneesCabinet: async () => '(SELECT NULL::bigint AS syndic_id, NULL::text AS sorte, NULL::text AS libelle, NULL::text AS valeur, 0 AS rang)' }));
 vi.mock('./schema', async (orig) => ({ ...(await orig<typeof import('./schema')>()), envoiPartiesDisponibles: () => disponible() }));
 vi.mock('./adressesRepo', () => ({
   chargerAnnuaireAdresses: async () => ANNUAIRE,

@@ -10,7 +10,7 @@ import { syndicauxDuBien } from './partiesSyndicRepo';
 import { syndicauxDepuisJson } from './partiesSyndic';
 import { sqlLiensDuBien } from './rattachement';
 import { ficheSyndic } from './syndicRepo';
-import { cleImmeuble } from './syndics';
+import { cleImmeuble, emailsDuCabinet } from './syndics';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les rôles « Syndic — … », « Gardien »… écrits UNE fois, pour toutes les vues. */
 import { roleCabinet, roleContactSyndic, roleImmeuble } from './partiesSyndic';
 import { estAdresseSansReponse } from './typologie';
@@ -126,9 +126,11 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
           });
         }
       }
-      if (propre(syndic.email) !== '') {
+      // 🔴 (Arno, 28/11/2026, 524) chaque e-mail du CABINET (toute sa liste), pas seulement le premier
+      for (const email of emailsDuCabinet(syndic)) {
+        if (propre(email) === '') continue;
         immeuble.push({
-          adresse: syndic.email as string, nom: syndic.nom, role: roleCabinet(syndic.nom), ton: 'syndic', propre: true,
+          adresse: email, nom: syndic.nom, role: roleCabinet(syndic.nom), ton: 'syndic', propre: true,
           civilite: null, nomFamille: null,
         });
       }

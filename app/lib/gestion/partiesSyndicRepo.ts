@@ -9,6 +9,7 @@ import {
   reconnaitreSyndical, ROLE_SYNDIC_A_LA_MAIN, roleCabinet, roleContactSyndic, roleImmeuble, syndicauxDesAdresses, type PersonneSyndicale,
   type SyndicalDeLAdresse,
 } from './partiesSyndic';
+import { sqlCoordonneesCabinet } from './coordonneesCabinetRepo';
 
 /**
  * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — LES PERSONNES DE LA FICHE SYNDIC D'UN BIEN. LECTURE SEULE. ═══════════════
@@ -76,9 +77,13 @@ export async function personnesSyndicalesDesBiens(lotCles: readonly string[]): P
   const out = new Map<string, PersonneSyndicale[]>(cles.map((c) => [c, []]));
   if (toutes.length === 0) return out;
 
+  // 🔴 (Arno, 28/11/2026, 524) les téléphones et e-mails du CABINET : toute sa liste
+  const cab = await sqlCoordonneesCabinet();
   const [{ rows: cabinets }, { rows: contacts }, { rows: immeuble }] = await Promise.all([
-    query<{ copro: string; nom: string; email: string | null; telephone: string | null; telephone_2: string | null }>(
-      `SELECT cs.copropriete_id::text AS copro, s.nom, s.email, s.telephone, s.telephone_2
+    query<{ copro: string; nom: string; emails: string[] | null; telephones: string[] | null }>(
+      `SELECT cs.copropriete_id::text AS copro, s.nom,
+              (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'email') AS emails,
+              (SELECT array_agg(c.valeur ORDER BY c.rang) FROM ${cab} c WHERE c.syndic_id = s.id AND c.sorte = 'telephone') AS telephones
          FROM gestion_copropriete_syndic cs JOIN gestion_syndic s ON s.id = cs.syndic_id
         WHERE cs.copropriete_id = ANY($1::bigint[]) AND cs.fin IS NULL AND s.supprime_le IS NULL`, [toutes]),
     query<{
@@ -138,8 +143,8 @@ export async function personnesSyndicalesDesBiens(lotCles: readonly string[]): P
   for (const c of cabinets) {
     poser(c.copro, {
       sorte: 'cabinet', role: roleCabinet(c.nom), nom: c.nom.trim(),
-      emails: [cleEmail(c.email)].filter((k) => k !== ''),
-      telephones: [cleTelephone(c.telephone), cleTelephone(c.telephone_2)].filter((k) => k !== ''),
+      emails: (c.emails ?? []).map((e) => cleEmail(e)).filter((k) => k !== ''),
+      telephones: (c.telephones ?? []).map((t) => cleTelephone(t)).filter((k) => k !== ''),
       partiLe: null,
     });
   }

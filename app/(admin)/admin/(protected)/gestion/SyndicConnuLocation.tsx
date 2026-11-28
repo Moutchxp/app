@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PROPOSITIONS_SYNDIC, motOrigine, type SyndicConnuVu } from './PropositionsSyndic';
-import { nomAvecVille, PERSONNALISE, TITRES_CONTACT, valeurDuChoix, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
+import { emailsDuCabinet, nomAvecVille, PERSONNALISE, telephonesDuCabinet, TITRES_CONTACT, valeurDuChoix, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
 import { clesDeLAdresse, grouperBiensSelonGestion, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
 import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
@@ -108,7 +108,9 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
   if (f === null) return <p className="fsy-discret">Chargement du détail…</p>;
   const rien = <span className="syl-rien">non renseigné</span>;
   const adresse = [f.adresse, [f.codePostal, f.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ');
-  const telephones = [f.telephone, f.telephone2].filter((x) => x).map(telephoneLisible).join(' · ');
+  // 🔴 (Arno, 28/11/2026, 524) toute la liste du cabinet (sinon, les colonnes d'avant)
+  const telephones = telephonesDuCabinet(f).map(telephoneLisible).join(' · ');
+  const emails = emailsDuCabinet(f).join(' · ');
   const nbLots = groupes.reduce((n, g) => n + g.lots.length, 0);
   const contacts = ordonnerContactsSyndic(f.contacts, coproCle === null ? new Set<string>() : clesDeLAdresse(coproCle, f.coproprietes));
   // « + Ajouter un contact » : il rejoint l'annuaire du syndic de la GESTION (la porte unique `enregistrerSyndic`, côté serveur).
@@ -135,7 +137,7 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
           {/* La raison sociale n'est montrée que si elle diffère du nom (l'annuaire n'en distingue pas aujourd'hui). */}
           <div><dt>Adresse</dt><dd>{adresse || rien}</dd></div>
           <div><dt>Téléphone</dt><dd>{telephones || rien}</dd></div>
-          <div><dt>E-mail</dt><dd>{f.email || rien}</dd></div>
+          <div><dt>E-mail</dt><dd>{emails || rien}</dd></div>
         </dl>
         {f.note ? <p className="syl-note"><span className="syl-etiquette">Notes</span>{f.note}</p> : null}
       </section>
