@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
 import { CSS_PASTILLE_STATUT, PastilleStatut } from '../gestion/StatutDuBien';
 import type { FiltreStatut, PageClients } from '../../../../lib/location/clientsBiensRepo';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « CLIENTS ET BIENS » (Arno, 21/10/2026, migration 403) ══════════════════════════════════════════════
@@ -69,7 +70,7 @@ export function ClientsEtBiens() {
                 <li key={c.id} className="cb-client" data-client={c.id}>
                   <div className="cb-client-tete">
                     <a className="cb-nom" href={`/admin/location/proprietaire/${c.id}`}>{c.nom}</a>
-                    <span className="cb-coord">{[c.telephone, c.email].filter((x) => x).join(' · ')}</span>
+                    <span className="cb-coord">{[c.telephone ? telephoneLisible(c.telephone) : null, c.email].filter((x) => x).join(' · ')}</span>
                   </div>
                   {c.biens.length === 0 ? <p className="loc-muet cb-sans">Aucun bien.</p> : (
                     <ul className="cb-biens">

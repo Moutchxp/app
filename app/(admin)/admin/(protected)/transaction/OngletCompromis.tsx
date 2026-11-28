@@ -29,6 +29,7 @@ import { BlocDu } from './BlocDu';
 import { ApporteurAffaire } from './ApporteurAffaire';
 import { BoutonPersonne, personneEcranDe, type PersonneEcran } from './PersonnesDossier';
 import { FenetrePersonnes } from './FenetrePersonnes';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — L'ONGLET « COMPROMIS » ═══════════════════════════════════════════════════
@@ -581,7 +582,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
           <ul className="trx-personnes" data-personnes-compromis={role}>
             {gens.map((p) => (
               <li key={`${p.role}-${p.id}`}><strong>{p.nom}</strong>
-                <span>{p.telephone ? <a href={`tel:${p.telephone.replace(/\s/g, '')}`}>{p.telephone}</a> : <span className="trx-a-renseigner">téléphone {A_RENSEIGNER}</span>}</span>
+                <span>{p.telephone ? <a href={`tel:${p.telephone.replace(/\s/g, '')}`}>{telephoneLisible(p.telephone)}</a> : <span className="trx-a-renseigner">téléphone {A_RENSEIGNER}</span>}</span>
                 <span>{p.email ? <a href={`mailto:${p.email}`}>{p.email}</a> : <span className="trx-a-renseigner">e-mail {A_RENSEIGNER}</span>}</span>
                 <span>{p.adresse ?? <span className="trx-a-renseigner">adresse {A_RENSEIGNER}</span>}</span></li>
             ))}

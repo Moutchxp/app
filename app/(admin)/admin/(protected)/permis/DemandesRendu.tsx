@@ -11,6 +11,7 @@ import type { Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 
 import type { ContactMairie } from '../../../../lib/veille/reponsesSuivi'; // LOT-9 (C) — carnet d'adresses « Contact mairie »
 import type { TelephoneQualifie } from '../../../../lib/veille/telephoneSignature'; // LOT 28 — téléphone d'un interlocuteur (signature / annuaire)
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * Rendu PUR de la visibilité PRADA de l'onglet Demandes (chantier S14e) — aucun état, aucun effet → testable en Node via
@@ -776,7 +777,7 @@ export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
             {l.telephones.map((t, j) => (
               <span key={`${t.numero}-${j}`}>
                 <span style={{ color: 'var(--color-svv-muted)' }}> · tél. </span>
-                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', whiteSpace: 'nowrap' }}>{t.numero}</span>
+                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', whiteSpace: 'nowrap' }}>{telephoneLisible(t.numero)}</span>
                 {libelleTelephone(t) && <span style={{ color: 'var(--color-svv-muted)' }}> {libelleTelephone(t)}</span>}
               </span>
             ))}

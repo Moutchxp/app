@@ -140,7 +140,7 @@ describe('🔴 la carte, de haut en bas', () => {
     expect(encadres[0].querySelector('.tchc-nom')?.textContent).toBe('Mme Durand · Propriétaire');
     expect(encadres[1].querySelector('.tchc-nom b')?.textContent).toBe('M. Martin');
     const tels = [...encadres[1].querySelectorAll<HTMLAnchorElement>('a[href^="tel:"]')];
-    expect(tels.map((x) => x.closest('p')?.textContent)).toEqual(['Fixe : 0145000000', 'Bureau : 0146000000']);
+    expect(tels.map((x) => x.closest('p')?.textContent)).toEqual(['Fixe : 01 45 00 00 00', 'Bureau : 01 46 00 00 00']); // 🔴 (Arno, 28/11/2026, 12h17) règle commune
     await act(async () => { boutonDe(encadres[0], 'durand@example.test')!.click(); });
     expect(ecrits).toEqual(['durand@example.test']);
     // Le bloc « Contacts » généré (celui de l'agenda et des mails) n'apparaît nulle part sur la carte.

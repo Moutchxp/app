@@ -15,6 +15,7 @@
  */
 
 import { boutonMailHtml } from '../email/boutonMail';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 export type SensMouvement = 'sortie' | 'entree';
 export type TuileOrigine = 'Location' | 'Gestion';
@@ -156,7 +157,7 @@ export function texteMail(d: DonneesMail): string {
   t.push(`QUI : ${d.auteur.nom}${d.auteur.email ? ` <${d.auteur.email}>` : ''} — ${dateHeure(d.quand)} — depuis la tuile ${d.tuile}`, '');
   t.push('PROPRIÉTAIRE(S)');
   for (const p of d.proprietaires) {
-    t.push(`- ${p.nom}${p.telephone ? ` · ${p.telephone}` : ''}${p.email ? ` · ${p.email}` : ''}${p.adresse ? ` · ${p.adresse}` : ''}`);
+    t.push(`- ${p.nom}${p.telephone ? ` · ${telephoneLisible(p.telephone)}` : ''}${p.email ? ` · ${p.email}` : ''}${p.adresse ? ` · ${p.adresse}` : ''}`);
     if (p.mandatGestion) t.push(`  Mandat de gestion : ${p.mandatGestion}`);
     if (p.mandatTransaction) t.push(`  Mandat de transaction : ${p.mandatTransaction}`);
   }

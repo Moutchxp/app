@@ -8,6 +8,7 @@ import { FicheApporteurFenetre } from './FicheApporteurFenetre';
 import { MeRattacher } from './MeRattacher';
 import { chercherApporteur, type Doublon, type MesApporteursLus } from '../../../../lib/mon-espace/apporteurs';
 import { LIBELLE_STATUT_TVA } from '../../../../lib/location/suivi/suivi';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 9 (Arno, 02/11/2026) — L'ONGLET « MES APPORTEURS » ═════════════════════════════════════════════════════════════════════════
@@ -89,7 +90,7 @@ export function MesApporteurs() {
                 {a.societe && <span className="loc-muet"> · {a.societe}</span>}
               </div>
               <p className="mes-apporteur-coord">
-                {a.telephone ? <a href={`tel:${a.telephone.replace(/\s/g, '')}`}>{a.telephone}</a> : <span className="trx-a-renseigner">téléphone à renseigner</span>}
+                {a.telephone ? <a href={`tel:${a.telephone.replace(/\s/g, '')}`}>{telephoneLisible(a.telephone)}</a> : <span className="trx-a-renseigner">téléphone à renseigner</span>}
                 {' · '}{a.email ? <a href={`mailto:${a.email}`}>{a.email}</a> : <span className="trx-a-renseigner">e-mail à renseigner</span>}
               </p>
               <p className="loc-muet" data-apporteur-collegue>{a.interne ? 'Apporteur interne (son compte de l’interface)' : `Collègue de rattachement : ${a.collegue ?? 'à rattacher'}`}</p>

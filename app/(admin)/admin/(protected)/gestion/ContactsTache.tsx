@@ -7,6 +7,7 @@ import {
 } from '../../../../lib/gestion/contactsTache';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { horodatageLisible } from '../../../../lib/gestion/taches';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1-BIS — LES CONTACTS D'UNE TÂCHE, À L'ÉCRAN ═══════════════════════════════════════════════════
@@ -136,7 +137,7 @@ export function ContactsAffiches({ contacts, sources, onEcrire, onMettreAJour, o
                   <p key={i} className="tchc-ligne">
                     <span className="tchc-libelle">{libelleCoordonnee(k)} : </span>
                     {k.sorte === 'telephone'
-                      ? <a className="tchc-lien" href={lienTelephone(k.valeur)}>{k.affichage ?? k.valeur}</a>
+                      ? <a className="tchc-lien" href={lienTelephone(k.valeur)}>{telephoneLisible(k.affichage ?? k.valeur)}</a>
                       : onEcrire
                         ? (
                           <button type="button" className="tchc-lien tchc-lien-bouton" onClick={() => onEcrire(k.valeur)}
@@ -200,7 +201,7 @@ export function EncadresContacts({ contacts, sources, onEcrire, onMettreAJour, o
               <p key={i} className="tchc-ligne" data-coordonnee={k.sorte}>
                 <span className="tchc-libelle">{libelleCoordonnee(k)} : </span>
                 {k.sorte === 'telephone'
-                  ? <a className="tchc-lien" href={lienTelephone(k.valeur)}>{k.affichage ?? k.valeur}</a>
+                  ? <a className="tchc-lien" href={lienTelephone(k.valeur)}>{telephoneLisible(k.affichage ?? k.valeur)}</a>
                   : onEcrire
                     ? (
                       <button type="button" className="tchc-lien tchc-lien-bouton" onClick={() => onEcrire(k.valeur)}

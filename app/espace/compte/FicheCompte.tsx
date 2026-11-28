@@ -10,6 +10,7 @@ import {
   LIB_MODIFIER, LIB_ENREGISTRER, LIB_ENREGISTREMENT, LIB_ANNULER,
   MSG_COMPTE_ENREGISTRE, MSG_COMPTE_VALIDATION, MSG_COMPTE_ERREUR,
 } from "../presentation";
+import { telephoneLisible } from '../../lib/gestion/telephoneAffichage';
 
 const styleInput: CSSProperties = {
   width: "100%", padding: ".75rem", minHeight: 44, fontSize: 16,
@@ -55,7 +56,7 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
   const [succes, setSucces] = useState(false);
 
   const email = initial.email ?? MSG_VALEUR_ABSENTE;
-  const telephone = initial.telephone ?? MSG_TELEPHONE_ABSENT;
+  const telephone = initial.telephone ? telephoneLisible(initial.telephone) : MSG_TELEPHONE_ABSENT;
 
   function ouvrirEdition() {
     setSucces(false);

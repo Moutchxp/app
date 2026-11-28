@@ -10,6 +10,7 @@
  * donnée, que le tri « État des lieux » lit.
  */
 import { dateFrPreavis, verifierEtatDesLieux } from './preavis';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 /** L'objet de la tâche : il est aussi la marque qui donne au mail son objet « EDL de sortie — … ». */
 export const OBJET_TACHE_EDLS = 'EDL de sortie';
@@ -125,7 +126,7 @@ export function texteRecapEdls(d: DonneesRecap): string {
   if (d.acces.length > 0) { l.push('', 'Accès :'); for (const a of d.acces) l.push(`· ${a.libelle} : ${a.valeur}`); }
   l.push('', `Lots concernés (${d.lots.length}) :`, ...d.lots.map((x) => `· ${x}`));
   const personne = (p: { nom: string; telephones: string[]; emails: string[] }): string =>
-    [p.nom, ...p.telephones.map((t) => `tél. ${t}`), ...p.emails].join(' — ');
+    [p.nom, ...p.telephones.map((t) => `tél. ${telephoneLisible(t)}`), ...p.emails].join(' — ');
   if (d.proprietaires.length > 0) l.push('', `Propriétaire${d.proprietaires.length > 1 ? 's' : ''} :`, ...d.proprietaires.map((p) => `· ${personne(p)}`));
   if (d.locataires.length > 0) l.push('', `Locataire${d.locataires.length > 1 ? 's' : ''} sortant${d.locataires.length > 1 ? 's' : ''} :`, ...d.locataires.map((p) => `· ${personne(p)}`));
   l.push('', `Préavis : recommandé reçu le ${dateFrPreavis(d.preavis.recuLe)} — fin du préavis le ${dateFrPreavis(d.preavis.dateMax)}`);

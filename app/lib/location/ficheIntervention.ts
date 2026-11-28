@@ -14,6 +14,7 @@
 import { majusculesDigicode } from './digicodeImmeuble';
 import { lignesEncart, type EncartLogement, type LigneEncart } from './sortieLocataires';
 import { dateFrPreavis } from './preavis';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 export const NON_RENSEIGNE = 'non renseigné';
 
@@ -97,7 +98,7 @@ export const nomFiche = (p: Pick<PersonneFiche, 'nom' | 'prenom'>): string => (p
 export function texteFicheIntervention(f: FicheIntervention): string {
   const v = (x: string | null) => x ?? NON_RENSEIGNE;
   const coords = (p: PersonneFiche) => [
-    ...(p.telephones.length > 0 ? p.telephones.map((t) => `  Tél. : ${t}`) : [`  Tél. : ${NON_RENSEIGNE}`]),
+    ...(p.telephones.length > 0 ? p.telephones.map((t) => `  Tél. : ${telephoneLisible(t)}`) : [`  Tél. : ${NON_RENSEIGNE}`]),
     ...(p.emails.length > 0 ? p.emails.map((m) => `  E-mail : ${m}`) : [`  E-mail : ${NON_RENSEIGNE}`]),
   ];
   const l: string[] = ['━━ LOCATAIRES ━━'];

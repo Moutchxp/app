@@ -1,5 +1,6 @@
 import { normaliserTexte } from './annuaire';
 import type { CritereDoublon, DoublonIgnore } from './doublonSyndic';
+import { telephoneLisible } from './telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — L'ANNUAIRE DES SYNDICS : LES RÈGLES PURES ═══════════════
@@ -596,7 +597,7 @@ export function nomDuContact(c: { titre?: string | null; prenom?: string | null;
  */
 export function ligneContact(c: { titre: string; prenom: string; nom: string; emails: string[]; telephones: string[] }): string {
   const nom = [c.prenom, c.nom].map((x) => x.trim()).filter((x) => x !== '').join(' ');
-  return [c.titre.trim(), nom, c.emails.join(', '), c.telephones.map(formaterTelephone).join(', ')]
+  return [c.titre.trim(), nom, c.emails.join(', '), c.telephones.map((t) => telephoneLisible(t)).join(', ')]
     .filter((x) => x !== '').join(' · ');
 }
 
@@ -931,7 +932,7 @@ export function quiPorte(p: ProprietaireCoordonnee, cleDepart: string | null = n
 
 /** Les lignes d'un avertissement : une phrase pour un seul propriétaire, sinon l'annonce puis un propriétaire par ligne. PUR. */
 export function lignesDoublonCoordonnee(sorte: SorteCoordonnee, valeur: string, proprietaires: readonly string[]): string[] {
-  const debut = sorte === 'email' ? `L’adresse e-mail ${valeur.trim()} est déjà utilisée par` : `Le numéro ${formaterTelephone(valeur)} est déjà utilisé par`;
+  const debut = sorte === 'email' ? `L’adresse e-mail ${valeur.trim()} est déjà utilisée par` : `Le numéro ${telephoneLisible(valeur)} est déjà utilisé par`;
   return proprietaires.length === 1 ? [`${debut} ${proprietaires[0]}.`] : [`${debut} :`, ...proprietaires];
 }
 

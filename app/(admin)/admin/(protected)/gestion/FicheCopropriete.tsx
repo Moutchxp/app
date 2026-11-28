@@ -22,6 +22,7 @@ import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
 import { adresseImmeuble, cleCoordonnee, cleImmeuble, cleNom, libelleCategorieImmeuble, lignesDoublonCoordonnee, nomAvecVille, quiPorte, type CategorieImmeuble, type CoordonneeConnue, type SyndicResume } from '../../../../lib/gestion/syndics';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA FENÊTRE (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2) ═══════════════════════════════════════════
@@ -766,7 +767,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <ul className="fcp-liste">{contacts.map((c) => (
         <li key={c.cle} className="fcp-contact" data-fcp-contact={c.categorie}>
           <span className="fcp-pastille" data-fcp-statut>{c.categorie === 'personnalise' ? c.libelle : libelleCategorieImmeuble(c.categorie, null)}</span>{' '}
-          <strong>{nomContact(c) || '—'}</strong>{c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}{' '}
+          <strong>{nomContact(c) || '—'}</strong>{c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur}</span>)}{' '}
           <button type="button" className="fcp-lien" onClick={() => setEdition({ ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) })} data-fcp-modifier-contact>Modifier</button>
         </li>))}</ul>
       {edition !== null ? (

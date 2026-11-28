@@ -173,7 +173,7 @@ describe('🔴 détail : copie datée, « Mettre à jour », liens', () => {
     expect(proprio.textContent).toContain('Coordonnées modifiées depuis');
     // 🔴 Le contact sorti du bien reste lisible, avec SES coordonnées d'alors.
     expect(ancien.getAttribute('data-etat-copie')).toBe('plus_lie');
-    expect(ancien.textContent).toContain('0700000000');
+    expect(ancien.textContent).toContain('07 00 00 00 00'); // 🔴 (Arno, 28/11/2026, 12h17) règle commune d'affichage
     expect(ancien.querySelector('a')?.getAttribute('href')).toBe('tel:0700000000');
     // Il reste aussi coché dans la liste de choix, avec la mention.
     expect(caseDe('MARTIN').checked).toBe(true);

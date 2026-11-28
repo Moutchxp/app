@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { dateFrPreavis } from '../../../../lib/location/preavis';
 import { NON_RENSEIGNE, nomFiche, type FicheIntervention, type PersonneFiche } from '../../../../lib/location/ficheIntervention';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LA LIGNE DE PRÉAVIS DÉPLIÉE, EN TROIS BLOCS (spec d'Arno du 11/11/2026, lot 1) — Location ET Gestion (même composant) ══════════
@@ -19,7 +20,7 @@ export function FicheInterventionPreavis({ f, lienBien, reponses }: { f: FicheIn
   const manque = manqueVers(lienBien, 'du bien');
   const coords = (p: PersonneFiche, m: ReactNode) => (
     <dl className="fip-dl">
-      <div><dt>Téléphone</dt><dd>{p.telephones.length === 0 ? m : p.telephones.map((t) => <a key={t} href={`tel:${t.replace(/\s+/g, '')}`}>{t}</a>)}</dd></div>
+      <div><dt>Téléphone</dt><dd>{p.telephones.length === 0 ? m : p.telephones.map((t) => <a key={t} href={`tel:${t.replace(/\s+/g, '')}`}>{telephoneLisible(t)}</a>)}</dd></div>
       <div><dt>E-mail</dt><dd>{p.emails.length === 0 ? m : p.emails.map((x) => <a key={x} href={`mailto:${x}`}>{x}</a>)}</dd></div>
     </dl>
   );

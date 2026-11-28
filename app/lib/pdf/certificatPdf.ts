@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import PDFDocument from 'pdfkit';
 import { toBuffer as qrToBuffer } from 'qrcode';
 import { MENTION_EMETTEUR } from './mentions';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 /**
  * GÉNÉRATEUR PUR du PDF du certificat (Lot 6b) — REPRODUIT `docs/modele/certificat-savv-v15.html`.
@@ -348,7 +349,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   y += hV + px(12);
 
   // ══════════ DEMANDEUR | BIEN (demandeur omis si null → bien pleine largeur) ══════════
-  const champsDem = d.demandeur ? [d.demandeur.nom, d.demandeur.email, d.demandeur.telephone].filter(Boolean) : [];
+  const champsDem = d.demandeur ? [d.demandeur.nom, d.demandeur.email, d.demandeur.telephone ? telephoneLisible(d.demandeur.telephone) : null].filter(Boolean) : [];
   // ANONYMISÉ (compte uniquement) : on RETIRE le bloc demandeur → « Identification du bien » passe en pleine largeur via
   // la branche `else` existante (aucun `y +=` orphelin, flux inchangé). Le nom/email/téléphone ne sont alors JAMAIS rendus.
   const aDemandeur = champsDem.length > 0 && !(d.aUnCompte && d.anonymise);
@@ -365,7 +366,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
     const l1y = y + pad + dyTitre;
     const nomTxt = d.demandeur?.nom || null;
     const adr = d.demandeur?.adresse || null;
-    const contact = [d.demandeur?.email, d.demandeur?.telephone].filter(Boolean).join(' · ');
+    const contact = [d.demandeur?.email, d.demandeur?.telephone ? telephoneLisible(d.demandeur.telephone) : null].filter(Boolean).join(' · ');
     if (nomTxt) {
       doc.font('ps600').fontSize(px(10.5)).fillColor(ENCRE).text(nomTxt, dx, l1y, { continued: !!adr, lineBreak: false });
       if (adr) doc.font('ps400').fillColor(GRIS).text(` · ${adr}`, { lineBreak: false });

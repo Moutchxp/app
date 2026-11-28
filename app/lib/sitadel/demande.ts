@@ -9,6 +9,7 @@
 import { type CanalContact, emailValide } from './mairieContact';
 import { formaterReferencePermis, composerAdressePermis } from './referencePermis';
 import { jourParis, premierDuMoisParis } from '../temps/paris';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 export interface ConfigDemandeur {
   raisonSociale: string;
@@ -719,7 +720,7 @@ export function genererTexte(
   }
 
   const objet = `Demande de communication de documents administratifs — ${lot.communeNom} — ${n} dossier(s) — réf. ${reference}`;
-  const tel = config.telephone.trim() !== '' ? `, téléphone ${config.telephone.trim()}` : '';
+  const tel = config.telephone.trim() !== '' ? `, téléphone ${telephoneLisible(config.telephone)}` : '';
   const corps = [
     ...(ligneService ? [ligneService, ''] : []), // S40 — mention « service destinataire » (éditable), en tête
     ...CRPA_INTRO,

@@ -22,6 +22,7 @@ import {
   problemesIdentite, dateEnFrancais, signatureEntreprise,
   type Lot, type CandidatDossier, type ConfigDemandeur, type Piece, type ProfilDemandeur,
 } from '../sitadel/demande';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 /** Délai (jours) entre l'échéance du délai d'un mois et le dépôt annoncé de la saisine CADA (variante 'saisine'). */
 export const DELAI_SAISINE_JOURS = 4;
@@ -142,7 +143,7 @@ export function genererRelance(e: EntreeRelance, variante: VarianteRelance): Tex
   const identiteBloc: string[] = estEntreprise
     ? [
         `${e.config.raisonSociale}, ${e.config.formeJuridique}, dont le siège est ${e.config.siegeAdresse}, représentée par ${e.config.representantNom}${e.config.representantQualite.trim() !== '' ? `, ${e.config.representantQualite}` : ''}.`,
-        `Adresse de réponse : ${e.adresseReponse.trim()}${e.config.telephone.trim() !== '' ? `, téléphone ${e.config.telephone.trim()}` : ''}`,
+        `Adresse de réponse : ${e.adresseReponse.trim()}${e.config.telephone.trim() !== '' ? `, téléphone ${telephoneLisible(e.config.telephone)}` : ''}`,
       ]
     : [
         `${e.config.representantNom.trim()}, demeurant ${e.config.siegeAdresse.trim()}.`,

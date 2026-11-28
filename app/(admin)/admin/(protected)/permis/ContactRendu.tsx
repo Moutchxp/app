@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { CanalContact } from '../../../../lib/sitadel/mairieContact';
 import { CANAUX_ORDONNES, AIDE_CANAL, MENTION_TELESERVICE, EMAIL_TYPES, MENTION_ACCUEIL, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal, type FicheCommune } from './contactForm';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * Rendu PUR du sélecteur de canal de l'éditeur de contact mairie — aucun état, aucun effet → testable en Node via
@@ -100,8 +101,8 @@ export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
       <LigneFiche label="Canal enregistré" valeur={fiche.canalEnregistre ? libelleCanal(fiche.canalEnregistre) : null} origine={oc} />
       <LigneFiche label="Statut" valeur={fiche.contactStatut ? libelleStatut(fiche.contactStatut) : null} />
       <LigneFiche label="Source" valeur={fiche.contactSource ? libelleSource(fiche.contactSource) : null} />
-      <LigneFiche label="Téléphone du service" valeur={fiche.telephone} origine={oc} />
-      <LigneFiche label="Standard de la mairie" valeur={fiche.telephoneStandard} origine={oc} />
+      <LigneFiche label="Téléphone du service" valeur={fiche.telephone ? telephoneLisible(fiche.telephone) : fiche.telephone} origine={oc} />
+      <LigneFiche label="Standard de la mairie" valeur={fiche.telephoneStandard ? telephoneLisible(fiche.telephoneStandard) : fiche.telephoneStandard} origine={oc} />
       <LigneFiche label="Responsable du service" valeur={fiche.responsableNom} origine={oc} />
       <LigneFiche label="Adresse postale" valeur={fiche.adressePostale} origine={oc} />
       <LigneFiche label="Protocole vérifié le" valeur={fiche.protocoleVerifieLe} origine={oc} />

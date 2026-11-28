@@ -64,7 +64,7 @@ describe('l’invitation : les 9 sections, dans l’ordre', () => {
   });
   it('1 contact = 1 bloc : nom, rôle, téléphone, e-mail', () => {
     expect(texte).toContain('M. Martin\nLocataire en place\nPortable : 06 12 34 56 78\nE-mail : martin@example.test');
-    expect(texte).toContain('Mme Durand\nSyndic & immeuble · Gestionnaire · Cabinet Exemple\nLigne directe : 0145000000');
+    expect(texte).toContain('Mme Durand\nSyndic & immeuble · Gestionnaire · Cabinet Exemple\nLigne directe : 01 45 00 00 00');
     expect(html.match(/border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px/g)).toHaveLength(2);
     expect(html).toContain('href="tel:0612345678"');
     expect(html).toContain('href="mailto:martin@example.test"');

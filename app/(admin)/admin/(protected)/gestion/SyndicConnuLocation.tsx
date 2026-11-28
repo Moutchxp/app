@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PROPOSITIONS_SYNDIC, motOrigine, type SyndicConnuVu } from './PropositionsSyndic';
 import { nomAvecVille, PERSONNALISE, TITRES_CONTACT, valeurDuChoix, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
 import { clesDeLAdresse, grouperBiensSelonGestion, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 MODALE « SYNDIC DE LA COPROPRIÉTÉ » OUVERTE DEPUIS LA TUILE LOCATION (Arno, 17/10/2026) ═══════════════════════
@@ -107,7 +108,7 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
   if (f === null) return <p className="fsy-discret">Chargement du détail…</p>;
   const rien = <span className="syl-rien">non renseigné</span>;
   const adresse = [f.adresse, [f.codePostal, f.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ');
-  const telephones = [f.telephone, f.telephone2].filter((x) => x).join(' · ');
+  const telephones = [f.telephone, f.telephone2].filter((x) => x).map(telephoneLisible).join(' · ');
   const nbLots = groupes.reduce((n, g) => n + g.lots.length, 0);
   const contacts = ordonnerContactsSyndic(f.contacts, coproCle === null ? new Set<string>() : clesDeLAdresse(coproCle, f.coproprietes));
   // « + Ajouter un contact » : il rejoint l'annuaire du syndic de la GESTION (la porte unique `enregistrerSyndic`, côté serveur).
@@ -143,7 +144,7 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
         {ajoute !== null && <p className="syl-ajoute" role="status">{ajoute}</p>}
         <ul className="syl-cartes">
           {contacts.map(({ contact: c, associe }) => {
-            const tel = c.coordonnees.filter((k) => k.sorte === 'telephone').map((k) => k.valeur).join(' · ');
+            const tel = c.coordonnees.filter((k) => k.sorte === 'telephone').map((k) => telephoneLisible(k.valeur)).join(' · ');
             const mel = c.coordonnees.filter((k) => k.sorte === 'email').map((k) => k.valeur).join(' · ');
             return (
               <li key={c.id} className={`syl-carte${associe ? ' syl-carte--associe' : ''}`} data-carte-contact data-associe={associe ? 'oui' : undefined}>

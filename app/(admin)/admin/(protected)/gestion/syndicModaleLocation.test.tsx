@@ -66,7 +66,7 @@ describe('🔴 modale syndic — variante « location »', () => {
     await act(async () => { bouton('Voir le détail')!.click(); });
     await calmer();
     const detail = document.querySelector('[data-detail-syndic]') as HTMLElement;
-    for (const t of ['TEST ARNAUD', '1 rue du Cabinet', '0140000000', 'cabinet@exemple.test', 'M. Arnaud JOREL', 'Responsable de copropriété', 'arnaud@exemple.test', '15 rue Carle Hebert', 'lot 219', 'Joignable le matin.']) {
+    for (const t of ['TEST ARNAUD', '1 rue du Cabinet', '01 40 00 00 00', 'cabinet@exemple.test', 'M. Arnaud JOREL', 'Responsable de copropriété', 'arnaud@exemple.test', '15 rue Carle Hebert', 'lot 219', 'Joignable le matin.']) {
       expect(detail.textContent, t).toContain(t);
     }
     // Plus aucun lien vers la fiche syndic dans le détail (accord d'Arno, 18/10/2026).
@@ -115,7 +115,7 @@ describe('🔴 modale syndic — variante « location »', () => {
     expect(blocSyndic.querySelector('a')).toBeNull();
     expect(blocSyndic.textContent).not.toContain('Notes');
     expect(detail.querySelectorAll('[data-carte-contact]')).toHaveLength(2);
-    expect([...detail.querySelectorAll('[data-carte-contact]')][1].textContent).toBe('COMPTAComptable0611223344');
+    expect([...detail.querySelectorAll('[data-carte-contact]')][1].textContent).toBe('COMPTAComptable06 11 22 33 44'); // 🔴 (Arno, 28/11/2026, 12h17) règle commune
     const adresses = [...detail.querySelectorAll('[data-groupe-adresse] .syl-adresse strong')].map((x) => x.textContent);
     expect(adresses).toEqual(['2 rue Carle Hebert', '15 rue Carle Hebert', '25 rue Edith Cavell', '155 avenue Paul Vaillant Couturier']);
     const lots = [...detail.querySelectorAll('[data-groupe-adresse]')[1].querySelectorAll('[data-lot]')].map((x) => x.textContent);

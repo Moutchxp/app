@@ -19,6 +19,7 @@ import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
   dateFr, descriptionLogement, libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree, type SortieTrouvee,
 } from '../../../../lib/location/sortieLocataires';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) ════════════════════════════════════════
@@ -429,7 +430,7 @@ function CoordonneesCarte({ c }: { c: { telephonesDetail?: { valeur: string; lib
   if (tels.length + c.emails.length === 0) return null;
   return (
     <ul className="sor-coords-carte" data-coordonnees-carte>
-      {tels.map((t) => <li key={`t${t.valeur}`}><a href={`tel:${t.valeur.replace(/\s+/g, '')}`} data-tel>{t.libelle ? `${t.libelle} : ` : ''}{t.valeur}</a></li>)}
+      {tels.map((t) => <li key={`t${t.valeur}`}><a href={`tel:${t.valeur.replace(/\s+/g, '')}`} data-tel>{t.libelle ? `${t.libelle} : ` : ''}{telephoneLisible(t.valeur)}</a></li>)}
       {c.emails.map((m) => <li key={`m${m}`}><a href={`mailto:${m}`} data-mail>{m}</a></li>)}
     </ul>
   );
@@ -497,7 +498,7 @@ export function EncartDuLogement({ e, coordonnees = false }: { e: EncartLogement
 function CoordonneesEncart({ e }: { e: EncartLogement }) {
   const c = e.coordonnees!;
   const liste = (p: { telephones: string[]; emails: string[] }) => [
-    ...p.telephones.map((t) => <a key={`t${t}`} href={`tel:${t.replace(/\s+/g, '')}`}>{t}</a>),
+    ...p.telephones.map((t) => <a key={`t${t}`} href={`tel:${t.replace(/\s+/g, '')}`}>{telephoneLisible(t)}</a>),
     ...p.emails.map((m) => <a key={`m${m}`} href={`mailto:${m}`}>{m}</a>),
   ];
   const proprio = e.proprietaire != null && c.proprietaire !== null && (c.proprietaire.telephones.length + c.proprietaire.emails.length) > 0;

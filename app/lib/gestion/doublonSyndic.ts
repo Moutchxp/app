@@ -1,5 +1,6 @@
 import { normaliserTexte } from './annuaire';
 import { cleEmail, cleTelephone } from './syndics';
+import { telephoneLisible } from './telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — CE SYNDIC EXISTE-T-IL DÉJÀ ? ═══════════════════════════
@@ -205,7 +206,7 @@ export function motDoublonSyndic(d: DoublonSyndic): string {
     ? `${d.syndic.nom} / ${d.syndic.ville}` : d.syndic.nom;
   const adresse = adresseLisible(d.syndic);
   const criteres = d.criteres.map((c) => (c === 'email' && d.email !== null ? `${motCritere(c)} (${d.email})`
-    : c === 'telephone' && d.telephone !== null ? `${motCritere(c)} (${d.telephone})` : motCritere(c)));
+    : c === 'telephone' && d.telephone !== null ? `${motCritere(c)} (${telephoneLisible(d.telephone)})` : motCritere(c)));
   return [nom, adresse, criteres.join(', ')].filter((x) => x !== '').join(' — ');
 }
 

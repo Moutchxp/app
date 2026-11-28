@@ -30,6 +30,7 @@ import { useRecapEnvois } from './RecapEnvoisTache';
 import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
 /* 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (1 h par défaut) et l'état « Agenda » du détail. */
 import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, motDuree } from '../../../../lib/gestion/agendaTache';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LA FENÊTRE D'UNE TÂCHE : CRÉER, ET LE DÉTAIL (MODIFIER, ANNULER, ROUVRIR) ═══════════════
@@ -892,7 +893,7 @@ function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, de
         <ul className="tchf-pieces-liste">
           {nouveaux.map((c, i) => (
             <li key={`${c.nom}-${i}`} className="tchf-piece" data-contact-nouveau={i}>
-              <span>{c.nom}{c.qualite ? ` · ${c.qualite}` : ''}{c.telephone ? ` · ${c.telephone}` : ''}{c.email ? ` · ${c.email}` : ''}</span>
+              <span>{c.nom}{c.qualite ? ` · ${c.qualite}` : ''}{c.telephone ? ` · ${telephoneLisible(c.telephone)}` : ''}{c.email ? ` · ${c.email}` : ''}</span>
               <CaseInvitation cle={`nouveau-${i}`} coche={c.inviter === true} possible={c.email !== null}
                 onBasculer={() => onNouveaux(nouveaux.map((x, j) => (j === i ? { ...x, inviter: x.inviter !== true } : x)))} />
               <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" onClick={() => onNouveaux(nouveaux.filter((_, j) => j !== i))}>

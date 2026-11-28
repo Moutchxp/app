@@ -93,6 +93,21 @@ export function formaterTelephone(
 }
 
 /**
+ * ══ 🔴🔴 Arno (28/11/2026, 12h17, point 1) — LA FONCTION D'AFFICHAGE PARTAGÉE, POUR TOUTE L'INTERFACE ═════════════════════════════════════════════
+ * « Les numéros de téléphone français doivent toujours être séparés d'un espace tous les 2 chiffres (ex. 02 32 45 65 56), pas tout collé ; appliquer
+ * cette règle sur toute l'interface. » Un numéro tel qu'il est connu (écrit, importé ou E.164) → sa forme lisible : français à 10 chiffres
+ * « 01 41 99 12 00 » ; +33 ou 0033 « +33 1 41 99 12 00 » ; étranger ou non reconnu : tel qu'il est enregistré. AFFICHAGE seulement (aucune
+ * donnée réécrite) ; un lien « tel: » se construit toujours sur les chiffres (`lienAppel`, `lienTelephone`), jamais sur ce texte. PUR.
+ */
+export function telephoneLisible(brut: string | null | undefined): string {
+  const numero = formaterTelephone(null, brut);
+  // 🔴 rien n'est perdu : ce qui accompagnait le numéro (une note « M.Moreau », un type « bureau ») le suit, entre parenthèses
+  const d = decortiquerNumero(brut);
+  const reste = d.note ?? d.type;
+  return reste !== null && reste !== '' && d.numero !== '' && numero !== (brut ?? '').trim() ? `${numero} (${reste})` : numero;
+}
+
+/**
  * ══ 🔴🔴 LE LIEN « appeler » D'UNE COORDONNÉE AFFICHÉE ════════════════════════════════════════════════════════════
  *
  * 🔴 DÉFAUT MESURÉ LE 30/09/2026, ET C'EST CE LOT QUI L'A RÉVÉLÉ. Les écrans construisaient le lien sur la colonne

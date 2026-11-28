@@ -17,6 +17,7 @@ import { ChampNombre } from './ChampNombre';
 import { AdresseBien, CSS_ADRESSE_BIEN, etatAdresseLue, FenetreSansNumero } from './AdresseBien';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LES PANNEAUX D'UNE CARTE D'APPORTEUR : « FICHE », « RATTACHEMENT », « TAUX » ══════════════════════════
@@ -163,7 +164,7 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
           <div><dt>Nom</dt><dd>{a.compteLibelle ?? a.nom}</dd></div>
           <div><dt>Identifiant (e-mail)</dt><dd>{a.compteIdentifiant ?? '—'}</dd></div>
           {/* Les coordonnées de la fiche (venues de la carte) : en lecture, quand il y en a. */}
-          {(a.societe || a.telephone || a.email) && <div><dt>Coordonnées</dt><dd data-fiche-interne-coordonnees>{[a.societe, a.telephone, a.email].filter(Boolean).join(' · ')}</dd></div>}
+          {(a.societe || a.telephone || a.email) && <div><dt>Coordonnées</dt><dd data-fiche-interne-coordonnees>{[a.societe, a.telephone ? telephoneLisible(a.telephone) : null, a.email].filter(Boolean).join(' · ')}</dd></div>}
         </dl>
         <p className="plo-muet plo-petit-texte" data-compte-apporteur>Lié à son compte de l’interface — rattaché à personne{a.interneDepuis ? ` (interne depuis le ${a.interneDepuis.split('-').reverse().join('/')})` : ''}.</p>
         <p className="plo-muet plo-petit-texte" data-fiche-interne-mention>Identité lue depuis son compte de l’interface — modifiable dans la gestion des comptes.</p>

@@ -52,7 +52,7 @@ import {
 } from '../../../../lib/gestion/ficheContact';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
-  TYPES_COORDONNEE, formaterSaisieTelephone, lienAppel, lignesParType, motType, sorteDuType, typeDeLibelle,
+  TYPES_COORDONNEE, formaterSaisieTelephone, lienAppel, lignesParType, motType, sorteDuType, telephoneLisible, typeDeLibelle,
   type TypeCoordonnee,
 } from '../../../../lib/gestion/telephoneAffichage';
 
@@ -1517,7 +1517,8 @@ export function ficheDeContact(c: {
  */
 function coordonneesAffichables(c: CarteDeContact): ContactAffiche[] {
   return ficheDeContact(c).contacts.map((x) => ({
-    id: x.id, sorte: x.sorte, valeur: x.affichage, affichage: x.affichage,
+    // 🔴 (Arno, 28/11/2026, 12h17) le numéro AFFICHÉ (et copié) par la règle commune ; la valeur saisie reste telle quelle
+    id: x.id, sorte: x.sorte, valeur: x.affichage, affichage: x.sorte === 'telephone' ? telephoneLisible(x.affichage) : x.affichage,
     absent: false, note: null, typeAnnotation: null, libelle: x.libelle,
   }));
 }

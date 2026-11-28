@@ -43,6 +43,7 @@ import {
   TYPES_BIEN, EPOQUES, CARACTERISTIQUES_VIDES, clesAdresse, choisirReprise, validerCaracteristiques, fusionnerReprise,
   sontVides, phraseReprise, lireHistoriqueSession, ajouterHistoriqueSession, type CaracteristiquesBien, type Reprise,
 } from "./lib/tunnel/repriseCaracteristiques";
+import { telephoneLisible } from './lib/gestion/telephoneAffichage';
 
 type Etape = "accueil" | "etapes" | "consentement" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
 
@@ -1732,7 +1733,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           </div>
           {!aSaisir("telephone") && (
             <div className="flex items-center justify-between gap-2">
-              <p className="min-w-0 break-words"><span className="text-svv-muted">Téléphone : </span><span className="font-semibold">{telephone}</span></p>
+              <p className="min-w-0 break-words"><span className="text-svv-muted">Téléphone : </span><span className="font-semibold">{telephoneLisible(telephone)}</span></p>
               <CadenasInfo cible="tunnel-telephone" />
             </div>
           )}

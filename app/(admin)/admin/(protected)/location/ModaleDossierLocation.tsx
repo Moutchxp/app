@@ -18,6 +18,7 @@ import {
   changementsDossier, ECRAN_DOSSIER, refusDossier, TITRE_BLOC, type CarteLocataireDossier, type ChangementDossier, type LectureDossier,
   type NomsDossier, type SaisieDossier, type SuiviDossier,
 } from '../../../../lib/location/dossierLocation';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 « DOSSIER DE LOCATION » (Arno, 24/10/2026) — LE FORMULAIRE « NOUVEAU LOCATAIRE » ROUVERT EN MODIFICATION ════════════════
@@ -212,7 +213,7 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
                       </div>
                       <dl className="mdl-carte-dl">
                         <div><dt>Adresse</dt><dd>{[courante.adresse, [courante.codePostal, courante.commune].filter((x) => x).join(' ')].filter((x) => x).join(', ') || '—'}</dd></div>
-                        {courante.contacts.map((k) => <div key={k.id}><dt>{k.libelle ?? (k.sorte === 'email' ? 'E-mail' : 'Téléphone')}</dt><dd>{k.affichage}</dd></div>)}
+                        {courante.contacts.map((k) => <div key={k.id}><dt>{k.libelle ?? (k.sorte === 'email' ? 'E-mail' : 'Téléphone')}</dt><dd>{k.sorte === 'telephone' ? telephoneLisible(k.affichage) : k.affichage}</dd></div>)}
                         {courante.qualite && <div><dt>Qualité</dt><dd>{courante.qualite}</dd></div>}
                         {courante.note && <div><dt>Note</dt><dd>{courante.note}</dd></div>}
                       </dl>

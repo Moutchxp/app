@@ -1,3 +1,4 @@
+import { telephoneLisible } from './telephoneAffichage';
 /**
  * ══ 🔴 LES FICHES MODIFIÉES DEPUIS « SUIVI DU MOIS » — LES RÈGLES PURES (Arno, 24/10/2026, migration 417) ═══════════════════════
  *   · le récapitulatif ne montre QUE les champs modifiés : « Champ : ancienne valeur → nouvelle valeur » ;
@@ -77,7 +78,11 @@ export function changementsCarte(avant: CarteAvant, apres: CarteApres): Changeme
   if (apres.coordonnees !== undefined) {
     const x = listeCoordonnees(avant.contacts.map((c) => ({ sorte: c.sorte, v: propre(c.affichage) })));
     const y = listeCoordonnees(apres.coordonnees.map((c) => ({ sorte: c.sorte, v: propre(c.valeur) })));
-    if (x !== y) sortie.push({ champ: 'Coordonnées', avant: affiche(x), apres: affiche(y), cle: 'coordonnees' });
+    // 🔴 (Arno, 28/11/2026, 12h17) la comparaison reste sur les valeurs ; le RÉCAPITULATIF montre les numéros par la règle commune
+    const lisible = (l: readonly { sorte: 'telephone' | 'email'; v: string }[]) => listeCoordonnees(l.map((c) => (c.sorte === 'telephone' ? { ...c, v: telephoneLisible(c.v) } : c)));
+    if (x !== y) sortie.push({ champ: 'Coordonnées', cle: 'coordonnees',
+      avant: affiche(lisible(avant.contacts.map((c) => ({ sorte: c.sorte, v: propre(c.affichage) })))),
+      apres: affiche(lisible(apres.coordonnees.map((c) => ({ sorte: c.sorte, v: propre(c.valeur) })))) });
   }
   return sortie;
 }

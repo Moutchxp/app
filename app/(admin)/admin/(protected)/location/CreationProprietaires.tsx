@@ -13,6 +13,7 @@ import { QuestionEnGestion } from './QuestionEnGestion';
 import { ModaleIssue } from './ModaleIssue';
 import { poserContactsEnAttente } from './contactsEnAttente';
 import { explicationEchecDe, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « CRÉER UN NOUVEAU PROPRIÉTAIRE » (/admin/location/nouveau-proprietaire), Arno, 17/10/2026 ══
@@ -188,7 +189,7 @@ export function CreationProprietaires() {
           {/* le téléphone et l'e-mail, comme avant (la présentation des lignes de la modale), après la phrase d'Arno */}
           {(coordonnee('telephone') !== null || coordonnee('email') !== null) && (
             <dl className="mis-resume" data-resume>
-              {coordonnee('telephone') !== null && <div><dt>Téléphone</dt><dd>{coordonnee('telephone')}</dd></div>}
+              {coordonnee('telephone') !== null && <div><dt>Téléphone</dt><dd>{telephoneLisible(coordonnee('telephone'))}</dd></div>}
               {coordonnee('email') !== null && <div><dt>E-mail</dt><dd>{coordonnee('email')}</dd></div>}
             </dl>)}
         </ModaleIssue>

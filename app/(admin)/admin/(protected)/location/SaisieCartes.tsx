@@ -9,6 +9,7 @@ import type { Doublon } from '../../../../lib/location/locationRepo';
 import {
   BADGE_CLIENT, BADGE_CONTACT, EXEMPLES_QUALITE, manquesClientLocation, MOT_CLIENT, MOT_CONTACT, QUALITES_CONTACT, type CoteCarte,
 } from '../../../../lib/location/cartesLocation';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LA SAISIE PAR CARTES : CLIENTS ET CONTACTS (Arno, 17/10/2026) ════════════════════════════════
@@ -54,7 +55,7 @@ function ficheDeChamps(c: ChampsSaisis): FicheAEditer {
   return {
     civilite: c.civilite ?? null, prenom: c.prenom ?? null, nom: c.nom ?? '', qualite: c.qualite ?? null,
     adresse: c.adresse ?? null, codePostal: c.codePostal ?? null, commune: c.commune ?? null, note: c.note ?? null,
-    contacts: (c.coordonnees ?? []).map((k, i) => ({ id: i + 1, sorte: k.sorte, affichage: k.valeur, libelle: k.libelle })),
+    contacts: (c.coordonnees ?? []).map((k, i) => ({ id: i + 1, sorte: k.sorte, affichage: k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur, libelle: k.libelle })),
   };
 }
 export const nomDeCarte = (c: ChampsSaisis): string => [c.civilite, (c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ');

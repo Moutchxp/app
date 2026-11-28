@@ -18,6 +18,7 @@ import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } fr
 import { PAYEES_PAR } from './bienComplet';
 import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
 import { estModifie, partiesDuMail, texteDeLaPartie, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
+import { telephoneLisible } from '../gestion/telephoneAffichage';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
 /** Arno (21/10/2026) — l'introduction et la formule de fin du mail. */
@@ -463,7 +464,7 @@ export function echapper(s: string): string {
 }
 
 const lienMail = (e: string): string => `<a href="mailto:${echapper(e)}" style="color:${C.bord};">${echapper(e)}</a>`;
-const lienTel = (t: string): string => `<a href="tel:${echapper(t.replace(/[^\d+]/g, ''))}" style="color:${C.ink};text-decoration:none;">${echapper(t)}</a>`;
+const lienTel = (t: string): string => `<a href="tel:${echapper(t.replace(/[^\d+]/g, ''))}" style="color:${C.ink};text-decoration:none;">${echapper(telephoneLisible(t))}</a>`;
 
 /** Une grille « libellé / valeur » (table à deux colonnes ; empilée au téléphone par la feuille de style). */
 function grille(lignes: readonly { mot: string; html: string }[], largeur = 150): string {
@@ -657,8 +658,8 @@ function textePersonne(p: PersonneMail, role: string, avant: string[] = []): str
     ...avant,
     ...(present(p.qualite) ? [`  Qualité : ${p.qualite.trim()}`] : []),
     ...(present(p.adresse) ? [`  Adresse : ${p.adresse.trim()}`] : []),
-    ...p.mobiles.map((t) => `  Mobile : ${t}`),
-    ...p.fixes.map((t) => `  Téléphone fixe : ${t}`),
+    ...p.mobiles.map((t) => `  Mobile : ${telephoneLisible(t)}`),
+    ...p.fixes.map((t) => `  Téléphone fixe : ${telephoneLisible(t)}`),
     ...p.emails.map((e) => `  E-mail : ${e}`),
     ...(present(p.note) ? [`  Note : ${p.note.trim()}`] : []),
   ];

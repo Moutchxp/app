@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { TiersDuBien } from '../../../../lib/gestion/contactsTacheRepo';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 « TIERS INDÉPENDANTS AJOUTÉS PAR UNE TÂCHE (N) » — UNE BANDE REPLIABLE DE L'HISTORIQUE DU BIEN (Arno, 10/11/2026) ══════════
@@ -44,7 +45,7 @@ export function BandeTiersDuBien({ lotId }: { lotId: number }) {
             <li key={t.id} data-tiers={t.id}>
               <strong>{t.nom}</strong>
               {t.role !== null && t.role.trim() !== '' && <span className="tdb-muet">{t.role}</span>}
-              {t.telephone !== null && <a href={`tel:${t.telephone.replace(/[^\d+]/g, '')}`}>{t.telephone}</a>}
+              {t.telephone !== null && <a href={`tel:${t.telephone.replace(/[^\d+]/g, '')}`}>{telephoneLisible(t.telephone)}</a>}
               {t.email !== null && <span className="tdb-email">{t.email}</span>}
               <span className="tdb-muet">ajouté le {date(t.creeLe)} par {t.par}{t.tacheId === null ? '' : ` (tâche n° ${t.tacheId})`}</span>
             </li>

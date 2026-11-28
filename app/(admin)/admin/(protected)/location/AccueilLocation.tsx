@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
 import { aplatirResultats, pastilleRecherche, type Groupe, type LigneAccueil, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
 import { BlocPreavisAccueil } from './PreavisAccueil';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — L'ACCUEIL (/admin/location), REFONTE DU 17/10/2026 ═══════════════════════════════════════
@@ -125,7 +126,7 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
                             <span className={`loc-res-type loc-res-type--${pastilleRecherche(l).ton}`} data-pastille={pastilleRecherche(l).ton}>{pastilleRecherche(l).mot}</span>
                             <strong className="loc-res-nom">{l.titre}</strong>
                             <span className="loc-res-infos">
-                              <span className="loc-res-tel">{l.telephone ?? ''}</span>
+                              <span className="loc-res-tel">{telephoneLisible(l.telephone)}</span>
                               <span className="loc-res-mail">{l.email ?? ''}</span>
                               <span className="loc-res-adr">{l.groupe === 'biens' ? (l.detail ?? '') : (l.adresse ?? '')}</span>
                             </span>

@@ -13,6 +13,7 @@ import {
   QUESTION_ORIGINE_BIENS, tousChoisis, type ApercuArchivage, type BienASortir, type EtatBouton, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « SUPPRIMER UN PROPRIÉTAIRE » (/admin/location/proprietaires/archiver), Arno 18/10/2026 ═════
@@ -121,7 +122,7 @@ export function EcranArchivageProprietaire({ refusFiche, mode = 'proprietaire' }
                             <span className={`loc-res-type loc-res-type--${l.ancien ? 'ancien' : 'proprietaires'}`}>{l.ancien ? 'Ancien · Propriétaire' : 'Propriétaire'}</span>
                             <strong className="loc-res-nom">{l.titre}</strong>
                             <span className="loc-res-infos">
-                              <span className="loc-res-tel">{l.telephone ?? ''}</span>
+                              <span className="loc-res-tel">{telephoneLisible(l.telephone)}</span>
                               <span className="loc-res-mail">{l.email ?? ''}</span>
                               <span className="loc-res-adr">{l.adresse ?? ''}</span>
                             </span>

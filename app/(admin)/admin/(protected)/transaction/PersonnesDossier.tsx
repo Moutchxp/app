@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChampAdresseTexte, type NatureSaisie } from '../../../../components/adresse/ChampAdresseTexte';
 import { libellePersonne, type Civilite, type PersonneVente, type RepresentantVente } from '../../../../lib/transaction/modele';
 import { formeNom, formePrenom } from '../../../../lib/transaction/personnes';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴 LOT BJ (Arno, 30/10/2026) — LES VENDEURS ET ACQUÉREURS : PARTICULIER OU SOCIÉTÉ ═══════════════════════════════════════════════════════
@@ -35,7 +36,7 @@ const representantEcranDe = (r: RepresentantVente): RepresentantEcran => ({ id: 
 export const personneEcranDe = (p: PersonneVente): PersonneEcran => ({ id: p.id, role: p.role, type: p.type ?? 'particulier', civilite: p.civilite ?? '', nom: p.nom,
   prenom: p.prenom ?? '', telephone: p.telephone ?? '', email: p.email ?? '', adresse: p.adresse ?? '', representants: (p.representants ?? []).map(representantEcranDe) });
 /** Le libellé d'une fiche de l'annuaire, dans la liste (libellé + téléphone + e-mail). PUR. */
-export const decrire = (p: PersonneRef): string => [libellePersonne({ nom: p.nom, type: p.type, civilite: p.civilite ?? null, prenom: p.prenom ?? null }), p.telephone, p.email]
+export const decrire = (p: PersonneRef): string => [libellePersonne({ nom: p.nom, type: p.type, civilite: p.civilite ?? null, prenom: p.prenom ?? null }), p.telephone ? telephoneLisible(p.telephone) : p.telephone, p.email]
   .filter((x) => x !== null && x !== '').join(' — ');
 
 /**
@@ -195,7 +196,7 @@ export function FichePersonne({ cle: i, p, onChange, annuaire, avecType, autoFoc
   );
 }
 
-const lienTel = (t: string) => <a href={`tel:${t.replace(/\s/g, '')}`}>{t}</a>;
+const lienTel = (t: string) => <a href={`tel:${t.replace(/\s/g, '')}`}>{telephoneLisible(t)}</a>;
 const lienMail = (e: string) => <a href={`mailto:${e}`}>{e}</a>;
 /** Les coordonnées d'une personne (ou d'un représentant), une par ligne ; « à renseigner » pour celles qui manquent. */
 function Coordonnees({ p }: { p: { telephone: string | null; email: string | null; adresse: string | null } }) {

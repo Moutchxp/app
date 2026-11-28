@@ -5,6 +5,7 @@ import {
   basculerConcerne, choixModifie, choixParDefaut, cleConcerne, jourFr, optionsDuBien, phraseRattachement,
   recapRattachement, tonConcerne, type Concerne, type OccupationVue,
 } from '../../../../lib/gestion/locatairesEvenement';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — « LOCATAIRE(S) CONCERNÉ(S) : … — MODIFIER » ═══════════════════
@@ -154,7 +155,7 @@ export function PartiesConcernees({
       {autres.length > 0 && (
         <>
           <p className="lce-groupe lce-groupe--gris">Autres personnes</p>
-          <ul className="lce-liste">{autres.map((c) => ligne(c, [c.email, c.telephone].filter(Boolean).join(' · ')))}</ul>
+          <ul className="lce-liste">{autres.map((c) => ligne(c, [c.email, c.telephone ? telephoneLisible(c.telephone) : null].filter(Boolean).join(' · ')))}</ul>
         </>
       )}
       {autre === 'ferme' && (

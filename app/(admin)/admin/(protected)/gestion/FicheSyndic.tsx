@@ -14,7 +14,7 @@ import {
   CATEGORIES_IMMEUBLE, refusContactImmeuble,
   avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
   resumeFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
-  emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
+  emailPlausible, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
   type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
@@ -44,6 +44,7 @@ import { createPortal } from 'react-dom';
 import { questionConflitParcelle, type ConflitAConfirmer } from '../../../../lib/gestion/conflitParcelle';
 /* 🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — réintégrer un ancien contact plutôt que le recréer. */
 import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '../../../../lib/gestion/reintegrationContact';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -746,7 +747,7 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer
 // ══ LES LIENS : e-mail (mailto + composeur), téléphone (tel) ══════════════════════════════════════════════════════
 
 function LienTel({ tel }: { tel: string }) {
-  return <a href={lienTelephone(tel)}>{formaterTelephone(tel)}</a>;
+  return <a href={lienTelephone(tel)}>{telephoneLisible(tel)}</a>;
 }
 
 /**
@@ -770,7 +771,7 @@ function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: s
  */
 function ActionCopier({ tel }: { tel: string }) {
   if (!telephoneComplet(tel)) return null;
-  return <span className="fsy-action"><BoutonCopier valeur={formaterTelephone(tel)} quoi={`le numéro ${formaterTelephone(tel)}`} /></span>;
+  return <span className="fsy-action"><BoutonCopier valeur={telephoneLisible(tel)} quoi={`le numéro ${telephoneLisible(tel)}`} /></span>;
 }
 
 /**
@@ -1332,10 +1333,10 @@ function Catalogue({ contacts, adresses, onSelectionner, aDeplier = null }: {
               <div key={k.cle} className="fsy-contact-coord">
                 <span className="fsy-coord-gauche">
                   {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
-                  <span>{k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur.trim()}</span>
+                  <span>{k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur.trim()}</span>
                 </span>
                 <span className="fsy-action">
-                  <BoutonCopier valeur={k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur.trim()}
+                  <BoutonCopier valeur={k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur.trim()}
                     quoi={k.sorte === 'telephone' ? 'le numéro' : 'l’adresse e-mail'} />
                 </span>
               </div>
@@ -1902,7 +1903,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
           <div key={k.cle} className="fsy-contact-coord">
             <span className="fsy-coord-gauche">
               {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
-              {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{formaterTelephone(k.valeur)}</a> : <span>{formaterTelephone(k.valeur)}</span>}
+              {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{telephoneLisible(k.valeur)}</a> : <span>{telephoneLisible(k.valeur)}</span>}
             </span>
             <ActionCopier tel={k.valeur} />
           </div>
@@ -1946,7 +1947,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
         <div key={k.cle} className="fsy-contact-coord">
           <span className="fsy-coord-gauche">
             {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
-            {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{formaterTelephone(k.valeur)}</a> : <span>{formaterTelephone(k.valeur)}</span>}
+            {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{telephoneLisible(k.valeur)}</a> : <span>{telephoneLisible(k.valeur)}</span>}
           </span>
           <ActionCopier tel={k.valeur} />
         </div>

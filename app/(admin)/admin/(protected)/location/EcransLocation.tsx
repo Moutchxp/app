@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { useContexteRedaction } from '../gestion/useContexteRedaction';
 import { useEcrireFlottant } from '../gestion/EcrireFlottant';
 import { biensParAdresse } from '../../../../lib/location/adressesCoproSyndic';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -220,7 +221,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
         <h3>Coordonnées</h3>
         <dl className="loc-grille" style={{ margin: 0 }}>
           {[['Adresse', [s.adresse, [s.codePostal, s.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null],
-            ['Téléphone', [s.telephone, s.telephone2].filter((x) => x).join(' · ') || null], ['E-mail', s.email], ['Note', s.note]]
+            ['Téléphone', [s.telephone, s.telephone2].filter((x): x is string => !!x).map(telephoneLisible).join(' · ') || null], ['E-mail', s.email], ['Note', s.note]]
             .map(([mot, val]) => (
               <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}{mot === 'E-mail' ? boutonEcrire(val) : null}</dd></div>
             ))}
@@ -233,7 +234,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
             {liste(s.contacts).map((c) => (
               <li key={c.id}>
                 <span><strong>{[c.civilite, c.prenom, c.nom].filter((x) => x).join(' ') || 'Contact'}</strong>{c.titre ? <span className="loc-muet"> · {c.titre}</span> : null}</span>
-                <span className="loc-muet">{liste(c.coordonnees).map((k) => k.valeur).join(' · ')}</span>
+                <span className="loc-muet">{liste(c.coordonnees).map((k) => (k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur)).join(' · ')}</span>
                 {liste(c.coordonnees).filter((k) => k.sorte === 'email').map((k) => <span key={k.id}>{boutonEcrire(k.valeur)}</span>)}
               </li>
             ))}

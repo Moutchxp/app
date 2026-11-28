@@ -26,6 +26,7 @@
 import { MOT_FAMILLE, type ContactSource } from './contactsTache';
 import { BADGE_ACCEPTATION, type StatutAcceptation } from './acceptationTache';
 import { FUSEAU_AFFICHAGE } from './ecran';
+import { telephoneLisible } from './telephoneAffichage';
 
 export const EN_TETE_SERVICE = 'Service Gestion — CRITERIMMO / Sans Vis-à-Vis';
 
@@ -206,7 +207,7 @@ function texteMail(c: ContenuMailTache): string {
     section(`Contacts (${c.contacts.length})`);
     for (const k of c.contacts) {
       l.push('', k.nom, ...(roleContact(k) !== '' ? [roleContact(k)] : []));
-      for (const x of k.coordonnees) l.push(`${x.libelle ?? (x.sorte === 'telephone' ? 'Téléphone' : 'E-mail')} : ${x.affichage ?? x.valeur}`);
+      for (const x of k.coordonnees) l.push(`${x.libelle ?? (x.sorte === 'telephone' ? 'Téléphone' : 'E-mail')} : ${x.sorte === 'telephone' ? telephoneLisible(x.affichage ?? x.valeur) : (x.affichage ?? x.valeur)}`);
     }
   }
   const pi = phraseInvites(c.invites, c.sorte);
@@ -303,7 +304,7 @@ function htmlMail(c: ContenuMailTache): string {
       const coord = k.coordonnees.map((x) => {
         const mot = echapper(x.libelle ?? (x.sorte === 'telephone' ? 'Téléphone' : 'E-mail'));
         const href = x.sorte === 'telephone' ? `tel:${x.valeur.replace(/[^\d+]/g, '')}` : `mailto:${x.valeur}`;
-        return `<div style="margin-top:2px">${mot} : <a href="${echapper(href)}" style="color:${ROUGE}">${echapper(x.affichage ?? x.valeur)}</a></div>`;
+        return `<div style="margin-top:2px">${mot} : <a href="${echapper(href)}" style="color:${ROUGE}">${echapper(x.sorte === 'telephone' ? telephoneLisible(x.affichage ?? x.valeur) : (x.affichage ?? x.valeur))}</a></div>`;
       }).join('');
       r.push(`<tr><td style="padding:4px 24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`
         + `<td style="border:1px solid ${LIGNE};border-radius:8px;padding:10px 12px;${POLICE};font-size:15px;line-height:1.45;color:${ENCRE}">`

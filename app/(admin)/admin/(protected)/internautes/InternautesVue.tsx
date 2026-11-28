@@ -4,12 +4,12 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode,
 import { libelleFinaliteAffichage } from '../../../../lib/internaute/libelleFinalite';
 import { STATUTS_EXPORT, FINALITE_F1 } from '../../../../lib/internaute/extraction';
 import { projetVersSaisieBanc, ecrireHandoffBanc } from '../../../../lib/internaute/pontProjetBanc';
-import { formaterTelephone } from '../../../../lib/internaute/formatTelephone';
 import { libelleScore } from '../../../../lib/libelles';
 import { SCORE_LABEL_EXCEPTIONNELLE_MIN, SCORE_LABEL_EXCELLENTE_MIN } from '../../../../lib/svv/config';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 import { CapsuleCompte } from './CapsuleCompte';
 import { formatParis } from '../../../../lib/temps/paris';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
@@ -1224,7 +1224,7 @@ export function InternautesVue() {
                           <span style={{ fontWeight: 800, color: 'var(--color-svv-ink)' }}>{[l.prenom, l.nom].filter(Boolean).join(' ') || '—'}</span>
                           <CapsuleCompte aUnCompte={l.a_un_compte} />
                         </div>
-                        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{l.email ?? '—'}{l.telephone ? ` · ${l.telephone}` : ''}</div>
+                        <div style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{l.email ?? '—'}{l.telephone ? ` · ${telephoneLisible(l.telephone)}` : ''}</div>
                       </div>
                       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '.78rem', color: 'var(--color-svv-ink)' }}>
                         <span>{l.commune_insee ?? '—'}</span>
@@ -1517,7 +1517,7 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
             confirmées, fiables), ROUGE si 'incomplet' (Écran A seul → jamais confirmées, potentiellement fausses). */}
         <div style={{ fontSize: '.95rem', wordBreak: 'break-word' }} title={parcoursComplet ? 'Coordonnées confirmées à l’écran B (parcours complet)' : 'Coordonnées non confirmées — écran A seul (parcours incomplet)'}>
           <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Téléphone : </span>
-          <span style={{ color: couleurCoord, fontWeight: 700 }}>{i.telephone ? formaterTelephone(String(i.telephone)) : '—'}</span>
+          <span style={{ color: couleurCoord, fontWeight: 700 }}>{i.telephone ? telephoneLisible(String(i.telephone)) : '—'}</span>
         </div>
         <div style={{ fontSize: '.95rem', wordBreak: 'break-word' }} title={parcoursComplet ? 'Coordonnées confirmées à l’écran B (parcours complet)' : 'Coordonnées non confirmées — écran A seul (parcours incomplet)'}>
           <span style={{ fontWeight: 600, color: 'var(--color-svv-muted)' }}>Email : </span>

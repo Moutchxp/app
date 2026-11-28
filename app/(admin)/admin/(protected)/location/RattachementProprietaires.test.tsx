@@ -71,7 +71,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
     expect(groupe.querySelector('[data-contacts-vide]')?.textContent)
       .toBe('Aucune autre personne (conjoint, comptable, gérant…) n’est notée sur ses autres biens. Ses propres coordonnées sont juste au-dessus, dans « Personnes propriétaires ».');
     // Le reste du panneau ne change pas : la personne cherchée, ses coordonnées, le geste.
-    expect(container.querySelector('[data-qui-rattacher] [data-groupe="proprietaires"]')?.textContent).toContain('+33611111111');
+    expect(container.querySelector('[data-qui-rattacher] [data-groupe="proprietaires"]')?.textContent).toContain('+33 6 11 11 11 11'); // 🔴 (Arno, 28/11/2026, 12h17) numéros affichés par la règle commune
     expect(bouton('Rattacher la sélection')).toBeDefined();
   });
 

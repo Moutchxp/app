@@ -128,7 +128,7 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
   it('④ le téléphone standard (+33, espaces, points)', async () => {
     await nouveau();
     await taper(document.querySelector('input[aria-label="Téléphone standard"]') as HTMLInputElement, '+33 1.42.00.00.01');
-    expect(bandeau()).toContain('même téléphone (0142000001)');
+    expect(bandeau()).toContain('même téléphone (01 42 00 00 01)'); // 🔴 (Arno, 28/11/2026, 12h17) règle commune
   });
   it('« Choisir celui-ci » (avant : « Sélectionner ce syndic pour ce bien ») : rattache le syndic EXISTANT à la copropriété du bien, ne crée rien, ferme', async () => {
     await nouveau();

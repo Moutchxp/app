@@ -8,6 +8,7 @@ import { BadgeCarte } from './SaisieCartes';
 import {
   refusSelection, selectionParDefaut, type ContactProprietaire, type PersonneProprietaire, type PersonnesARattacher, type Selection,
 } from '../../../../lib/location/rattachementProprietaires';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « QUI RATTACHER À CE BIEN ? » ET LES CARTES DU BLOC 1 (Arno, 18/10/2026) ══════════════════════
@@ -21,7 +22,7 @@ import {
  * bien uniquement. » (Arno) — La croix ne touche que la page : aucune fiche n'est modifiée.
  */
 
-const coordonnees = (telephone: string | null, email: string | null): string => [telephone, email].filter((x) => (x ?? '') !== '').join(' · ');
+const coordonnees = (telephone: string | null, email: string | null): string => [telephone ? telephoneLisible(telephone) : null, email].filter((x) => (x ?? '') !== '').join(' · ');
 
 export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaContacts, onValider, onAnnuler, onEnAttente }: {
   proprietaireId: number;
@@ -154,7 +155,7 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
                   {croix(p.nom, () => onRetirerProprietaire(p.id))}
                 </header>
                 <div className="cp-lignes">
-                  <Ligne libelle="Téléphone">{p.telephone ?? <span className="loc-muet">non renseigné</span>}</Ligne>
+                  <Ligne libelle="Téléphone">{p.telephone ? telephoneLisible(p.telephone) : <span className="loc-muet">non renseigné</span>}</Ligne>
                   <Ligne libelle="E-mail" tronque infobulle={p.email ?? undefined}>{p.email ?? <span className="loc-muet">non renseigné</span>}</Ligne>
                   {/* Arno (21/10/2026) : UN BIEN PAR LIGNE — jamais deux sur la même ligne, plus de « · » ; une adresse longue peut
                       passer sur deux lignes, le bien suivant recommence à la ligne ; « Biens » en face du premier. */}
@@ -180,7 +181,7 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
                 </header>
                 <div className="cp-lignes">
                   <Ligne libelle="Qualité">{c.qualite ?? <span className="loc-muet">non renseignée</span>}</Ligne>
-                  <Ligne libelle="Téléphone">{c.telephone ?? <span className="loc-muet">non renseigné</span>}</Ligne>
+                  <Ligne libelle="Téléphone">{c.telephone ? telephoneLisible(c.telephone) : <span className="loc-muet">non renseigné</span>}</Ligne>
                   <Ligne libelle="E-mail" tronque infobulle={c.email}>{c.email}</Ligne>
                 </div>
                 <a className="loc-carte-lien" href={`/admin/location/bien/${c.lotId}`} target="_blank" rel="noopener noreferrer">Modifier dans la fiche ↗</a>
@@ -198,7 +199,7 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
                   </header>
                   <div className="cp-lignes">
                     <Ligne libelle="Qualité">{c.qualite ?? <span className="loc-muet">non renseignée</span>}</Ligne>
-                    <Ligne libelle="Téléphone">{tel ?? <span className="loc-muet">non renseigné</span>}</Ligne>
+                    <Ligne libelle="Téléphone">{tel ? telephoneLisible(tel) : <span className="loc-muet">non renseigné</span>}</Ligne>
                     <Ligne libelle="E-mail" tronque infobulle={mel ?? undefined}>{mel ?? <span className="loc-muet">non renseigné</span>}</Ligne>
                   </div>
                   <p className="loc-muet loc-carte-lien">Nouveau contact : enregistré avec le bien.</p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { GestionnaireSyndic } from '../../../../lib/gestion/copropriete';
+import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LES CONTACTS DU SYNDIC DE CETTE COPROPRIÉTÉ (Arno, 20/11/2026) ════════════════════════════════════════════════════════════════════════════════
@@ -92,7 +93,7 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
         <ul className="fcp-liste">{gestionnaires.map((g) => (
           <li key={g.id} className="csc-ligne" data-csc-rattache={g.id}>
             <span className="csc-texte"><strong>{nomGestionnaire(g)}</strong>
-              {g.titre ? <span className="loc-muet"> · {g.titre}</span> : null}{g.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}</span>
+              {g.titre ? <span className="loc-muet"> · {g.titre}</span> : null}{g.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur}</span>)}</span>
             <button type="button" className="csc-moins" onClick={() => { setMotif(null); setADetacher(g); }} disabled={envoi}
               aria-label={`Détacher ${nomGestionnaire(g)} de cette copropriété`} title="Détacher de cette copropriété" data-csc-detacher={g.id}>−</button>
           </li>))}</ul>)}
@@ -124,7 +125,7 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
                     <label className={`csc-choix${c.rattache ? ' csc-choix--deja' : ''}`} data-csc-resultat={c.id}>
                       <input type="checkbox" checked={c.rattache || choisis.includes(c.id)} disabled={c.rattache || envoi} onChange={() => basculer(c.id)} />
                       <span><strong>{nomGestionnaire(c)}</strong>{c.titre ? <span className="loc-muet"> · {c.titre}</span> : null}
-                        {c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}
+                        {c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur}</span>)}
                         {c.rattache && <span className="csc-deja" data-csc-deja> · déjà rattaché</span>}</span>
                     </label>
                   </li>))}</ul>
