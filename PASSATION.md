@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (fiche syndic : « Modifier », coordonnées du cabinet en liste — migration 524 —, « Ce qui change », « Retirer ce contact » journalisé ; groupes toujours, repères empilés par date, tuiles centrées, « Locataires » sur la ligne du nom, une seule mention du collaborateur ; avant : deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (fiche syndic : « Modifier », coordonnées du cabinet en liste — migration 524 —, « Ce qui change », « Retirer ce contact » journalisé ; groupes toujours, repères empilés par date, tuiles centrées, « Locataires » sur la ligne du nom, une seule mention du collaborateur ; avant : deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; production = 5fd602ee, migrations jusqu'à 524, la 361 prendra la 525)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -69,7 +69,7 @@ LUI-MÊME** et rend messages + hashs :
   (`IF NOT EXISTS`), **enveloppées** (`psql -X -q -v ON_ERROR_STOP=1 -1 -f …`, jouées deux fois sans erreur),
   **appliquées à la RECETTE seulement** ; le code doit tourner SANS elles (sondes de schéma `colonneExisteMemo`,
   hors transaction). Garde à jour : `app/lib/ops/migrationsEnAttente.test.ts` (la 361 en attente se décale à
-  chaque nouvelle migration : **elle prendra la 523** — décision d'Arno du 28/11/2026 : elle ne part pas avec la 522 ; 519 et 521 non utilisés).
+  chaque nouvelle migration : **elle prendra la 525** — la 524 est en production depuis le 28/11/2026 ; 519, 521 et 523 non utilisés).
 - **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`). **Mesuré le 18/11/2026 :
   1 790 fichiers, 27 096 tests verts + 21 ignorés.** (Le « 173 fichiers » d'`AGENTS.md` est très périmé, le principe
   reste : les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin — précédent :
@@ -1904,13 +1904,20 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   rien d'enregistré. Captures `.captures/biens-libres-titre/`. ⚠️ Preuve curl À FAIRE par Arno.
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
-**519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-🔴 **LA PROCHAINE MISE EN PRODUCTION EMPORTE LA 524** (`e6f4e81a`, coordonnées du cabinet en liste) — épreuve sur copie de la production à faire avant.
-⚠️ Conséquence pour la 361 : l'outil refuse une migration numérotée SOUS la dernière inscrite. En **523**, la 361 passe seulement AVEC la 524 (même
-mise à jour) ou avant elle ; une fois la 524 inscrite en production, elle devra prendre la **525** (épreuve `migrationsEnAttente.test.ts`).
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84`, `8fd08db0`, `e6f4e81a` (**avec la migration 524**), `3e392de7`, `d973f447`, `29b828c8` et les passations, non poussés. ⚠️ Depuis : `5fd602ee` MIS EN PRODUCTION le 28/11/2026 à 15h49 (migration 524 ; 5-verifier.sh à lancer si ce n'est pas fait) ; `0780f0e2` (15h56) non poussé. Les scripts `.captures/maj/1` à `6` sont calés sur
-`a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
+**Production = `5fd602ee`, migrations jusqu'à 524** (mise en production du 28/11/2026, 15h22-17h02, TERMINÉE — détail ci-dessous).
+**519, 521 et 523 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 525** (l'outil refuse une migration numérotée SOUS la dernière inscrite,
+et la 524 est inscrite en production ; épreuve `migrationsEnAttente.test.ts`).
+GitHub = `5fd602ee` (poussé par `2-push.sh`). **En attente de la prochaine mise en production (aucune migration) : `0780f0e2`** (liste « Libre » de
+« Nouveau locataire » = total du titre « Lots vacants ») et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur `5fd602ee` :
+à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
+
+### ✅ MISE EN PRODUCTION DU 28/11/2026 (15h22-17h02) — TERMINÉE, `5fd602ee` en service, 524 appliquée (compte rendu d'Arno)
+- Copie de la production + épreuve de la 524 : OK (0 erreur, 8/8 recopiées) ; copie effacée (journaux gardés).
+- Sauvegarde : `/home/ubuntu/sauvegardes/2026-11-28_1535`.
+- `3-essai.sh` : ESSAI RÉUSSI. `4-appliquer.sh` : « 5fd602ee en service », migration 524 appliquée 1/1.
+- `5-verifier.sh` : « ÉTAPE E RÉUSSIE » — recopiees=8, syndics_sans_liste=0, valeurs absentes de la liste=0, anciennes colonnes identiques au relevé
+  d'avant, 522 et 520 OK, libellés « Coordonnées du syndic » / « Téléphone standard » servis.
+- Version précédente pour un retour arrière : `a69fb55b` (`6-retour-arriere.sh`) — ne pas modifier de coordonnées de syndic sur l'ancienne version.
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
