@@ -174,7 +174,8 @@ describe('🔴🔴 12h54 point 2 — les actions de chaque ligne, regroupées su
     await rendre();
     const mail = container.querySelector('[data-ligne-mail="lea@exemple.test"] .loc-coord-actions')!;
     expect([...mail.children].map((x) => (x.matches('.bcp') ? 'Copier' : x.matches('.slm-case') ? 'case' : x.textContent?.trim()))).toEqual(['Copier', 'case', 'Écrire depuis gestion@']);
-    expect([...container.querySelector('[data-ligne-tel="06 11 22 33 44"] .loc-coord-actions')!.children].map((x) => x.textContent)).toEqual(['Copier']);
+    // 🔴 (13h18) un téléphone : « Copier » seul de visible, suivi de la place vide de la case et d'« Écrire »
+    expect([...container.querySelector('[data-ligne-tel="06 11 22 33 44"] .loc-coord-actions')!.children].map((x) => (x.hasAttribute('data-place-vide') ? 'place vide' : x.textContent))).toEqual(['Copier', 'place vide']);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
     expect(css).toContain('.loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;');
     expect(css).toContain('.loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;justify-self:end;');
@@ -183,5 +184,29 @@ describe('🔴🔴 12h54 point 2 — les actions de chaque ligne, regroupées su
     await act(async () => { (container.querySelector('[data-case-mail="lea@exemple.test"]') as HTMLInputElement).click(); });
     const b = container.querySelector('[data-ecrire-selection]')!.closest('.slm-barre')!;
     expect(b.previousElementSibling?.hasAttribute('data-coordonnees-syndic')).toBe(true);
+  });
+});
+
+/* ══ 🔴🔴 Arno (28/11/2026, 13h18, point 1) — « ramener le bouton "Copier" du numéro de téléphone sur la même colonne » ══ */
+describe('🔴🔴 13h18 point 1 — « Copier » des téléphones dans la colonne de celui des e-mails', () => {
+  const S = { ...BASE, telephone: '0140000000', contacts: [{ id: 1, civilite: null, prenom: 'Léa', nom: 'MARTIN', titre: null, tousImmeubles: false, immeubles: [],
+    coordonnees: [{ id: 9, sorte: 'telephone', libelle: null, valeur: '0611223344' }, { id: 10, sorte: 'email', libelle: null, valeur: 'lea@exemple.test' }] }] };
+  it('avec le droit d’envoi : une ligne de téléphone porte « Copier » puis la place, vide et invisible, de la case et d’« Écrire » (même largeur que sur un e-mail)', async () => {
+    syndic = S;
+    await rendre();
+    for (const t of ['01 40 00 00 00', '06 11 22 33 44']) {
+      const a = container.querySelector(`[data-ligne-tel="${t}"] .loc-coord-actions`)!;
+      expect(a.children[0].matches('.bcp')).toBe(true);
+      const vide = a.querySelector('[data-place-vide]')!;
+      expect([vide.getAttribute('aria-hidden'), vide.querySelector('.slm-case') !== null, vide.textContent]).toEqual(['true', true, 'Écrire depuis gestion@']);
+      expect(vide.querySelectorAll('button, input, a')).toHaveLength(0); // rien à cliquer ni à lire
+    }
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-place-vide{display:inline-flex;align-items:center;gap:4px 6px;visibility:hidden;pointer-events:none}');
+  });
+  it('sans le droit d’envoi (aucune case, aucun « Écrire » sur les e-mails) : aucune place réservée', async () => {
+    syndic = S; droit = false;
+    await rendre();
+    expect(container.querySelectorAll('[data-place-vide]')).toHaveLength(0);
   });
 });

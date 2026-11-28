@@ -780,9 +780,14 @@ function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: s
  * AU FORMAT PAR PAIRES et dit « Copié » ; c'est le bouton du module (`BoutonCopier`), avec son repli quand le
  * presse-papiers refuse. Seulement pour un numéro complet. Le numéro lui-même reste cliquable (tel:) en lecture.
  */
-function ActionCopier({ tel }: { tel: string }) {
+function ActionCopier({ tel, reserver = false }: { tel: string; reserver?: boolean }) {
   if (!telephoneComplet(tel)) return null;
-  return <span className="fsy-action"><BoutonCopier valeur={telephoneLisible(tel)} quoi={`le numéro ${telephoneLisible(tel)}`} /></span>;
+  // 🔴 (Arno, 28/11/2026, 13h18, point 1) « Copier » dans la colonne de celui des e-mails : avec le droit d'envoi, la place (invisible) de la case et
+  //    d'« Écrire depuis gestion@ » reste à sa droite
+  return (
+    <span className="fsy-action fsy-actions-mail"><BoutonCopier valeur={telephoneLisible(tel)} quoi={`le numéro ${telephoneLisible(tel)}`} />
+      {reserver && <span className="fsy-place-vide" aria-hidden="true" data-place-vide><span className="slm-case" /><span className="fsy-lien-bouton">Écrire depuis gestion@</span></span>}</span>
+  );
 }
 
 /**
@@ -1003,7 +1008,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
               <button type="button" className="fsy-mini" aria-label="Ajouter un second numéro de standard" title="Ajouter un second numéro"
                 onClick={() => setForm({ ...form, telephones: [...form.telephones, ''] })}>+</button>
             )}
-            <ActionCopier tel={t} />
+            <ActionCopier tel={t} reserver={onEcrire !== undefined} />
           </span>
         ))}
       </div>
@@ -1923,7 +1928,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
               {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
               {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{telephoneLisible(k.valeur)}</a> : <span>{telephoneLisible(k.valeur)}</span>}
             </span>
-            <ActionCopier tel={k.valeur} />
+            <ActionCopier tel={k.valeur} reserver={onEcrire !== undefined} />
           </div>
         ))}
         {emails.map((k) => (
@@ -1967,7 +1972,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
             {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
             {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{telephoneLisible(k.valeur)}</a> : <span>{telephoneLisible(k.valeur)}</span>}
           </span>
-          <ActionCopier tel={k.valeur} />
+          <ActionCopier tel={k.valeur} reserver={onEcrire !== undefined} />
         </div>
       ))}
       {emails.map((k) => (
@@ -2202,7 +2207,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
                 aria-label={k.sorte === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}
                 onChange={(ev) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })}
                 onBlur={() => { void lancer(c); }} />
-              {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionCopier tel={k.valeur} />}
+              {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionCopier tel={k.valeur} reserver={onEcrire !== undefined} />}
             </span>
           </div>
           <button type="button" className="fsy-mini" aria-label="Retirer cette coordonnée"
@@ -2473,6 +2478,9 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-contact-coord > .fsy-coord-gauche{flex:1 1 12rem}
 .fsy-action{flex:0 0 auto;margin-left:auto;font-size:.82rem;white-space:nowrap}
 .fsy-actions-mail{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.fsy-place-vide{display:inline-flex;align-items:center;gap:6px;visibility:hidden;pointer-events:none}
+.fsy-ligne-tel{flex-wrap:wrap}
+.fsy-ligne-tel input{flex:1 1 10rem;min-width:8rem}
 .fsy-bloc--serre{gap:.3rem}
 .fsy-champ--manque input{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
 .fsy-champ--manque > span:first-child{color:var(--color-svv-red)}

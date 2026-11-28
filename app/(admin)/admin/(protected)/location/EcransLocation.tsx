@@ -223,7 +223,9 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
         return (
           <li key={`t${i}-${t}`} data-ligne-tel={lisible}>
             <span className="loc-coord-valeur">{lien !== null ? <a href={lien}>{lisible}</a> : lisible}</span>
-            <span className="loc-coord-actions"><BoutonCopier valeur={lisible} quoi={`le numéro ${lisible}`} /></span>
+            {/* 🔴 (Arno, 28/11/2026, 13h18, point 1) « Copier » dans la colonne de celui des e-mails : la place de la case et d'« Écrire » reste vide à droite */}
+            <span className="loc-coord-actions"><BoutonCopier valeur={lisible} quoi={`le numéro ${lisible}`} />
+              {ecrire.onEcrire !== undefined && <PlaceEcrireVide />}</span>
           </li>);
       })}
       {mails.map((m, i) => (
@@ -324,6 +326,12 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
   );
 }
 
+/** 🔴 (Arno, 28/11/2026, 13h18, point 1) la place, invisible, de la case et d'« Écrire depuis gestion@ » sur une ligne de téléphone : son « Copier » tombe
+ *  dans la colonne de celui des e-mails. Rien à lire ni à cliquer (aria-hidden, invisible). */
+function PlaceEcrireVide() {
+  return <span className="loc-place-vide" aria-hidden="true" data-place-vide><span className="slm-case" /><span className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic">Écrire depuis gestion@</span></span>;
+}
+
 /* 🔴 (Arno, 28/11/2026, 12h17, point 2) une ligne par téléphone et par e-mail : la valeur, puis ses boutons dans le prolongement, alignés d'une ligne à
    l'autre (une grille de deux colonnes) ; au téléphone, les boutons passent sous la valeur si la place manque. AUCUN ACCENT GRAVE dans ce littéral. */
 const CSS_COORDONNEES_SYNDIC = `
@@ -333,6 +341,7 @@ const CSS_COORDONNEES_SYNDIC = `
 /* 🔴 (Arno, 28/11/2026, 12h54, point 2) « justifier à droite » : « Copier », la case, « Écrire depuis gestion@ » regroupés sur le bord DROIT du bloc,
    à la même place d'une ligne à l'autre (un téléphone : « Copier » seul, à droite) ; au téléphone, sous la valeur, toujours à droite */
 .loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;justify-self:end;gap:4px 6px;min-height:32px}
+.loc-place-vide{display:inline-flex;align-items:center;gap:4px 6px;visibility:hidden;pointer-events:none}
 .loc-coord-actions .loc-ecrire-syndic{width:auto;min-height:32px;padding:2px 12px;white-space:nowrap;margin:0}
 /* 🔴 (Arno, 28/11/2026, 12h54, point 1) le bloc Coordonnées : deux colonnes serrées (adresse puis note ; téléphones puis e-mails) ; au téléphone, empilé */
 .loc-coord-bloc{margin:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);column-gap:22px;row-gap:8px;align-items:start}

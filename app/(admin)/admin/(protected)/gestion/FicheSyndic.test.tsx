@@ -774,7 +774,7 @@ describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS', () => {
     expect(css).toContain('.fsy-action{flex:0 0 auto;margin-left:auto;');
     expect(css).toContain('.fsy-contact-coord{display:flex;align-items:center;justify-content:space-between;');
     const ligneTel = (document.querySelector('input[aria-label="Téléphone standard"]') as HTMLElement).closest('.fsy-ligne-tel') as HTMLElement;
-    expect(ligneTel.lastElementChild?.className).toBe('fsy-action');
+    expect(ligneTel.lastElementChild?.className).toContain('fsy-action'); // 🔴 (13h18) « fsy-action fsy-actions-mail » : Copier et la place vide
     const ligneEmail = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ') as HTMLElement;
     expect(ligneEmail.lastElementChild?.className).toContain('fsy-action');
   });
@@ -3948,6 +3948,13 @@ describe('LOT MAIL-SYNDIC-PREREMPLI — « Écrire depuis gestion@ » emporte le
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
     expect(css).toContain('.fsy-action{flex:0 0 auto;margin-left:auto;'); // au bord droit, sur la ligne ou sous la valeur quand la place manque
     expect(css).toContain('.fsy-contact-coord{display:flex;align-items:center;justify-content:space-between;');
+  });
+  it('🔴 13h18 point 1 — le « Copier » du téléphone standard : suivi de la place invisible de la case et d’« Écrire » (la colonne des e-mails)', async () => {
+    await ouvrirAvecLot(null, vi.fn());
+    const tel = document.querySelector('.fsy-ligne-tel .fsy-actions-mail');
+    expect(tel?.children[0].matches('.bcp')).toBe(true);
+    expect(tel?.querySelector('[data-place-vide]')?.getAttribute('aria-hidden')).toBe('true');
+    expect(tel?.querySelectorAll('[data-place-vide] button, [data-place-vide] input')).toHaveLength(0);
   });
   it('🔴 12h17 — sans droit d’envoi (aucun composeur) : « Copier » reste, ni case ni bouton groupé', async () => {
     act(() => { root.unmount(); }); root = createRoot(container);
