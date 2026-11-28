@@ -4002,6 +4002,22 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     clic('[data-filtre-previsite="alerte"]'); await attendre();
     expect(ordre().sort()).toEqual(['Q2', 'Q4']);
   });
+  // ══ 🔴🔴 Arno (28/11/2026, 01h52) — lignes « Sans rendez-vous fixé » : les repères l'un sous l'autre, du plus ancien au plus récent ══
+  it('🔴 01h52 — « Sans rendez-vous fixé » : En préavis, puis Aucune pré-visite fixée, puis Préavis échu, empilés à droite ; rien de retiré', async () => {
+    lignes = [{ ...LIGNES[0], cle: 'S', recuLe: '2020-08-01', dateMax: '2020-11-01', previsite: { ...PV('programmee', '2099-01-10'), statut: 'alerte', rdv: null }, edls: null } as never, { ...LIGNES[1], previsite: PV('programmee', '2099-01-10') }];
+    await rendre(true);
+    const c = sel('S', '[data-cartouches-ligne]');
+    expect(c.className).toBe('psl-cartouches psl-cartouches--pile');
+    expect(c.getAttribute('data-ordre-reperes')).toBe('en_preavis previsite echu');
+    const textes = [...c.querySelectorAll('.psl-pile [data-statut-ligne], .psl-pile [data-cartouche-previsite], .psl-pile [data-preavis]')].map((x) => x.textContent);
+    expect(textes).toEqual(['En préavis', 'Aucune pré-visite fixée', 'Préavis échu — sortie à saisir']);
+    expect(sel('S', '.psl-pile').className).toBe('psl-pile psl-pile--serree');
+    expect(sel('S', '.psl-pile').getAttribute('data-pile-reperes')).toBe('3');
+    // une ligne AVEC rendez-vous garde sa disposition (statuts, puis ses repères) : pas de pile chronologique
+    expect(container.querySelector('[data-ligne-preavis="B"] .psl-cartouches--pile')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.psl-pile{display:flex;flex-direction:column;align-items:flex-end;');
+  });
   it('🔴 décision d’Arno (28/11/2026) — au téléphone, aucun repère coupé : plus de hauteur maximale, la ligne s’allonge (sa hauteur d’avant devient un minimum)', async () => {
     await rendre(true);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');

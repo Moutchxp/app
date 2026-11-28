@@ -24,8 +24,9 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
+import { dateAlerteSansPrevisite, dateDuStatut, dateEchu, ordonnerReperes } from '../../../../lib/location/reperesLigne';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
-import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -380,6 +381,23 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                       </div>
                       {/* 🔴🔴 Arno (15/11/2026) — LE statut de la ligne (un seul, calculé) à la place de « en préavis » fixe ; l'alerte « Préavis
                           échu » reste affichée à côté ; un état des lieux refusé par le collègue garde son repère « EDLS à réattribuer ». */}
+                      {rdvDuStatut(l) === null ? (() => {
+                        /* 🔴🔴 Arno (28/11/2026, 01h52) — une ligne « Sans rendez-vous fixé » : TOUS ses repères (statut et alertes) l'un sous l'autre,
+                           alignés à droite, du plus ancien (en haut) au plus récent (en bas) — `ordonnerReperes` ; aucun n'est retiré */
+                        const reperes = ordonnerReperes([
+                          ...statutsLigne(l).map((s) => ({ date: dateDuStatut(s, l), cle: s, el: <CartoucheStatutLigne key={s} statut={s} /> })),
+                          ...(statutPreavis(l, jour) === 'echu' ? [{ date: dateEchu(l), cle: 'echu', el: <MentionPreavis key="echu" p={l} jour={jour} court /> }] : []),
+                          ...(l.edls?.statut === 'refusee' ? [{ date: null, cle: 'edls', el: <span key="edls" className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span> }] : []),
+                          { date: l.previsite?.statut === 'alerte' ? dateAlerteSansPrevisite(l) : null, cle: 'previsite',
+                            el: <span key="previsite" className="pvv-cartouches" data-cartouches-previsite><CartouchesPrevisite p={l.previsite} /></span> },
+                        ]);
+                        // le conteneur de « Aucune pré-visite fixée » / « Personne n'a accepté » n'est visible que s'il porte l'un d'eux
+                        const visible = (r: { cle: string }): boolean => r.cle !== 'previsite' || l.previsite?.statut === 'alerte' || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true);
+                        return (
+                          <span className="psl-cartouches psl-cartouches--pile" data-cartouches-ligne data-ordre-reperes={reperes.map((r) => r.cle).join(' ')}>
+                            <span className={`psl-pile${reperes.filter(visible).length > 2 ? ' psl-pile--serree' : ''}`} data-pile-reperes={reperes.filter(visible).length}>{reperes.map((r) => r.el)}</span>
+                          </span>);
+                      })() : (
                       <span className="psl-cartouches" data-cartouches-ligne>
                         {/* 🔴 (16/11/2026) deux statuts côte à côte quand la pré-visite et l'état des lieux sont fixés tous les deux */}
                         {(() => {
@@ -399,7 +417,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         {l.edls?.statut === 'refusee' && <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span>}
                         {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
                         <span className="pvv-cartouches" data-cartouches-previsite><CartouchesPrevisite p={l.previsite} /></span>
-                      </span>
+                      </span>)}
                       <button type="button" className="svv-btn svv-btn-outline gst-btn pva-ouvrir" aria-expanded={estOuverte}
                         aria-label={`${estOuverte ? 'Fermer' : 'Ouvrir'} le préavis de ${noms}`} data-ouvrir-preavis={l.cle}
                         onClick={() => setOuverte(estOuverte ? null : l.cle)}>{estOuverte ? 'Fermer' : 'Ouvrir'}</button>
@@ -928,7 +946,9 @@ export const CSS_PREAVIS_ACCUEIL = `
    son alerte, etat des lieux, son alerte) ; a trois ou quatre, plus serrees ; la ligne qui la porte s'allonge s'il le faut (jamais rien de coupe) */
 .psl-pile{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:0}
 .psl-pile--serree{gap:2px}
-.psl-pile--serree > .psl-statut,.psl-pile--serree > .pvv-cartouche{font-size:.74rem;line-height:1.15;padding:1px 8px}
+/* 🔴 (28/11/2026, 01h52) dans la pile, « Aucune pré-visite fixée » (son conteneur) prend sa place comme les autres ; vide, il ne compte pas */
+.psl-pile > .pvv-cartouches:empty{display:none}
+.psl-pile--serree > .psl-statut,.psl-pile--serree > .pvv-cartouche,.psl-pile--serree > .pvs-mention,.psl-pile--serree > .pvv-cartouches > .pvv-cartouche{font-size:.74rem;line-height:1.15;padding:1px 8px}
 .pva-ligne--pile{height:auto;min-height:4.75rem}
 .pva-ligne--deux-rdv.pva-ligne--pile{height:auto;min-height:6.25rem}
 .pva-textes{display:flex;flex-direction:column;gap:2px;min-width:0}
