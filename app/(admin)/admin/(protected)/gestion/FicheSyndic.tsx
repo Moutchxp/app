@@ -979,7 +979,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
           L'historique, la trace et « Supprimer ce syndic » restent en dessous, comme avant. */}
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-1">
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-1">
-        {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseAffichee ?? adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
+        {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseAffichee ?? adresseDuBien}` : 'Coordonnées et contacts du syndic'}
       </h3>
       {onEcrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={onEcrirePlusieurs} />}
       {/* 🔴 LOT 6 — à la place du « + », des autres adresses et des adresses de la parcelle : le lien vers la fiche copropriété. */}
@@ -1016,7 +1016,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
           EST RETIRÉE, avec l'accord d'Arno pour CE doublon : « Copier » est au bout de chaque numéro, et « Écrire
           depuis gestion@ » au bout du champ, sur la même ligne. */}
       <div className="fsy-champ">
-        <span id="fsy-email-generique">E-mail générique</span>
+        {/* 🔴 (Arno, 28/11/2026, 14h00, point 1) « E-mail contact » (était « E-mail générique ») */}
+        <span id="fsy-email-generique">E-mail contact</span>
         <span className="fsy-ligne-champ">
           <input type="email" aria-labelledby="fsy-email-generique" value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })} />
@@ -1060,7 +1061,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, 
           lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
       {/* LOT SYNDIC-TITRES-COPROPRIETE — « Contacts de cet immeuble » devient « Contacts de cette copropriété ». */}
       {/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — « Contacts de cette copropriété » devient : */}
-      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du cabinet'}</h4>
+      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du syndic'}</h4>
       {contacts.liste}
       {/* 🔴 LOT 6 — la rubrique « Habitants et gardien de l'immeuble » a quitté la fiche syndic (fiche copropriété). */}
       {contacts.bouton}

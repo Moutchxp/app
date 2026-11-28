@@ -1462,9 +1462,9 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
 
   it('depuis l’écran « Syndics » : « Coordonnées et contacts du cabinet » et « Contacts du cabinet » (tous)', async () => {
     await ouvrir(vi.fn(), 20);
-    expect(titre(1)).toBe('Coordonnées et contacts du cabinet');
+    expect(titre(1)).toBe('Coordonnées et contacts du syndic'); // 🔴 (Arno, 28/11/2026, 14h00) « du syndic »
     expect(titre(2)).toBe('Syndic & portefeuille de gestion'); // avant : « Gérer ce syndic »
-    expect([...bloc(1).querySelectorAll('h4.fsy-sous-titre')].map((h) => h.textContent)).toEqual(['Contacts du cabinet']);
+    expect([...bloc(1).querySelectorAll('h4.fsy-sous-titre')].map((h) => h.textContent)).toEqual(['Contacts du syndic']);
     expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Yves TROIS']);
   });
 
@@ -1648,7 +1648,7 @@ describe('LOT SYNDIC-TITRES-COPROPRIETE — « copropriété » depuis un bien, 
 
   it('sans bien (écran « Syndics ») : « Contacts du cabinet » et « Ajouter un contact au cabinet », inchangés', async () => {
     await ouvrir(vi.fn(), 20);
-    expect(intertitre()).toBe('Contacts du cabinet');
+    expect(intertitre()).toBe('Contacts du syndic');
     await cliquer(plus());
     expect(titreAjout()).toBe('Ajouter un contact au cabinet');
   });

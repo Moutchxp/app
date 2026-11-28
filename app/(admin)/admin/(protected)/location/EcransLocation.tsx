@@ -266,23 +266,25 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
           l'adresse postale du syndic doit être présente » : deux colonnes à l'ordinateur (gauche : adresse complète, puis note ; droite : téléphones, puis
           e-mails, une ligne par valeur), marges serrées ; au téléphone, empilé : adresse, téléphones, e-mails, note. */}
       <section className="loc-bloc" data-coordonnees-syndic>
-        <h3>Coordonnées</h3>
+        {/* 🔴 Arno (28/11/2026, 14h00, point 1) « Coordonnées » → « Coordonnées du syndic » ; « Téléphone » → « Téléphone standard » ; « E-mail » → « E-mail contact » */}
+        <h3>Coordonnées du syndic</h3>
         <dl className="loc-coord-bloc">
           <div className="loc-coord-zone loc-coord-zone--adresse" data-zone="adresse"><dt className="loc-muet">Adresse</dt><dd>
             {adresse.lignes.length === 0 ? <span className="loc-muet">non renseignée</span>
               : adresse.lignes.map((l) => <span key={l} className="loc-coord-adresse-ligne">{l}</span>)}
             {adresse.incomplete && <span className="loc-adresse-incomplete" data-adresse-incomplete>Adresse incomplète — <a href={lienModifierSyndic(s.id)}>à compléter</a></span>}
           </dd></div>
-          <div className="loc-coord-zone loc-coord-zone--tels" data-zone="telephones"><dt className="loc-muet">{telsStandard.length > 1 ? 'Téléphones' : 'Téléphone'}</dt><dd>
+          <div className="loc-coord-zone loc-coord-zone--tels" data-zone="telephones"><dt className="loc-muet">Téléphone standard</dt><dd>
             {telsStandard.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees(telsStandard, [])}</dd></div>
-          <div className="loc-coord-zone loc-coord-zone--mails" data-zone="emails"><dt className="loc-muet">E-mail</dt><dd>
+          <div className="loc-coord-zone loc-coord-zone--mails" data-zone="emails"><dt className="loc-muet">E-mail contact</dt><dd>
             {(s.email ?? '').trim() === '' ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], [s.email as string])}</dd></div>
           <div className="loc-coord-zone loc-coord-zone--note" data-zone="note"><dt className="loc-muet">Note</dt><dd>{s.note ?? <span className="loc-muet">non renseignée</span>}</dd></div>
         </dl>
       </section>
       {ecrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={ecrirePlusieurs} />}
       <section className="loc-bloc">
-        <h3>Contacts <span className="loc-pastille">{liste(s.contacts).length}</span></h3>
+        {/* 🔴 Arno (28/11/2026, 14h00, point 1) « Contacts » → « Contacts du syndic » */}
+        <h3>Contacts du syndic <span className="loc-pastille">{liste(s.contacts).length}</span></h3>
         {liste(s.contacts).length === 0 ? <p className="loc-muet">Aucun contact.</p> : (
           <ul className="loc-liste">
             {liste(s.contacts).map((c) => (

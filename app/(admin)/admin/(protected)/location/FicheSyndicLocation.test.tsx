@@ -160,7 +160,7 @@ describe('🔴🔴 12h54 point 1 — le bloc Coordonnées : deux colonnes, adres
     await rendre();
     const zones = [...container.querySelectorAll('[data-coordonnees-syndic] [data-zone]')];
     expect(zones.map((z) => [z.getAttribute('data-zone'), z.querySelector('dt')?.textContent])).toEqual([
-      ['adresse', 'Adresse'], ['telephones', 'Téléphones'], ['emails', 'E-mail'], ['note', 'Note']]);
+      ['adresse', 'Adresse'], ['telephones', 'Téléphone standard'], ['emails', 'E-mail contact'], ['note', 'Note']]); // 🔴 (Arno, 28/11/2026, 14h00)
     expect([...zones[0].querySelectorAll('.loc-coord-adresse-ligne')].map((x) => x.textContent)).toEqual(['8 Rue Denfert Rochereau', '92600 Asnieres Sur Seine']);
     expect(container.querySelector('[data-adresse-incomplete]')).toBeNull();
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
@@ -327,5 +327,16 @@ describe('🔴 13h50 — les intitulés des colonnes de la liste dépliée', () 
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
     expect(css).toContain('.loc-copro-gestion-mot{display:none}');
     expect(css).toContain('.loc-copro-gestion > li.loc-copro-gestion-entete{display:none} .loc-copro-gestion-mot{display:inline}}'); // au téléphone
+  });
+});
+
+/* ══ 🔴 Arno (28/11/2026, 14h00, point 1) — les libellés ══ */
+describe('🔴 14h00 point 1 — « Coordonnées du syndic », « Téléphone standard », « E-mail contact », « Contacts du syndic »', () => {
+  it('les titres des deux blocs et les libellés du bloc des coordonnées', async () => {
+    syndic = { ...BASE, telephone: '0140000000' };
+    await rendre();
+    expect(container.querySelector('[data-coordonnees-syndic] h3')?.textContent).toBe('Coordonnées du syndic');
+    expect([...container.querySelectorAll('[data-coordonnees-syndic] dt')].map((x) => x.textContent)).toEqual(['Adresse', 'Téléphone standard', 'E-mail contact', 'Note']);
+    expect([...container.querySelectorAll('h3')].map((h) => h.childNodes[0]?.textContent)).toContain('Contacts du syndic ');
   });
 });
