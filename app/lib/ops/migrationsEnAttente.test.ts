@@ -194,8 +194,8 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     // 🔴🔴 (décision d'Arno du 26/11/2026) la 520 (exclusivité des adresses EN BASE) ; la 519 n'est PAS utilisée ; la 361 en attente prendra la 521
     // (décision d'Arno du 26/11/2026 : elle n'est pas prête et ne part pas avec la 520)
     '520_gestion_copropriete_adresse_exclusive.sql',
-    // 🔴🔴 (demande du 28/11/2026) la 522 (abréviations d'adresse dans la clé de la 520) ; la 521 reste réservée à la 361 — qui doit alors partir AVEC la 522
-    // (ou avant) : une fois la 522 inscrite, une 521 serait refusée (voir l'essai de la 361 ci-dessous)
+    // 🔴🔴 (demande du 28/11/2026) la 522 (abréviations d'adresse dans la clé de la 520) ; 🔴🔴 (décision d'Arno du 28/11/2026) la 361 ne part pas avec elle :
+    // elle prendra la 523 (la 521 n'est pas utilisée)
     '522_gestion_cle_adresse_abreviations.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
@@ -223,7 +223,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // dernière INSCRITE : la 511 passe si elle part avec la 512 (ou avant), et serait REFUSÉE une fois la 512 inscrite (elle prendrait alors la 513).
   // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite ») et la 514 (alerte du lundi) sont prises ; 🔴 (25/11/2026) la 515 aussi (mails du module 20 %) :
   // une fois inscrites, la 361 prend la 516.
-  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 520 dans la même mise à jour, REFUSÉE une fois inscrites ; 519 non utilisé, la 361 prendra la 521', () => {
+  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 522 dans la même mise à jour, REFUSÉE une fois inscrites ; 519 et 521 non utilisés, la 361 prendra la 523', () => {
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql', '516_location_montant_vingt_pourcent.sql', '517_location_destinataires_restitution_vingt.sql', '518_location_restitution_vingt_montant_motif.sql', '520_gestion_copropriete_adresse_exclusive.sql', '522_gestion_cle_adresse_abreviations.sql'].includes(f)));
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
@@ -235,17 +235,17 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(522\)/);
     // 🔴🔴 (décision d'Arno du 26/11/2026) « la 361 en attente prendra le numéro 521 » ; la 519 n'est pas utilisée : aucun fichier 519 ni 521 dans
     // db/migrations, l'en-tête de la 361 le dit ; en 519 elle serait REFUSÉE après la 520 ; en 521 elle passe, seule nouvelle
-    expect(existants.some((f) => /^(519|521)_/.test(f.fichier))).toBe(false);
-    expect(contenu361).toContain('NUMÉRO À PRENDRE : 521');
+    expect(existants.some((f) => /^(519|521|523)_/.test(f.fichier))).toBe(false);
+    // 🔴🔴 (décision d'Arno du 28/11/2026) « la 361 prendra le numéro 523 (elle ne part pas avec la 522) »
+    expect(contenu361).toContain('NUMÉRO À PRENDRE : 523');
     const en519apres520 = planifier([...existants, { fichier: '519_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
     expect(en519apres520.refus.join('\n')).toMatch(/519_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(522\)/);
-    // 🔴🔴 (28/11/2026) avec la 522 : en 521, la 361 passe si elle part AVEC la 522 (jusqu'à la 520 inscrite) ; une fois la 522 inscrite, REFUSÉE
-    const jusqua520 = inscrire(A_VENIR.filter((f) => f !== '522_gestion_cle_adresse_abreviations.sql'));
-    const en521 = planifier([...existants, { fichier: '521_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua520);
-    expect(en521.refus).toEqual([]);
-    expect(en521.nouvelles.map((n) => n.fichier)).toEqual(['521_permis_emprise_numero_reveil.sql', '522_gestion_cle_adresse_abreviations.sql']);
+    // 🔴🔴 (28/11/2026) la 522 inscrite : en 521, la 361 est REFUSÉE ; en 523, elle passe, seule nouvelle
     const en521apres522 = planifier([...existants, { fichier: '521_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
     expect(en521apres522.refus.join('\n')).toMatch(/521_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(522\)/);
+    const en523 = planifier([...existants, { fichier: '523_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
+    expect(en523.refus).toEqual([]);
+    expect(en523.nouvelles.map((n) => n.fichier)).toEqual(['523_permis_emprise_numero_reveil.sql']);
   });
 });
 

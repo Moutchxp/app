@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (annexes et abréviations, 7779d9bd et e4c6c944 — migration 522)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -69,7 +69,7 @@ LUI-MÊME** et rend messages + hashs :
   (`IF NOT EXISTS`), **enveloppées** (`psql -X -q -v ON_ERROR_STOP=1 -1 -f …`, jouées deux fois sans erreur),
   **appliquées à la RECETTE seulement** ; le code doit tourner SANS elles (sondes de schéma `colonneExisteMemo`,
   hors transaction). Garde à jour : `app/lib/ops/migrationsEnAttente.test.ts` (la 361 en attente se décale à
-  chaque nouvelle migration : **elle prendra la 521** — décision d'Arno du 26/11/2026 : 519 non utilisé, 361 → 521).
+  chaque nouvelle migration : **elle prendra la 523** — décision d'Arno du 28/11/2026 : elle ne part pas avec la 522 ; 519 et 521 non utilisés).
 - **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`). **Mesuré le 18/11/2026 :
   1 790 fichiers, 27 096 tests verts + 21 ignorés.** (Le « 173 fichiers » d'`AGENTS.md` est très périmé, le principe
   reste : les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin — précédent :
@@ -1585,10 +1585,26 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   inchangée, conflit « 7 r. » reconnu par le contrôle (lecture seule), toute écriture bloquée.
   - Une adresse abrégée ne peut pas venir de l'écran (suggestions BAN seulement) : elle vient des biens « hors liste » et de l'import.
 
+### 28/11/2026, 00h45 — titre, cases de rendez-vous, mentions sans doublon (`48007afa`, `ad02d810`, `f2cbaae9`)
+- **Décisions d'Arno (28/11/2026)** :
+  - la 361 prendra la **523** (elle ne part pas avec la 522) : en-tête de `db/migrations-en-attente/361_…`, garde `migrationsEnAttente.test.ts` et règle en tête de ce document mis à jour dans ce commit ;
+  - les deux scripts `.captures/abreviations-adresse/` (`0-controle-522-lecture-seule.sh`, `copier-prod.sh` + `epreuve.sh`) seront lancés par Arno avant la
+    prochaine mise en production, pas maintenant.
+- **Point 1 (`48007afa`)** — « (Nombre de lots vacants : N) » en 0,8 rem, poids normal, couleur secondaire, sur la ligne de « Location » (d'un bloc au téléphone).
+- **Point 2 (`ad02d810`)** — cartouche vert de l'état des lieux : « RDV fixé — le … de … à … » (et « État des lieux effectué — … ») sans le nom, gardé sur la ligne
+  « Prénom NOM : … ».
+  - Les cases « Pré-visite » et « État des lieux » passent par le même composant `PresentationRdv` (PrevisiteAccueil.tsx) : même ordre, mêmes classes,
+    boutons pleine largeur juste après les informations, les deux cases alignées en haut (avant : centrées, l'une plus bas que l'autre). Rien retiré.
+- **Point 3 (`f2cbaae9`)** — liste : même personne et même statut sur les deux rendez-vous → une seule mention « confié à … · Confirmé » sur les deux rangées
+  (`mentionsCommunes`, triRdvPreavis.ts) ; même règle pour « Locataires : … ». Sinon une mention par rendez-vous. Au téléphone : les dates, puis la mention.
+- Contrôles : `npm test` VERT (1 895 fichiers, 28 361 tests) ; `tsc` = 0. Chrome sur le préavis de test (bail 544), recette, ordinateur et 390 px, clair et sombre,
+  toute écriture bloquée, rien planifié ni envoyé ; captures `.captures/location-titre-tuiles-confie/`. Aucune migration.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 inutilisé ; la 361 : en 521 seulement si elle part avec la 522**).
+**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)** et leurs passations, non poussés. Avant : le contrôle en lecture seule de la 522 en production (Arno). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9` et leurs passations, non poussés. **Avant la prochaine mise en production
+(Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
