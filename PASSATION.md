@@ -1762,10 +1762,31 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Contrôles : `npm test` VERT après chaque point (dernier : 1 899 fichiers, 28 421 tests, 21 ignorés) ; `tsc` = 0.
   - Chrome 1440 et 390 px, clair et sombre. Captures `.captures/location-intro-vide/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 12h17 — téléphones, fiche syndic (`9ec784e8`, `92bbaaec`, `a7fbbb03`, `8268523d`)
+- **Point 4 (`8268523d`, commité en premier)** — « 43 Avenue Marceau · 43 avenue Marceau · … » : PAS des doublons en base. La copropriété 157 a une principale et
+  3 secondaires distinctes ; la fiche syndic de la Location écrivait l'adresse de CHAQUE BIEN. Affichage corrigé (une adresse une fois, clé de la 522).
+  - Vrais doublons dans une même copropriété, en recette : 277 « 12 ter / 12ter rue des Pavillons », 279 « 70 ter / 70ter rue de la République ». NON corrigés.
+  - Production : `bash .captures/maj/0-controles-doublons-adresses-copro-lecture-seule.sh` (lecture seule, À LANCER PAR ARNO ; essai recette : 2).
+- **Point 1 (`9ec784e8`)** — `telephoneLisible` (telephoneAffichage.ts) : « 01 41 99 12 00 », « +33 1 41 99 12 00 », étranger tel quel ; note ou type gardés
+  entre parenthèses. AFFICHAGE seulement ; `tel:` sur les chiffres.
+  - 39 fichiers repris (Gestion, Location, Transaction, Internautes, Permis, parcours public, « Mon compte », PDF, mails générés) ; un garde les liste.
+  - Les champs de saisie et le texte des mails reçus restent tels quels.
+- **Point 2 (`92bbaaec`)** — fiche syndic Location ET Gestion : une ligne par téléphone et par e-mail, « Copier » au bout de chacune.
+  - Chaque e-mail porte une case à cocher et « Écrire depuis gestion@ ». « Écrire aux adresses sélectionnées (N) » ouvre UN mail, toutes les adresses en « À ».
+  - Mécanique : `ContexteEcriture.autres` ; `SelectionMails.tsx` est partagé par les deux fiches. Droit d'envoi : comme 7b5715a6.
+- **Point 3 (`a7fbbb03`)** — « Copropriétés suivies : N · 14 lots en gestion dont … » (comptage par biens, biens EN GESTION seulement — choix de Claude).
+  - Un encadré par copropriété : résidence, adresses (principale puis triées) avec « N lots », total. Un clic ouvre la fiche copropriété.
+  - Les liens des biens restent en bas de l'encadré. `biensParAdresse` (point 4) est retirée, remplacée.
+  - Serveur : `resumerCoprosSyndic` ; la fiche syndic lit en plus le nom de la résidence et la clé d'immeuble des lots.
+  - ⚠️ L'ancien fichier d'essai du point 4 a été supprimé par `rm` (au lieu de `git rm`) puis réécrit : suivi par git, rien de perdu.
+- Contrôles : `npm test` VERT après chaque point (dernier : 1 902 fichiers, 28 478 tests, 21 ignorés) ; `tsc` = 0. Aucune migration.
+  - Chrome, Location › syndic 2 et 54, Gestion › Syndics › TEST ARNAUD, 1440 et 390 px, clair et sombre. Aucun mail envoyé, aucune requête d'écriture.
+  - Captures `.captures/fiche-syndic-coordonnees/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
