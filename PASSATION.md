@@ -1733,10 +1733,28 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - `5-verifier.sh` : « ÉTAPE E RÉUSSIE » (`fonction_522=ok`, 0 adresse sans clé, 0 doublon, copropriétés 16/16, alertes servies).
 - Version d'avant (retour arrière du code) : `568344f0`. La 522 reste compatible avec elle (aucune table ni colonne changée).
 
+### 28/11/2026, 11h43-11h47 — lots vacants : des BIENS, et le détail par type (`ad11dca5`, `a5107e9c`)
+- **Constat** : `e0af8a0d` comptait des LOTS en écartant les annexes rattachées. Seul « Détacher » (`annexe_detachee_le`) rendait une annexe
+  indépendante. Une annexe sortie de sa fiche par un bail (fiche autonome `gestion_bien_regroupement` : orphelin, autre locataire, scission) restait vue
+  comme rattachée et n'était jamais comptée. Les cas (a) à (d) d'Arno étaient déjà justes ; le trou était les fiches autonomes.
+- **`ad11dca5`** — on compte des BIENS, découpés comme `lireFiche` : fiche autonome ouverte, sinon annexe détachée seule, sinon fiche du lot principal.
+  Un bien est vacant si aucun de ses lots n'a de locataire en place. Une fonction pure (`biensVacants`), une lecture (`lireLotsPourVacance`).
+- **`a5107e9c`** — « Location (Lots vacants : 15 dont 10 logements et 5 parkings) ».
+  - Type = lot de tête : catégorie, sinon la nature WIPPIMMO (box ; parking, garage → parking ; cave ; appartement, maison, studio… → logement ;
+    sinon la nature telle qu'enregistrée ; rien ou « A renseigner » → « lot à renseigner »).
+  - Pluriel : + s sauf s, x, z ; en plus -al → -aux, -au, -eau, -eu → x (« locaux commerciaux »).
+- Recette : « Lots vacants : 88 dont 70 logements, 10 parkings, 1 local, 3 locaux commerciaux et 4 lots à renseigner ». Le total est inchangé, la recette
+  n'ayant qu'une annexe rattachée, une détachée et aucune fiche autonome.
+- **`.captures/maj/0-controles-vacants-lecture-seule.sh`** (+ `lecture-vacants.sql`, hors git) : la même règle en SQL, en lecture seule. Essai sur la
+  recette : 88, même décompte, et la même liste de biens que l'application, bien par bien.
+  Production : `bash .captures/maj/0-controles-vacants-lecture-seule.sh` (À LANCER PAR ARNO).
+- Contrôles : `npm test` VERT après chaque commit (dernier : 1 898 fichiers, 28 417 tests, 21 ignorés) ; `tsc` = 0.
+  - Chrome, `/admin/location`, 1440 et 390 px, clair et sombre. Captures `.captures/lots-vacants-biens/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). Rien en attente de mise en production à ce commit. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
