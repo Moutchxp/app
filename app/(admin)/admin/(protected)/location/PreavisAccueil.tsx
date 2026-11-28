@@ -24,6 +24,7 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
+import { ligneDesLocataires } from '../../../../lib/location/nomsPreavis';
 import { dateAlerteSansPrevisite, dateDuStatut, dateEchu, ordonnerReperes } from '../../../../lib/location/reperesLigne';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
 import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
@@ -300,7 +301,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               {affichage.map((l) => {
                 if ('separateur' in l) return <li key={`${l.separateur}-rdv`} className="pva-separateur" data-groupe-rdv={l.separateur}
                   {...(l.separateur === 'sans' ? { 'data-separateur-sans-rdv': '' } : { 'data-separateur-avec-rdv': '' })}>{TITRE_GROUPE_RDV[l.separateur]} ({l.nombre})</li>;
-                const noms = l.locataires.map((x) => x.nom).join(', ');
+                // 🔴🔴 (Arno, 28/11/2026, 09h56) « NOM Prénom » de chaque carte de locataire du préavis, dans l'ordre des cartes, séparés par « / »
+                const noms = ligneDesLocataires(l.locataires);
                 /* 🔴🔴 Arno (15/11/2026) — DEUX LIGNES : 1) nom(s) + adresse ; 2) colonnes FIXES communes à tout le listing : A « Fin de préavis »,
                    B le rendez-vous fixé (mis en évidence, couleur de son type), C les détails existants. Aucune information retirée : le texte
                    complet d'avant reste en infobulle de la ligne. */
@@ -359,10 +361,13 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
                     <div className={`pva-ligne${rdvs.length > 1 ? ' pva-ligne--deux-rdv' : ''}${alertes.length > 0 ? ' pva-ligne--pile' : ''}`}>
                       <div className={`pva-textes${locs.length > 0 ? ' pva-textes--loc' : ''}`} title={`${noms} — ${detail}`}>
-                        <span className="pva-l1">
-                          <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
-                          <span className="pva-adresse" title={adresse} data-adresse-ligne>{adresse}</span>
+                        {/* 🔴🔴 Arno (28/11/2026, 09h56) — « on réorganise juste la ligne actuelle (noms + adresse) en 2 lignes séparées » : 1/ l'adresse
+                            (pastille TEST devant pour un préavis de test) ; 2/ les locataires, « Locataires : … » au bout de cette ligne (colonne « confié
+                            à », mêmes bords) ; 3/ la ligne du préavis, inchangée. Rien n'est tronqué : un texte trop long passe à la ligne. */}
+                        <span className="pva-l1" data-ligne-adresse>
+                          {l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}<span className="pva-adresse" title={adresse} data-adresse-ligne>{adresse}</span>
                         </span>
+                        <span className="pva-noms" title={noms} data-ligne-noms>{noms}</span>
                         <span className="pva-l2">
                           <span className="pva-col-fin" data-col-fin>{fin}</span>
                           {rdvs.length > 1 ? (
@@ -944,14 +949,15 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-locs{display:flex;flex-direction:column;align-items:stretch;gap:2px;min-width:0}
 /* les cartouches de la colonne (locataires, etat de la mission) : la meme largeur, centres (« les deux justifies ») */
 .pva-colconf .pva-etat-mission,.pva-locs .pva-loc{justify-self:stretch;justify-content:center;text-align:center;box-sizing:border-box}
-.pva-noms,.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.pva-noms{font-weight:800;color:var(--color-svv-ink)}
+.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* 🔴🔴 (Arno, 28/11/2026, 09h56) les noms et l'adresse : chacun sur sa ligne, même police qu'avant ; jamais tronqués, un retour à la ligne propre */
+.pva-noms{display:block;min-width:0;white-space:normal;overflow-wrap:anywhere;font-weight:800;color:var(--color-svv-ink)}
 .pva-detail{font-size:.88rem;color:var(--color-svv-muted)}
 /* Arno (15/11/2026) : ligne 1 = nom(s) + adresse ; ligne 2 = colonnes FIXES communes a tout le listing (les dates de rendez-vous sont toutes
    dans la meme colonne verticale) : A fin de preavis, B rendez-vous fixe (couleur de son type), C details */
-.pva-l1{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap}
-.pva-l1 .pva-noms{flex:0 1 auto}
-.pva-adresse{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
+.pva-l1{display:flex;align-items:baseline;gap:8px;min-width:0}
+.pva-l1 .pvt-badge{flex:0 0 auto}
+.pva-adresse{flex:1 1 0;min-width:0;white-space:normal;overflow-wrap:anywhere;color:var(--color-svv-ink)}
 .pva-l2{display:grid;grid-template-columns:minmax(0,1fr);row-gap:2px;min-width:0;font-size:.88rem}
 /* 🔴 Arno (18/11/2026) — la colonne des LOCATAIRES, a droite de la mission : jamais tronquee (le mot toujours entier), jamais un nom */
 .pva-col-loc{display:flex;align-items:center;min-width:0}
@@ -1008,18 +1014,21 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-liens a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);font-weight:600;text-decoration:underline}
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 /* 🔴🔴 Arno (28/11/2026, 01h52) — le bloc replié est UNE grille (les colonnes communes du listing) : la ligne 1 (nom + adresse), puis une rangée par
-   rendez-vous ; la colonne « confié à » couvre toutes les rangées, ligne 1 comprise (« Locataires : … » au niveau du nom) */
+   rendez-vous ; la colonne « confié à » couvre toutes les rangées, ligne 1 comprise (« Locataires : … » au niveau du nom)
+   🔴🔴 (Arno, 28/11/2026, 09h56) rangée 1 : l'adresse, toute la largeur ; rangée 2 : les locataires, « Locataires : … » au bout (la colonne « confié
+   à » commence là) ; puis une rangée par rendez-vous, comme avant */
 @media (min-width:761px){
-  .pva-textes{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;row-gap:2px;align-items:center}
-  .pva-ligne--deux-rdv .pva-textes{grid-template-rows:auto auto auto}
+  .pva-textes{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);grid-template-rows:auto auto auto;column-gap:12px;row-gap:2px;align-items:center}
+  .pva-ligne--deux-rdv .pva-textes{grid-template-rows:auto auto auto auto}
   .pva-l1{grid-column:1 / -1;grid-row:1}
-  .pva-textes--loc .pva-l1{grid-column:1 / 3}
+  .pva-textes > .pva-noms{grid-column:1 / -1;grid-row:2}
+  .pva-textes--loc > .pva-noms{grid-column:1 / 3}
   .pva-l2{display:contents}
-  .pva-l2 > *{grid-row:2 / -1}
+  .pva-l2 > *{grid-row:3 / -1}
   .pva-l2 > .pva-col-fin{grid-column:1}
   .pva-l2 > .pva-col-rdv{grid-column:2}
   .pva-l2 > .pva-col-details{grid-column:5}
-  .pva-l2 > .pva-colconf{grid-column:3 / span 2;grid-row:1 / -1}
+  .pva-l2 > .pva-colconf{grid-column:3 / span 2;grid-row:2 / -1}
   .pva-colconf{display:grid;grid-template-rows:subgrid;grid-template-columns:minmax(0,max-content) max-content;column-gap:6px;justify-self:start;align-items:center;min-width:0;max-width:100%}
   .pva-colconf > .pva-col-mission{display:contents}
   .pva-colconf .pva-confie{grid-column:1}
@@ -1039,7 +1048,7 @@ export const CSS_PREAVIS_ACCUEIL = `
   /* 🔴🔴 (décision d'Arno, 28/11/2026) « aucun repère ne doit être coupé, la zone s'agrandit » : 10,5 rem est un MINIMUM (les lignes ordinaires gardent
      cette hauteur) ; une ligne dont les repères demandent plus s'allonge d'autant */
   .pva-ligne{height:auto;min-height:10.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
-  /* telephone : ligne 1 nom + adresse ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
+  /* telephone : l'adresse, puis les noms (09h56), chacun sur sa ligne ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
      les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
   /* 🔴 (28/11/2026, 01h52) l'un sous l'autre : la date (pre-visite), « Locataires : … », sa mission, puis l'etat des lieux et sa mission, la mission
      commune, la fin de preavis ; la ligne s'allonge d'autant */

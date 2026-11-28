@@ -308,9 +308,9 @@ export async function preavisEnCours(
   const visiteur = typeof choixTests === 'object' ? choixTests.visiteur : null;
   const filtreTest = !avecTest ? '' : choixTests === 'aucun' || (typeof choixTests === 'object' && visiteur === null) ? ' AND t.id IS NULL'
     : choixTests === 'tous' ? ' AND (t.id IS NULL OR t.supprime_le IS NULL)' : ' AND (t.id IS NULL OR (t.supprime_le IS NULL AND t.createur_id = $1))';
-  const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; lot_id: string; entree: string | null; recu_le: string;
+  const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; prenom: string | null; lot_id: string; entree: string | null; recu_le: string;
     date_max: string; adresse: string | null; edl: string | null; bail_id: string | null; test_id: string | null }>(
-    `SELECT p.occupation_id::text, o.locataire_id::text, l.nom, o.lot_id::text, o.entree::text, p.recu_le::text, p.date_max::text,
+    `SELECT p.occupation_id::text, o.locataire_id::text, l.nom, nullif(btrim(l.prenom), '') AS prenom, o.lot_id::text, o.entree::text, p.recu_le::text, p.date_max::text,
             ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
             ${avecEdl ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text'} AS edl, ${avecTest ? 't.id::text' : 'NULL::text'} AS test_id
@@ -330,7 +330,8 @@ export async function preavisEnCours(
       ...(r.test_id ? { test: true, testId: Number(r.test_id) } : {}),
     };
     g.occupationIds.push(Number(r.occupation_id));
-    g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom, entree: r.entree });
+    // 🔴 (Arno, 28/11/2026, 09h56) + le prénom de la fiche : « NOM Prénom » sur la ligne repliée (`ligneDesLocataires`)
+    g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom, prenom: r.prenom ?? null, entree: r.entree });
     // Une date d'état des lieux commune au groupe ; si elles divergent, la plus proche.
     if (r.edl !== null && (g.etatDesLieuxLe === null || r.edl < g.etatDesLieuxLe)) g.etatDesLieuxLe = r.edl;
     groupes.set(cle, g);

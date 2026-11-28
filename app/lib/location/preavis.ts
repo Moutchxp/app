@@ -167,7 +167,8 @@ export interface LignePreavisAccueil {
   occupationId: number;
   occupationIds: number[];
   /** 🔴 Arno (15/11/2026) — + la date d'entrée dans les lieux de chaque locataire (en-tête du compte rendu de pré-visite, page interne). */
-  locataires: { occupationId: number; locataireId: number; nom: string; entree?: string | null }[];
+  /** 🔴 Arno (28/11/2026, 09h56) — + le prénom de la fiche (champ séparé ; absent ou null : le nom tel qu'il est enregistré). */
+  locataires: { occupationId: number; locataireId: number; nom: string; prenom?: string | null; entree?: string | null }[];
   recuLe: string;
   dateMax: string;
   /** `null` = non saisie (ou migration 384 absente). */

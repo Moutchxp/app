@@ -210,27 +210,31 @@ describe('les lignes', () => {
     // 🔴 (16/11/2026) la place de la mention « date dépassée — … » ; 🔴🔴 (décision d'Arno, 28/11/2026) « aucun repère ne doit être coupé, la zone
     //    s'agrandit » : au téléphone, 10,5 rem devient un MINIMUM (les lignes ordinaires la gardent) ; à l'ordinateur, la hauteur reste fixe
     expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:auto;min-height:10\.5rem/);
-    expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
+    expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
+    // 🔴🔴 (Arno, 28/11/2026, 09h56) les noms et l'adresse ne sont plus jamais tronqués : un retour à la ligne propre, même police
+    expect(regle('.pva-noms', bureau)).toBe('display:block;min-width:0;white-space:normal;overflow-wrap:anywhere;font-weight:800;color:var(--color-svv-ink)');
+    expect(regle('.pva-adresse', bureau)).toContain('white-space:normal;overflow-wrap:anywhere;color:var(--color-svv-ink)');
     // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
     // 🔴 Arno (18/11/2026) — + la colonne des LOCATAIRES (largeur de son contenu), à droite de la mission
     // 🔴🔴 (28/11/2026, 01h52) les colonnes communes portées par le bloc replié entier (la colonne « confié à » couvre aussi la ligne du nom)
-    expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-textes{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);grid-template-rows:auto auto;');
+    expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-textes{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);grid-template-rows:auto auto auto;');
     expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-l2{display:contents}');
     expect(regle('.pva-l2', bureau)).toBe('display:grid;grid-template-columns:minmax(0,1fr);row-gap:2px;min-width:0;font-size:.88rem'); // le téléphone : une colonne
     expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-col-rdv,.pva-col-rdv--deux > [data-rang="1"]{order:1}');
     expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-colconf > .pva-col-mission{display:flex;align-items:center;gap:6px;min-height:1.2rem}');
     await rendre();
     const a = container.querySelector('[data-ligne-preavis="A"]')!;
-    expect(a.querySelector('.pva-noms')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul');
+    expect(a.querySelector('.pva-noms')?.getAttribute('title')).toBe('BERNARD Alice / BERNARD Paul'); // 🔴 (09h56) séparés par « / »
     expect(a.querySelector('[data-adresse-ligne]')?.textContent).toBe('A rue');
     expect([...a.querySelectorAll('.pva-l2 > span')].map((x) => [x.className, x.textContent])).toEqual([
       ['pva-col-fin', 'Fin de préavis 01/12/2099'], ['pva-col-rdv pva-col-rdv--aucun', '— Aucun RDV fixé'], ['pva-colconf', ''], ['pva-col-details pva-detail', 'État des lieux le 10/01/2099']]);
     // 🔴 (28/11/2026, 01h52) la colonne « confié à » : sans réponse des locataires, la mission seule (vide ici)
     expect([...a.querySelectorAll('.pva-colconf > span')].map((x) => x.className)).toEqual(['pva-col-mission']);
     // rien n'est retiré : tout le texte d'avant reste en infobulle de la ligne
-    expect(a.querySelector('.pva-textes')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul — A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
+    expect(a.querySelector('.pva-textes')?.getAttribute('title')).toBe('BERNARD Alice / BERNARD Paul — A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-col-fin]')?.textContent).toBe('Fin de préavis 01/01/2020');
-    expect(a.querySelectorAll('.pva-textes > span')).toHaveLength(2);
+    // 🔴🔴 (Arno, 28/11/2026, 09h56) trois lignes : l'adresse, les noms, la ligne du préavis
+    expect([...a.querySelectorAll('.pva-textes > span')].map((x) => x.className)).toEqual(['pva-l1', 'pva-noms', 'pva-l2']);
     expect(container.querySelector('[data-nombre-preavis]')?.textContent).toBe('3');
   });
 
@@ -3902,7 +3906,7 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([...container.querySelectorAll('[data-ligne-preavis="B"] .pva-l2 > span')].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-colconf', 'pva-col-details']);
     expect(sel('B', '.pva-ligne').className).toBe('pva-ligne');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
-    expect(css).toContain('.pva-ligne--deux-rdv .pva-textes{grid-template-rows:auto auto auto}');
+    expect(css).toContain('.pva-ligne--deux-rdv .pva-textes{grid-template-rows:auto auto auto auto}'); // adresse, noms, deux rendez-vous
     expect(css).toContain('.pva-colconf > [data-rang="1"] > *{grid-row:2}');
     expect(css).toContain('.pva-colconf > [data-rang="2"] > *{grid-row:3}');
     expect(css).toContain('.pva-col-rdv--deux > [data-rang="2"]{grid-row:2}');
@@ -3942,10 +3946,10 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(sel('B', '.pva-textes').className).toBe('pva-textes pva-textes--loc'); // la ligne du nom laisse la place à « Locataires »
     expect(sel('A', '.pva-textes').className).toBe('pva-textes'); // la pré-visite de A n'a pas de réponse des locataires
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
-    expect(css).toContain('.pva-l2 > .pva-colconf{grid-column:3 / span 2;grid-row:1 / -1}'); // la colonne couvre la ligne du nom
+    expect(css).toContain('.pva-l2 > .pva-colconf{grid-column:3 / span 2;grid-row:2 / -1}'); // 🔴 (09h56) la colonne commence à la ligne des noms
     expect(css).toContain('.pva-colconf{display:grid;grid-template-rows:subgrid;');
-    expect(css).toContain('.pva-locs{grid-column:2;grid-row:1}'); // rangée 1 = la ligne du nom
-    expect(css).toContain('.pva-textes--loc .pva-l1{grid-column:1 / 3}');
+    expect(css).toContain('.pva-locs{grid-column:2;grid-row:1}'); // rangée 1 de la colonne = la ligne des noms
+    expect(css).toContain('.pva-textes--loc > .pva-noms{grid-column:1 / 3}');
     expect(css).toContain('.pva-colconf .pva-etat-mission,.pva-locs .pva-loc{justify-self:stretch;'); // mêmes bords
   });
   it('🔴 01h52 — deux rendez-vous, locataires différents : un « Locataires : … » par état différent, en haut ; les missions sur leur rangée', async () => {
@@ -3979,6 +3983,40 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     const conf = sel('A', '[data-colconf]');
     expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST']);
     expect([...conf.querySelectorAll('.pva-locs [data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé', 'Locataires : En attente']);
+  });
+  // ══ 🔴🔴 Arno (28/11/2026, 09h56) — « on réorganise juste la ligne actuelle (noms + adresse) en 2 lignes séparées » ══
+  it('🔴 09h56 — trois lignes : 1/ l’adresse (pastille TEST devant), 2/ les locataires « NOM Prénom » séparés par « / », 3/ la ligne du préavis', async () => {
+    lignes = [{ ...LIGNES[0], test: true, testId: 4, locataires: [{ occupationId: 21, locataireId: 201, nom: 'Durant', prenom: 'stéphane' },
+      { occupationId: 22, locataireId: 202, nom: 'BERCIER', prenom: 'Caroline' }, { occupationId: 23, locataireId: 203, nom: 'JOREL', prenom: 'Arnaud' }] }, LIGNES[1], LIGNES[2]];
+    await rendre(true);
+    expect([...sel('A', '.pva-textes').children].map((x) => x.className)).toEqual(['pva-l1', 'pva-noms', 'pva-l2']);
+    // 1/ l'adresse complète, la pastille TEST devant (elle n'est plus devant les noms)
+    expect([...sel('A', '[data-ligne-adresse]').children].map((x) => x.textContent)).toEqual(['TEST', 'A rue']);
+    expect(sel('A', '[data-ligne-noms]').querySelector('[data-badge-test]')).toBeNull();
+    // 2/ trois locataires, dans l'ordre des cartes (aucun tri), au format « NOM Prénom »
+    expect(sel('A', '[data-ligne-noms]').textContent).toBe('DURANT Stéphane / BERCIER Caroline / JOREL Arnaud');
+    expect(sel('A', '.pva-ouvrir').getAttribute('aria-label')).toBe('Ouvrir le préavis de DURANT Stéphane / BERCIER Caroline / JOREL Arnaud');
+    // un seul locataire : la même présentation ; un nom enregistré sans prénom séparé (société) : tel quel
+    expect(sel('B', '[data-ligne-noms]').textContent).toBe('ECHU Bob');
+    expect([...sel('B', '.pva-textes').children].map((x) => x.className)).toEqual(['pva-l1', 'pva-noms', 'pva-l2']);
+    // 3/ la ligne du préavis, inchangée
+    expect([...sel('A', '.pva-l2').children].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-colconf', 'pva-col-details']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.pva-l1{grid-column:1 / -1;grid-row:1}'); // l'adresse : toute la largeur, en premier
+    expect(css).toContain('.pva-textes > .pva-noms{grid-column:1 / -1;grid-row:2}');
+    expect(css).toContain('.pva-l2 > *{grid-row:3 / -1}');
+  });
+  it('🔴 09h56 — deux locataires, une société : séparés par « / » ; « Locataires : … » au bout de la ligne des noms, « confié à … » dessous, mêmes bords', async () => {
+    lignes = [{ ...LIGNES[1], locataires: [{ occupationId: 31, locataireId: 301, nom: 'SCI Les Tilleuls', prenom: null }, { occupationId: 32, locataireId: 302, nom: 'martin', prenom: 'léa' }],
+      previsite: PV('effectuee', '2099-01-05'), edls: EDLS('2099-01-20', 'acceptee'), reponsesRdv: { previsite: null, edl: { etat: 'confirme', main: false, par: 'x' } } } as never, LIGNES[0], LIGNES[2]];
+    await rendre(true);
+    expect(sel('B', '[data-ligne-noms]').textContent).toBe('SCI Les Tilleuls / MARTIN Léa');
+    expect(sel('B', '.pva-textes').className).toBe('pva-textes pva-textes--loc');
+    expect([...sel('B', '[data-colconf]').children].map((x) => x.className)).toEqual(['pva-locs pva-col-loc', 'pva-col-mission']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.pva-textes--loc > .pva-noms{grid-column:1 / 3}'); // les noms s'arrêtent avant la colonne « confié à »
+    expect(css).toContain('.pva-l2 > .pva-colconf{grid-column:3 / span 2;grid-row:2 / -1}'); // rangée 1 de la colonne = la ligne des noms
+    expect(css).toContain('.pva-locs{grid-column:2;grid-row:1}');
   });
   it('la mention rouge « date dépassée » sur chaque rendez-vous concerné', async () => {
     lignes = lignes.map((l) => (l.cle === 'A' ? { ...l, previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') } : l));
