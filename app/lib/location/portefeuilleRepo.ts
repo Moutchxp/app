@@ -45,6 +45,8 @@ import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens } from './entretienAnnexeRepo';
 import { resumerCoprosSyndic, type FicheSyndicLocation } from './adressesCoproSyndic';
 import { lireLotsPourVacance } from './lotsVacantsRepo';
+import { detaillerBiensCopro } from './adressesCoproSyndicRepo';
+import { aujourdhuiParis } from './reglagesDpe';
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
  *
@@ -994,7 +996,13 @@ export async function ficheSyndicLocation(id: number): Promise<FicheSyndicLocati
   if (f === null) return null;
   // 🔴 (Arno, 28/11/2026, 12h17, point 3) le décompte par biens des copropriétés suivies (lecture seule) ; lecture impossible : la fiche sans lui
   try {
-    return { ...f, resumeCopros: resumerCoprosSyndic(f.coproprietes, await lireLotsPourVacance()) };
+    const resume = resumerCoprosSyndic(f.coproprietes, await lireLotsPourVacance());
+    // 🔴 (Arno, 28/11/2026, 13h36) le détail des biens (propriétaires, locataires en place, lot) pour la liste dépliée sous chaque total ; lecture
+    //    impossible : le résumé sans lui (le total reste, sans dépliage)
+    try {
+      resume.detailBiens = await detaillerBiensCopro(resume.copros.flatMap((c) => c.biens), aujourdhuiParis(new Date()));
+    } catch { /* sans détail */ }
+    return { ...f, resumeCopros: resume };
   } catch {
     return f;
   }

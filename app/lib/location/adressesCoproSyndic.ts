@@ -25,8 +25,16 @@ export interface CoproPourResume {
   lots: readonly { id: number; statut?: string | null; cleImmeuble?: string }[];
 }
 export interface AdresseResumee { libelle: string; principale: boolean; biens: number; teteIds: number[] }
-export interface ResumeCopro { id: number; cle: string; nom: string | null; adresses: AdresseResumee[]; detail: DetailVacants }
-export interface ResumeCoprosSyndic { copros: ResumeCopro[]; detail: DetailVacants }
+/** 🔴 (Arno, 28/11/2026, 13h36) un bien en gestion de la copropriété : son lot de tête et tous ses lots (annexes rattachées comprises). */
+export interface BienDeCopro { teteId: number; lotIds: number[] }
+export interface ResumeCopro { id: number; cle: string; nom: string | null; adresses: AdresseResumee[]; detail: DetailVacants; biens: BienDeCopro[] }
+/** 🔴 (Arno, 28/11/2026, 13h36) le détail d'un bien, pour la liste dépliée sous le total : propriétaires, locataires en place, repères du lot. */
+export interface PersonneDuBien { id: number; nom: string }
+export interface DetailBienCopro {
+  lotId: number; lot: string | null; batiment: string | null; etage: string | null;
+  proprietaires: PersonneDuBien[]; locataires: PersonneDuBien[];
+}
+export interface ResumeCoprosSyndic { copros: ResumeCopro[]; detail: DetailVacants; detailBiens?: Record<number, DetailBienCopro> }
 
 export function resumerCoprosSyndic(copros: readonly CoproPourResume[], lots: readonly LotPourVacance[]): ResumeCoprosSyndic {
   const biens = biensDesLots(lots);
@@ -53,7 +61,8 @@ export function resumerCoprosSyndic(copros: readonly CoproPourResume[], lots: re
       a.biens += 1; a.teteIds.push(b.teteId);
     }
     return { id: c.id, cle: c.cle, nom: (c.nom ?? '').trim() || null,
-      adresses: liste.map(({ cles: _c, ...x }) => x), detail: detailVacants(siens) };
+      adresses: liste.map(({ cles: _c, ...x }) => x), detail: detailVacants(siens),
+      biens: siens.map((b) => ({ teteId: b.teteId, lotIds: b.lots.map((l) => l.id) })) };
   });
   return { copros: resumes, detail: detailVacants(tous) };
 }

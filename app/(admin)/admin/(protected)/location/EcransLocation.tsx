@@ -1,6 +1,6 @@
 'use client';
 
-import { LienRetour } from '../_composants/NavigationRetour';
+import { LienRetour, useEtatRetour } from '../_composants/NavigationRetour';
 import { FiltreOrigineACompleter } from './FiltreOrigineACompleter';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import { TableauBordSuivi } from './TableauBordSuivi';
@@ -16,6 +16,7 @@ import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelect
 import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 import { prenomNomCivil } from '../../../../lib/gestion/syndics';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
+import { adresseHistoriqueDuBien } from '../../../../lib/gestion/ficheRattachement';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -212,6 +213,10 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
      vient » : la fiche copropriété s'ouvre EN FENÊTRE, ici même (la même que partout) ; « Fermer », « × » ou « Valider » rendent la fiche syndic au même
      endroit (la page n'a pas changé), relue pour montrer ce qui a été modifié. */
   const [coproOuverte, setCoproOuverte] = useState<string | null>(null);
+  /** 🔴 (Arno, 28/11/2026, 13h36) les copropriétés dont la liste des biens en gestion est dépliée (repliées par défaut) */
+  const [biensDeplies, setBiensDeplies] = useState<number[]>([]);
+  // noté au départ vers une fiche (propriétaire, locataire, historique) et rendu au retour : la page retrouve sa hauteur, donc son défilement (eac573f7)
+  useEtatRetour(`fiche-syndic-${id}-biens-deplies`, biensDeplies, (v) => { if (Array.isArray(v)) setBiensDeplies(v.filter((x): x is number => Number.isInteger(x))); });
   const ecrire = useEcrireFlottant(useContexteRedaction());
   const boutonEcrire = (email: string | null | undefined) => (ecrire.onEcrire === undefined || !email || !email.includes('@') ? null
     : <> <button type="button" className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic" onClick={() => ecrire.onEcrire?.(email.trim(), { syndicId: id, lotId: null })}
@@ -318,7 +323,44 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
                         {a.biens >= 0 && <span className="loc-copro-n" data-lots-adresse={a.biens}>{a.biens} lot{a.biens > 1 ? 's' : ''}</span>}
                       </li>))}
                   </ul>
-                  {r !== null && <p className="loc-copro-total" data-copro-total>Total : {libelleEnGestion(r.detail)}</p>}
+                  {/* 🔴🔴 Arno (28/11/2026, 13h36) — « justifier le "Total : …" à droite de sa ligne, calé sur l'écriture "1 lot" » ; « ce total est un lien
+                      qui déploie la liste des biens en gestion » (replié par défaut ; ce clic n'ouvre pas la fiche copropriété) */}
+                  {r !== null && (() => {
+                    const deplie = biensDeplies.includes(c.id);
+                    const details = s.resumeCopros?.detailBiens;
+                    return <>
+                      <p className="loc-copro-total" data-copro-total>
+                        {details !== undefined && r.biens.length > 0
+                          ? <button type="button" className="loc-copro-deplier loc-copro-n" aria-expanded={deplie} data-deplier-biens={c.id}
+                              onClick={() => setBiensDeplies((l) => (l.includes(c.id) ? l.filter((x) => x !== c.id) : [...l, c.id]))}>
+                              <span className="loc-copro-fleche" aria-hidden="true">{deplie ? '▾' : '▸'}</span>Total : {libelleEnGestion(r.detail)}</button>
+                          : <span className="loc-copro-n">Total : {libelleEnGestion(r.detail)}</span>}
+                      </p>
+                      {deplie && details !== undefined && (
+                        <ul className="loc-copro-gestion" data-biens-gestion={c.id}>
+                          {r.biens.map((b) => {
+                            const d = details[b.teteId];
+                            if (d === undefined) return null;
+                            const reperes = [d.lot ? `lot ${d.lot}` : null, d.batiment ? `bât. ${d.batiment}` : null, d.etage ? `étage ${d.etage}` : null].filter((x) => x !== null);
+                            const histo = adresseHistoriqueDuBien(d.lotId);
+                            return (
+                              <li key={b.teteId} data-bien-gestion={b.teteId}>
+                                <span className="loc-copro-gestion-proprios" data-proprietaires>
+                                  {d.proprietaires.length === 0 ? <span className="loc-muet">propriétaire inconnu</span> : d.proprietaires.map((x, i) => (
+                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/proprietaire/${x.id}`}>{x.nom}</a></span>))}
+                                  {reperes.length > 0 && <span className="loc-copro-gestion-reperes">{reperes.join(' · ')}</span>}
+                                </span>
+                                <span className="loc-copro-gestion-locataires" data-locataires>
+                                  {d.locataires.length === 0 ? <span data-vacant>Vacant</span> : d.locataires.map((x, i) => (
+                                    <span key={x.id}>{i > 0 ? ' / ' : ''}<a className="loc-lien-discret" href={`/admin/location/locataire/${x.id}`}>{x.nom}</a></span>))}
+                                </span>
+                                <span className="loc-copro-gestion-histo">{histo !== null && <a className="svv-btn svv-btn-primary gst-btn loc-copro-historique" href={histo} data-historique-bien={d.lotId}
+                                  title="L’historique de ce bien">Historique</a>}</span>
+                              </li>);
+                          })}
+                        </ul>)}
+                    </>;
+                  })()}
                   {/* 🔴🔴 Arno (28/11/2026, 13h18, point 2) — « sous le total des lots gérés, ajouter les collaborateurs du syndic affectés à cette copropriété » :
                       les contacts rattachés dans la fiche copropriété (bloc SYNDIC), en lecture ; un clic sur un téléphone ou un e-mail n'ouvre pas la fiche */}
                   {(() => {
@@ -400,7 +442,25 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-copro-adresse{min-width:0;overflow-wrap:anywhere}
 .loc-copro-principale .loc-copro-adresse{font-weight:700}
 .loc-copro-n{flex:0 0 auto;white-space:nowrap;font-weight:700;color:var(--color-svv-ink)}
-.loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-weight:700;color:var(--color-svv-ink)}
+.loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);display:flex;justify-content:flex-end;text-align:right}
+/* 🔴 (Arno, 28/11/2026, 13h36) le total : à droite, au bord des « N lots », leur police ; un lien qui déplie la liste des biens en gestion */
+.loc-copro-deplier{display:inline-flex;align-items:baseline;gap:6px;border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--color-svv-ink);cursor:pointer;text-align:right;white-space:normal;min-height:32px}
+.loc-copro-deplier:hover .loc-copro-fleche,.loc-copro-deplier:focus-visible .loc-copro-fleche{color:var(--color-svv-ink)}
+.loc-copro-fleche{color:var(--color-svv-muted);font-size:.8em}
+.loc-copro-gestion{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;column-gap:14px;row-gap:0;align-items:center;font-size:.9rem}
+.loc-copro-gestion > li{display:contents}
+.loc-copro-gestion > li > span{padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0;overflow-wrap:anywhere}
+.loc-copro-gestion-proprios{display:flex;flex-direction:column;gap:1px}
+.loc-copro-gestion-reperes{font-size:.78rem;color:var(--color-svv-muted)}
+.loc-copro-gestion-histo{display:flex;justify-content:flex-end}
+.loc-copro-historique{min-height:32px;padding:2px 12px;width:auto;margin:0}
+/* les liens « invisibles » : écrits comme le texte autour ; la main et un soulignement léger au survol seulement */
+.loc-lien-discret{color:inherit;text-decoration:none;cursor:pointer}
+.loc-lien-discret:hover,.loc-lien-discret:focus-visible{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+@media (max-width:560px){.loc-copro-gestion{grid-template-columns:minmax(0,1fr)}
+  .loc-copro-gestion > li > span{border-top:0;padding:1px 0}
+  .loc-copro-gestion > li > span:first-child{border-top:1px solid var(--color-svv-line);padding-top:6px}
+  .loc-copro-gestion > li > span:last-child{padding-bottom:6px}}
 .loc-copro-biens{margin:0;font-size:.82rem}
 .loc-copro-collabs{display:flex;flex-direction:column;gap:2px;font-size:.88rem}
 .loc-copro-collabs > p{margin:0}

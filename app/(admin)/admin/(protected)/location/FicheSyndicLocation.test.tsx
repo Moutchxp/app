@@ -67,7 +67,7 @@ describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré 
     expect(e.querySelector('[data-copro-nom]')?.textContent).toBe('Résidence Marceau');
     expect([...e.querySelectorAll('[data-adresse-copro]')].map((x) => [x.getAttribute('data-adresse-copro'), x.querySelector('[data-lots-adresse]')?.textContent]))
       .toEqual([['43 Avenue Marceau', '2 lots'], ['80 rue de Normandie', '2 lots']]);
-    expect(e.querySelector('[data-copro-total]')?.textContent).toBe('Total : 4 lots en gestion dont 3 logements et 1 parking');
+    expect(e.querySelector('[data-copro-total]')?.textContent).toBe('Total : 4 lots en gestion dont 3 logements et 1 parking'); // sans détail des biens : pas de flèche
     expect([...e.querySelectorAll('[data-biens-copro] a')].map((a) => a.getAttribute('href'))).toEqual([1, 2, 3, 4, 5].map((i) => `/admin/location/bien/${i}`));
   });
   it('🔴 13h18 point 3 — un clic sur l’encadré ouvre la fiche copropriété EN FENÊTRE, ici même ; « Fermer » rend la fiche syndic (relue), sans changer de page', async () => {
@@ -255,5 +255,52 @@ describe('🔴🔴 13h18 point 2 — les collaborateurs affectés, dans chaque e
     expect(ouvertes.brouillons.map((b) => b.a)).toEqual([['o.fabre@exemple.test']]);
     await act(async () => { const a = container.querySelector('[data-collaborateur="1"] a[href^="tel:"]') as HTMLAnchorElement; a.addEventListener('click', (e) => e.preventDefault()); a.click(); });
     expect(document.querySelector('[data-fiche-copro-double]')).toBeNull();
+  });
+});
+
+/* ══ 🔴🔴 Arno (28/11/2026, 13h36) — le total à droite, calé sur « 1 lot » ; un lien qui déplie les biens en gestion : propriétaires | locataires | Historique ══ */
+describe('🔴🔴 13h36 — le total à droite, et la liste des biens en gestion qu’il déplie', () => {
+  const RESUME = { detail: { total: 3, parType: [{ type: 'logement', n: 3 }] }, copros: [{ id: 157, cle: '43 avenue marceau', nom: null,
+    adresses: [{ libelle: '43 Avenue Marceau', principale: true, biens: 3, teteIds: [1, 2, 4] }], detail: { total: 3, parType: [{ type: 'logement', n: 3 }] },
+    biens: [{ teteId: 1, lotIds: [1, 3] }, { teteId: 2, lotIds: [2] }, { teteId: 4, lotIds: [4] }] }],
+    detailBiens: {
+      1: { lotId: 1, lot: '12', batiment: 'B', etage: '3', proprietaires: [{ id: 70, nom: 'DURANT Stéphane' }, { id: 71, nom: 'DURANT Claire' }], locataires: [{ id: 80, nom: 'MARTIN Léa' }, { id: 81, nom: 'BERCIER Paul' }] },
+      2: { lotId: 2, lot: null, batiment: null, etage: null, proprietaires: [{ id: 72, nom: 'SCI Les Tilleuls' }], locataires: [] },
+      4: { lotId: 4, lot: null, batiment: null, etage: '1', proprietaires: [{ id: 73, nom: 'JOREL Arnaud' }], locataires: [{ id: 82, nom: 'ESSAI Paul' }] } } };
+  it('le total : à droite, dans la police de « N lots » (même classe), replié par défaut ; un clic déplie et replie, sans ouvrir la fiche copropriété', async () => {
+    syndic = { ...BASE, resumeCopros: RESUME };
+    await rendre();
+    const b = container.querySelector('[data-deplier-biens="157"]') as HTMLButtonElement;
+    expect([b.className, b.getAttribute('aria-expanded'), b.textContent]).toEqual(['loc-copro-deplier loc-copro-n', 'false', '▸Total : 3 logements en gestion']);
+    expect(container.querySelector('[data-biens-gestion]')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);display:flex;justify-content:flex-end;text-align:right}');
+    await act(async () => { b.click(); });
+    expect(b.getAttribute('aria-expanded')).toBe('true');
+    expect(b.textContent).toBe('▾Total : 3 logements en gestion');
+    expect(container.querySelector('[data-fiche-copro-double]')).toBeNull(); // ce clic n'ouvre pas la fiche copropriété
+    await act(async () => { b.click(); });
+    expect(container.querySelector('[data-biens-gestion]')).toBeNull();
+  });
+  it('déplié : une ligne par bien en gestion — propriétaires « / », locataires « / » (colocataires) ou « Vacant », « Historique » ; repères du lot ; liens', async () => {
+    syndic = { ...BASE, resumeCopros: RESUME };
+    await rendre();
+    await act(async () => { (container.querySelector('[data-deplier-biens="157"]') as HTMLButtonElement).click(); });
+    const lignes = [...container.querySelectorAll('[data-bien-gestion]')];
+    expect(lignes.map((l) => [l.querySelector('[data-proprietaires]')?.textContent, l.querySelector('[data-locataires]')?.textContent])).toEqual([
+      ['DURANT Stéphane / DURANT Claire' + 'lot 12 · bât. B · étage 3', 'MARTIN Léa / BERCIER Paul'],
+      ['SCI Les Tilleuls', 'Vacant'],
+      ['JOREL Arnaud' + 'étage 1', 'ESSAI Paul']]);
+    // les liens, écrits comme le texte : propriétaire → sa fiche ; locataire → sa fiche (bail et colocataires) ; « Historique » → l'historique de CE bien
+    expect([...lignes[0].querySelectorAll('a.loc-lien-discret')].map((a) => a.getAttribute('href'))).toEqual([
+      '/admin/location/proprietaire/70', '/admin/location/proprietaire/71', '/admin/location/locataire/80', '/admin/location/locataire/81']);
+    const h = lignes[1].querySelector('[data-historique-bien]')!;
+    expect([h.textContent, h.getAttribute('href'), h.className]).toEqual(['Historique', '/admin/gestion?ecran=annuaire&fiche=lot-2&bloc=vie', 'svv-btn svv-btn-primary gst-btn loc-copro-historique']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-lien-discret{color:inherit;text-decoration:none;cursor:pointer}');
+    expect(css).toContain('.loc-copro-gestion{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;');
+    expect(css).toContain('@media (max-width:560px){.loc-copro-gestion{grid-template-columns:minmax(0,1fr)}');
+    // « Fiches des biens » reste
+    expect(container.querySelector('[data-biens-copro]')).not.toBeNull();
   });
 });
