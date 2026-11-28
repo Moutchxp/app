@@ -1699,10 +1699,36 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome localhost:3000, 1440 et 390 px, clair et sombre. Aucune requête non GET : rien validé, rien envoyé.
   - Captures `.captures/preavis-missions-par-rdv/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 10h26 — préparation de la mise en production (scripts hors git), suspendue à 10h35 par Arno
+- Migrations nouvelles depuis `568344f0` : la **522 seule**. La 361, future 523, reste dans `db/migrations-en-attente/`.
+- `.captures/abreviations-adresse/epreuve.sh` : les essais de refus créent leurs PROPRES copropriétés d'essai dans chaque transaction annulée.
+  La copie de la production n'a pas les `_TEST` de la recette ; sans ce changement, l'épreuve y aurait échoué. Essayé sur une copie de la recette
+  (port 5433, effacée ensuite) : 3 refus, 2 acceptations, rien ne reste.
+- `.captures/maj/lecture-cle-adresse-522.sql`, lecture seule, appelé par 5-verifier : `fonction_522=ok`, `adresses_sans_cle=0`, `cles_perimees=0`,
+  `doublons=0`, `doublons_registre=0`. Essayé sur la copie : tout à 0.
+- `4-appliquer.sh` refuse de partir sans un essai réussi ET une épreuve de la 522 réussie le jour même
+  (`.captures/abreviations-adresse/epreuve-copie-prod.log`, aucun ✗ ni ⛔).
+
+### 28/11/2026, 10h35 — la pile de cartouches à sa taille normale si la ligne le permet (`708e9bd4`)
+- **`708e9bd4`** — taille normale par défaut. Le format réduit d'aujourd'hui (`psl-pile--serree`) n'est pris que si la pile, en taille normale :
+  - allongerait la ligne ;
+  - sortirait de sa colonne (« Ouvrir ») ;
+  - ferait tronquer un texte qui ne l'est pas en réduit.
+  - La mesure (`formatPile.ts`, appelée par un `useLayoutEffect` de `BlocPreavisAccueil`) est refaite après chaque rendu et à chaque changement de
+    largeur, avant l'affichage.
+  - Ordinateur : une ligne à deux rendez-vous dont la pile est normale perd le minimum de 52 rem du texte (`:has`), la mesure garantit qu'aucun
+    texte n'est tronqué. Téléphone : la réduction ne vaut que pour une pile réduite.
+  - Mesuré : à 1440 px, le bail 544 (3 cartouches) est en taille normale, 13,6 px, hauteur et « Ouvrir » intacts ; les lignes à 2 cartouches aussi.
+    Les lignes « Sans » à 3 repères restent réduites ; tout est réduit à 390 px (la taille normale y allongerait la ligne). Passage 1440 ↔ 390 px
+    recalculé.
+- Contrôles : `npm test` VERT (1 898 fichiers, 28 406 tests, 21 ignorés ; `.captures/preavis-format-pile/npm-test.txt`) ; `tsc` = 0.
+  - Chrome, préavis de test, 1440 et 390 px, clair et sombre. Aucune requête non GET.
+  - Captures `.captures/preavis-format-pile/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a`, `8c76ec11` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a`, `8c76ec11` (poussés par Arno, GitHub = `20ba2d62`), puis `708e9bd4` et sa passation, NON poussés. Scripts `.captures/maj/` 1 à 5 recalés sur le HEAD de cette passation (migration 522 seule). **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
