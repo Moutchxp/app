@@ -62,3 +62,17 @@ describe('preavisEnCours — les cartes de locataires du préavis, avec leur pr�
     expect(sql).not.toMatch(/garant|gestion_annuaire_contact/);
   });
 });
+
+/* 🔴🔴 Arno (28/11/2026, 10h13) — « l'état des lieux de sortie est effectué une fois la sortie validée (étape 4 de la frise) » : sa ligne reste jusque-là ;
+   ensuite la ligne ENTIÈRE quitte la liste, comme aujourd'hui (« Valider la sortie » pose la sortie de l'occupation). */
+describe('preavisEnCours — sortie validée : la ligne quitte la liste', () => {
+  it('seules les occupations SANS sortie sont lues ; l’alerte « Sortie à valider » tombe dès la sortie validée', async () => {
+    const { alertesRdv } = await import('./triRdvPreavis');
+    await preavisEnCours();
+    const sql = appels.find((s) => s.includes('FROM gestion_location_preavis p'))!;
+    expect(sql).toContain('o.sortie IS NULL');
+    const l = { edls: { jour: '2020-02-03', heure: '11:30' } };
+    expect(alertesRdv(l, '2026-11-28 10:00')).toEqual(['sortie']);
+    expect(alertesRdv({ ...l, sortieValidee: true }, '2026-11-28 10:00')).toEqual([]);
+  });
+});

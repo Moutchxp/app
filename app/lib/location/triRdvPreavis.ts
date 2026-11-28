@@ -182,17 +182,3 @@ export function missionDeLigne(l: LigneRdv, sorte: 'previsite' | 'edl'): { qui: 
   const attente = c.find((x) => x.statut === 'en_attente') ?? c[0];
   return { qui: prenomNom(attente.libelle), etat: 'attente' };
 }
-
-/**
- * 🔴🔴 (Arno, 28/11/2026, 00h45) « le même collaborateur est confirmé deux fois, il ne faut pas de doublons » — une ligne qui affiche la pré-visite ET l'état
- * des lieux : la MÊME personne avec le MÊME statut → une seule mention « confié à Prénom NOM · Confirmé », sur les deux rendez-vous ; personnes ou statuts
- * différents → une mention par rendez-vous. Même règle pour « Locataires : … » (un seul mot s'il est le même, et présent des deux côtés). PUR.
- */
-export function mentionsCommunes(missions: readonly ({ qui: string; etat: EtatMission } | null)[], locataires: readonly (string | null)[]): { mission: boolean; locataires: boolean } {
-  const [a, b] = missions;
-  const [x, y] = locataires;
-  return {
-    mission: missions.length === 2 && a != null && b != null && a.qui === b.qui && a.etat === b.etat,
-    locataires: locataires.length === 2 && x != null && y != null && x === y,
-  };
-}

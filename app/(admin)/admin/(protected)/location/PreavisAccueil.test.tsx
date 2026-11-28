@@ -3915,26 +3915,53 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(css).toContain('.pva-col-rdv--deux > [data-rang="2"]{order:4}');
     expect(css).toContain('.pva-colconf > [data-rang="2"]{order:5}');
   });
-  // ══ 🔴🔴 Arno (28/11/2026, 00h45) — « le même collaborateur est confirmé deux fois, il ne faut pas de doublons » ══
-  it('🔴 00h45 — tout identique (même personne, même statut, mêmes locataires) : UNE mention « confié à … · Confirmé », UN « Locataires : … »', async () => {
+  // ══ 🔴🔴 Arno (28/11/2026, 10h13) — « afficher en face de chacune des lignes de RDV le collaborateur en charge du RDV et le cartouche de son statut
+  //    (confirmé, en attente ou refusé), pour chacun des deux RDV » — REMPLACE la fusion de f2cbaae9 / 7fbd64d3 ══
+  const missions = (cle: string) => [...sel(cle, '[data-colconf]').querySelectorAll('.pva-col-mission')]
+    .map((x) => [x.getAttribute('data-rang'), x.getAttribute('data-mission-de'), x.querySelector('.pva-confie')?.textContent, x.querySelector('[data-etat-mission]')?.textContent]);
+  it('🔴 10h13 — deux RDV, MÊME collaborateur au MÊME statut : une mention sur CHAQUE rangée (plus de fusion) ; un seul « Locataires » si même état', async () => {
     lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee'),
       reponsesRdv: { previsite: { etat: 'confirme', main: false, par: 'x' }, edl: { etat: 'confirme', main: true, par: 'y', sansDemande: true } } } as never, LIGNES[1], LIGNES[2]];
     await rendre(true);
-    const conf = sel('A', '[data-colconf]');
-    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST']);
-    expect([...conf.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé']);
-    const m = conf.querySelector('.pva-col-mission')!;
-    expect([m.className, m.getAttribute('data-mission-de')]).toEqual(['pva-col-mission pva-col-commune', 'previsite edl']);
-    expect([...conf.querySelectorAll('[data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé']);
-    expect(conf.querySelector('.pva-col-loc')?.getAttribute('data-col-loc')).toBe('previsite edl');
+    expect(missions('A')).toEqual([['1', 'previsite', 'confié à Claire TEST', 'Confirmé'], ['2', 'edl', 'confié à Claire TEST', 'Confirmé']]);
+    expect(sel('A', '.pva-col-commune')).toBeNull();
+    expect([...sel('A', '[data-colconf]').querySelectorAll('[data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).not.toContain('pva-col-commune');
+    expect(css).toContain('.pva-colconf > [data-rang="1"] > *{grid-row:2}'); // en face de la date de pré-visite
+    expect(css).toContain('.pva-colconf > [data-rang="2"] > *{grid-row:3}'); // en face de la date d'état des lieux
   });
-  it('🔴 00h45 — personnes OU statuts différents : une mention par rendez-vous (rien n’est fusionné, rien n’est retiré)', async () => {
-    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'en_attente') }, LIGNES[1], LIGNES[2]];
+  it('🔴 10h13 — deux RDV, collaborateurs DIFFÉRENTS : chacun en face de son rendez-vous', async () => {
+    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: { ...EDLS('2099-02-03', 'acceptee'), confieA: 'Arnaud Jorel' } } as never, LIGNES[1], LIGNES[2]];
     await rendre(true);
-    const conf = sel('A', '[data-colconf]');
-    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST', 'confié à Claire TEST']);
-    expect([...conf.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé', 'En attente de confirmation']);
-    expect(conf.querySelector('.pva-col-commune')).toBeNull();
+    expect(missions('A')).toEqual([['1', 'previsite', 'confié à Claire TEST', 'Confirmé'], ['2', 'edl', 'confié à Arnaud JOREL', 'Confirmé']]);
+  });
+  it('🔴 10h13 — deux RDV, statuts DIFFÉRENTS (Confirmé / En attente, Refusé) : chacun son cartouche', async () => {
+    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'en_attente') },
+      { ...LIGNES[2], previsite: PV('programmee', '2099-01-12', [{ libelle: 'Claire Test', statut: 'refusee' }]), edls: EDLS('2099-02-05', 'acceptee') }, LIGNES[1]] as never;
+    await rendre(true);
+    expect(missions('A')).toEqual([['1', 'previsite', 'confié à Claire TEST', 'Confirmé'], ['2', 'edl', 'confié à Claire TEST', 'En attente de confirmation']]);
+    expect(missions('C')).toEqual([['1', 'previsite', 'confié à Claire TEST', 'Refusé — à réattribuer'], ['2', 'edl', 'confié à Claire TEST', 'Confirmé']]);
+  });
+  it('🔴 10h13 — pré-visite EFFECTUÉE (compte rendu envoyé) : sa ligne disparaît (date, « date dépassée », collaborateur, statut) ; « Compte rendu pré-visite à faire » aussi', async () => {
+    // avant : pré-visite programmée, date passée, compte rendu pas fait — deux rangées et l'alerte orange
+    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2020-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee') } as never, LIGNES[1], LIGNES[2]];
+    await rendre(true);
+    expect(missions('A').map((m) => m[1])).toEqual(['previsite', 'edl']);
+    expect(sel('A', '[data-rdv-depassee="previsite"]')?.textContent).toBe('date dépassée — compte rendu à faire');
+    expect(sel('A', '[data-alerte-rdv="compte_rendu"]')).not.toBeNull();
+    expect([...sel('A', '[data-cartouches-ligne]').querySelectorAll('[data-statut-ligne]')].map((x) => x.textContent)).toEqual(['RDV pré-visite fixé', 'RDV état des lieux fixé']);
+    act(() => root.unmount()); root = createRoot(container);
+    // après le compte rendu : la pré-visite est « effectuée »
+    lignes = [{ ...LIGNES[0], previsite: PV('effectuee', '2020-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee') } as never, LIGNES[1], LIGNES[2]];
+    await rendre(true);
+    expect(missions('A')).toEqual([['1', 'edl', 'confié à Claire TEST', 'Confirmé']]); // la seule ligne de l'état des lieux
+    expect([...sel('A', '.pva-col-rdv').querySelectorAll('.pva-rdv-date')].map((x) => x.textContent)).toEqual(['État des lieux · mar. 03/02 · 11h30']);
+    expect(sel('A', '[data-rdv-depassee]')).toBeNull();
+    expect(sel('A', '[data-alerte-rdv]')).toBeNull();
+    // « RDV pré-visite fixé » : la règle d'état actuelle → le seul statut « RDV état des lieux fixé »
+    expect([...sel('A', '[data-cartouches-ligne]').querySelectorAll('[data-statut-ligne]')].map((x) => x.textContent)).toEqual(['RDV état des lieux fixé']);
+    expect(sel('A', '.pva-ligne').className).toBe('pva-ligne');
   });
   // ══ 🔴🔴 Arno (28/11/2026, 01h52) — « elle doit s'afficher sur la PREMIÈRE ligne, au même niveau que le nom du locataire » ══
   it('🔴 01h52 — un seul rendez-vous : « Locataires : … » sur la ligne du nom, « confié à … · Confirmé » dessous, même colonne, mêmes bords', async () => {
@@ -3959,30 +3986,6 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     const conf = sel('A', '[data-colconf]');
     expect([...conf.querySelectorAll('.pva-locs [data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé', 'Locataires : En attente']);
     expect([...conf.querySelectorAll('.pva-col-mission')].map((x) => x.getAttribute('data-rang'))).toEqual(['1', '2']); // même personne mais statuts différents (Confirmé / En attente) : une par rangée
-  });
-  // ══ 🔴🔴 Arno (28/11/2026, 01h52, point 4) — « supprimer la confirmation d'Arnaud JOREL du haut et laisser celle du bas » ══
-  it('🔴 01h52 — même collaborateur au même statut, locataires DIFFÉRENTS : une seule mention, EN BAS ; les « Locataires » restent', async () => {
-    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Arnaud Jorel', statut: 'acceptee' }]), edls: { ...EDLS('2099-02-03', 'acceptee'), confieA: 'Arnaud Jorel' },
-      reponsesRdv: { previsite: null, edl: { etat: 'confirme', main: false, par: 'x' } } } as never, LIGNES[1], LIGNES[2]];
-    await rendre(true);
-    const conf = sel('A', '[data-colconf]');
-    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Arnaud JOREL']);
-    const m = conf.querySelector('.pva-col-mission')!;
-    expect([m.className, m.getAttribute('data-mission-de'), m.hasAttribute('data-rang')]).toEqual(['pva-col-mission pva-col-commune', 'previsite edl', false]);
-    expect([...conf.querySelectorAll('[data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé']);
-    // les deux dates restent, chacune sur sa rangée
-    expect([...sel('A', '[data-col-rdv="deux"]').querySelectorAll('.pva-rdv-date')]).toHaveLength(2);
-    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
-    expect(css).toContain('.pva-colconf > .pva-col-commune > *{grid-row:-2 / -1}'); // la rangée du dernier rendez-vous (en bas)
-    expect(css).toContain('.pva-colconf > .pva-col-commune{order:6}'); // au téléphone : après la seconde date
-  });
-  it('🔴 01h52 — deux états des locataires différents ET même collaborateur : une mention en bas, deux « Locataires » (un par état)', async () => {
-    lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee'),
-      reponsesRdv: { previsite: { etat: 'confirme', main: false, par: 'x' }, edl: { etat: 'attente', main: false, par: null } } } as never, LIGNES[1], LIGNES[2]];
-    await rendre(true);
-    const conf = sel('A', '[data-colconf]');
-    expect([...conf.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST']);
-    expect([...conf.querySelectorAll('.pva-locs [data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé', 'Locataires : En attente']);
   });
   // ══ 🔴🔴 Arno (28/11/2026, 09h56) — « on réorganise juste la ligne actuelle (noms + adresse) en 2 lignes séparées » ══
   it('🔴 09h56 — trois lignes : 1/ l’adresse (pastille TEST devant), 2/ les locataires « NOM Prénom » séparés par « / », 3/ la ligne du préavis', async () => {

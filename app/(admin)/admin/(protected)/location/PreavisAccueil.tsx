@@ -27,7 +27,7 @@ import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/prev
 import { ligneDesLocataires } from '../../../../lib/location/nomsPreavis';
 import { dateAlerteSansPrevisite, dateDuStatut, dateEchu, ordonnerReperes } from '../../../../lib/location/reperesLigne';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
-import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -325,12 +325,12 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                    « Locataires : … » est sur la PREMIÈRE ligne, au niveau du nom (« elle doit s'afficher sur la PREMIÈRE ligne, au même niveau que le nom du
                    locataire ») ; « confié à Prénom NOM · Confirmé » dessous, sur la rangée de son rendez-vous. Les cartouches dans la même colonne, de la
                    même largeur (mêmes bords). Un mot des locataires par état différent.
-                   🔴🔴 (Arno, 28/11/2026, 01h52, point 4) « il ne faut pas de doublon de confirmation de collaborateur ; ici supprimer la confirmation
-                   d'Arnaud JOREL du haut et laisser celle du bas » : même personne au même statut sur les deux rendez-vous → UNE mention, EN BAS (la
-                   rangée du dernier rendez-vous), même si les locataires diffèrent ; sinon une mention par rendez-vous. */
+                   🔴🔴 (Arno, 28/11/2026, 10h13 — REMPLACE la fusion de f2cbaae9 et 7fbd64d3) « afficher en face de chacune des lignes de RDV le
+                   collaborateur en charge du RDV et le cartouche de son statut […] pour chacun des deux RDV, car on peut planifier les deux RDV dès le début
+                   du préavis » : une mention par rendez-vous NON EFFECTUÉ, sur SA rangée, même personne et même statut compris. Un rendez-vous effectué
+                   n'est plus dans `colonnesRdv` (pré-visite : compte rendu envoyé ; état des lieux : sortie validée, la ligne quitte la liste). */
                 const ms = rdvs.map(missionDe);
                 const mots = rdvs.map((r) => (r.sorte === 'previsite' || r.sorte === 'edl' ? motCourtLocataires(l.reponsesRdv?.[r.sorte]) : null));
-                const commune = rdvs.length > 1 && mentionsCommunes(ms, mots).mission;
                 const locs = rdvs.reduce<{ mot: string; sortes: ('previsite' | 'edl')[] }[]>((acc, r, i) => {
                   const mot = mots[i];
                   if (mot == null || (r.sorte !== 'previsite' && r.sorte !== 'edl')) return acc;
@@ -342,9 +342,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                   <span className="pva-colconf" data-colconf>
                     {locs.length > 0 && <span className="pva-locs pva-col-loc" data-col-loc={locs.flatMap((x) => x.sortes).join(' ')}>
                       {locs.map((x) => <CartoucheLocataires key={x.mot} e={l.reponsesRdv?.[x.sortes[0]]} court />)}</span>}
-                    {commune
-                      ? <span className="pva-col-mission pva-col-commune" data-col-mission={ms[0]?.etat ?? 'aucune'} data-mission-de={rdvs.map((x) => x.sorte).join(' ')}>{missionHtml(ms[0])}</span>
-                      : rdvs.map((r, i) => <span key={`${r.sorte}-m`} className="pva-col-mission" data-rang={i + 1} data-col-mission={ms[i]?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(ms[i])}</span>)}
+                    {rdvs.map((r, i) => <span key={`${r.sorte}-m`} className="pva-col-mission" data-rang={i + 1} data-col-mission={ms[i]?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(ms[i])}</span>)}
                   </span>);
                 const dateHtml = (r: typeof rdv) => <>
                   <span className="pva-rdv-date">{r.texte}</span>
@@ -1035,7 +1033,6 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-colconf .pva-etat-mission{grid-column:2}
   .pva-colconf > [data-rang="1"] > *{grid-row:2}
   .pva-colconf > [data-rang="2"] > *{grid-row:3}
-  .pva-colconf > .pva-col-commune > *{grid-row:-2 / -1}
   .pva-locs{grid-column:2;grid-row:1}
   .pva-colconf > .pva-locs{justify-self:stretch;align-items:stretch}
   /* deux rendez-vous : les dates sur les rangees 2 et 3, celles de leur mission */
@@ -1051,7 +1048,7 @@ export const CSS_PREAVIS_ACCUEIL = `
   /* telephone : l'adresse, puis les noms (09h56), chacun sur sa ligne ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
      les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
   /* 🔴 (28/11/2026, 01h52) l'un sous l'autre : la date (pre-visite), « Locataires : … », sa mission, puis l'etat des lieux et sa mission, la mission
-     commune, la fin de preavis ; la ligne s'allonge d'autant */
+     la fin de preavis ; chaque mission sous SA date (10h13 : plus de mention commune) ; la ligne s'allonge d'autant */
   .pva-col-rdv--deux,.pva-colconf,.pva-colconf > .pva-col-mission:empty{display:contents}
   .pva-colconf > .pva-col-mission{display:flex;align-items:center;gap:6px;min-height:1.2rem}
   .pva-col-rdv,.pva-col-rdv--deux > [data-rang="1"]{order:1}
@@ -1059,7 +1056,6 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-colconf > [data-rang="1"]{order:3}
   .pva-col-rdv--deux > [data-rang="2"]{order:4}
   .pva-colconf > [data-rang="2"]{order:5}
-  .pva-colconf > .pva-col-commune{order:6}
   .pva-col-fin{order:7}
   .pva-col-rdv--deux{order:0}
   .pva-ligne--deux-rdv{height:auto;min-height:14rem;grid-template-columns:minmax(0,1fr) auto}
