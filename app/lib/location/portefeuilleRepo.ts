@@ -45,6 +45,7 @@ import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens } from './entretienAnnexeRepo';
 import { resumerCoprosSyndic, type FicheSyndicLocation } from './adressesCoproSyndic';
 import { lireLotsPourVacance } from './lotsVacantsRepo';
+import { biensDesLots, biensVacants, occupationEnPlace, type LotPourVacance } from './lotsVacants';
 import { detaillerBiensCopro } from './adressesCoproSyndicRepo';
 import { aujourdhuiParis } from './reglagesDpe';
 import { sqlCoordonneesCabinet } from '../gestion/coordonneesCabinetRepo';
@@ -776,33 +777,74 @@ export async function creerLocataireSurBien(o: CreationLocataire, auteur: Auteur
  * Arno (20/10/2026) — les biens LIBRES d'abord, puis les biens déjà loués ; dans chaque groupe, l'ordre de l'adresse. L'état
  * (`loue`) est rendu À PART : l'écran l'écrit (« Libre » / « déjà loué ») et le colore — jamais la couleur seule.
  */
-export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null; loue: boolean; enGestion: boolean }[]> {
+/** Une ligne de la liste « Bien loué » de « Nouveau locataire » : un BIEN (son lot de tête), et, dessous, ses annexes rattachées (sélectionnables à part). */
+export interface LigneBienPourLocataire {
+  id: number; titre: string; detail: string | null; loue: boolean; enGestion: boolean;
+  /** 🔴 (Arno, 28/11/2026, 15h56) les annexes RATTACHÉES de ce bien (cave, parking…), chacune avec son état ; absentes pour une annexe seule */
+  annexes?: { id: number; titre: string; detail: string | null; loue: boolean; enGestion: boolean }[];
+}
+
+/**
+ * ══ 🔴🔴 Arno (28/11/2026, 15h56) — « Libre » = LA RÈGLE DU TITRE « Lots vacants », UNE SEULE SOURCE DE VÉRITÉ ═════════════════════════════════════════
+ * CE QU'IL Y AVAIT : une ligne par LOT (annexes rattachées comprises), « déjà loué » s'il avait une occupation SANS date de sortie (un locataire en préavis,
+ * sortie datée, était donc « Libre »), et 20 lignes au plus — la liste ne pouvait pas donner le total du titre.
+ * DÉSORMAIS : les BIENS et leur vacance sont ceux du titre (`lireLotsPourVacance` + `biensVacants`, lotsVacants.ts) — un bien = son lot principal et ses
+ * annexes rattachées, une annexe détachée (ou une fiche autonome) est son propre bien ; vacant le jour de la sortie, un préavis ne libère rien. Une ligne
+ * par bien, ses annexes rattachées dessous (chacune sélectionnable à part, avec SON état : on peut louer une annexe seule) ; TOUS les biens libres qui
+ * répondent à la recherche, puis 20 biens loués au plus. `libres` = le nombre de biens libres du portefeuille, exactement le total du titre.
+ * La recherche (adresse OU nom du propriétaire, accents et casse ignorés) trouve un bien par n'importe lequel de ses lots. LECTURE SEULE.
+ */
+export async function biensPourLocataire(filtre: string, maintenant: Date = new Date()): Promise<{ lignes: LigneBienPourLocataire[]; libres: number }> {
   const t = analyserTermePortefeuille(filtre);
   const conditionMots = t.mots.map((_, i) => `(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'
     OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[${i + 1}] || '%')`).join(' AND ');
   const col = async (c: string): Promise<string> => ((await colonneExisteMemo('gestion_annuaire_lot', c)) ? `lo.${c}::text` : 'NULL::text');
-  const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; proprietaire: string | null; loue: boolean; annexe: string | null;
-    etage: string | null; type_logement: string | null; nature: string | null; type_bien: string | null; statut: string }>(
-    `SELECT lo.id::text, lo.adresse, lo.commune, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
+  const [{ rows }, lots] = await Promise.all([query<{ id: string; adresse: string | null; adresse_normalisee: string | null; commune: string | null; proprietaire: string | null;
+    annexe: string | null; correspond: boolean; etage: string | null; type_logement: string | null; nature: string | null; type_bien: string | null; statut: string }>(
+    `SELECT lo.id::text, lo.adresse, lo.adresse_normalisee, lo.commune, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             ${await sqlStatutBien('lo')} AS statut,
             CASE WHEN EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)
                  THEN concat_ws(' ', initcap(coalesce(lo.categorie, 'annexe')), 'n° ' || lo.porte) END AS annexe,
-            EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS loue,
+            (${conditionMots === '' ? 'cardinality($1::text[]) = 0' : conditionMots}) AS correspond,
             ${await col('etage')} AS etage, ${await col('type_logement')} AS type_logement, lo.nature, lo.type_bien
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
-      WHERE ${await sqlBienDuPortefeuille('lo')} AND ${conditionMots === '' ? 'cardinality($1::text[]) = 0' : conditionMots}
-      ORDER BY loue, lo.adresse_normalisee, lo.id LIMIT 20`, [t.mots]);
-  return rows.map((r) => {
+      WHERE ${await sqlBienDuPortefeuille('lo')}`, [t.mots]),
+    lireLotsPourVacance()]);
+  const jour = aujourdhuiParis(maintenant);
+  const parId = new Map(rows.map((r) => [Number(r.id), r]));
+  const ligneDe = (id: number, loue: boolean): LigneBienPourLocataire => {
+    const r = parId.get(id);
+    if (r === undefined) return { id, titre: `Bien ${id}`, detail: null, loue, enGestion: false };
     const type = r.type_logement ? (LIBELLE_TYPE_LOGEMENT[r.type_logement as TypeLogement] ?? r.type_logement)
       : ([r.nature, r.type_bien].filter((x) => x && x.trim() !== '').join(' ') || null);
     return {
-      id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
+      id, titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
       detail: [type, etageFr(r.etage), r.proprietaire ? `propriétaire : ${r.proprietaire}` : null].filter((x) => x).join(' · ') || null,
-      loue: r.loue,
+      loue,
       // Arno (21/10/2026, 403) : l'envoi à ADHOC & MONGA n'est proposé que pour un bien EN GESTION.
       enGestion: r.statut === 'en_gestion',
     };
-  });
+  };
+  const enPlace = (l: LotPourVacance): boolean => l.occupations.some((o) => occupationEnPlace(o, jour));
+  const biens = biensDesLots(lots);
+  const vacants = new Set(biensVacants(lots, jour).map((b) => b.teteId));
+  const dansUnBien = new Set(biens.flatMap((b) => b.lots.map((l) => l.id)));
+  type Candidat = { ligne: LigneBienPourLocataire; cle: string };
+  const candidats: Candidat[] = [];
+  for (const b of biens) {
+    if (!b.lots.some((l) => parId.get(l.id)?.correspond === true)) continue;
+    const annexes = b.lots.filter((l) => l.id !== b.teteId).sort((x, y) => x.id - y.id).map((l) => ligneDe(l.id, enPlace(l)));
+    candidats.push({ ligne: { ...ligneDe(b.teteId, !vacants.has(b.teteId)), ...(annexes.length > 0 ? { annexes } : {}) }, cle: parId.get(b.teteId)?.adresse_normalisee ?? '' });
+  }
+  // une annexe dont le lot principal n'est plus du portefeuille n'est d'aucun bien (le titre ne la compte pas) : elle reste listée, seule
+  for (const l of lots) {
+    if (dansUnBien.has(l.id) || parId.get(l.id)?.correspond !== true) continue;
+    candidats.push({ ligne: ligneDe(l.id, enPlace(l)), cle: parId.get(l.id)?.adresse_normalisee ?? '' });
+  }
+  const ordre = (a: Candidat, b: Candidat): number => a.cle.localeCompare(b.cle) || a.ligne.id - b.ligne.id;
+  const libres = candidats.filter((c) => !c.ligne.loue).sort(ordre);
+  const loues = candidats.filter((c) => c.ligne.loue).sort(ordre).slice(0, 20);
+  return { lignes: [...libres, ...loues].map((c) => c.ligne), libres: vacants.size };
 }
 
 /**

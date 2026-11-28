@@ -443,6 +443,27 @@ describe('Arno (19/10/2026) — « Bien loué » : par l’adresse OU le nom du 
     await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
     expect(container.querySelector('.loc-choix li')?.textContent).toBe('4 rue Fictive, PuteauxAppartement T3 · 3e étage · propriétaire : DUPONT Jean · libre');
   });
+
+  // 🔴🔴 (Arno, 28/11/2026, 15h56) « Libre » = la règle du titre : une ligne par bien, ses annexes rattachées dessous (chacune choisissable),
+  //    et « N biens libres » = le total du titre (rendu par le serveur dans `libres`)
+  it('« N biens libres » au-dessus de la liste ; un bien = une ligne, ses annexes en petit dessous ; une annexe se choisit seule', async () => {
+    const f = global.fetch as ReturnType<typeof vi.fn>;
+    f.mockImplementation(async (url: string | URL | Request) => (String(url).includes('biensPourLocataire=')
+      ? ok({ libres: 30, lignes: [
+        { id: 1, titre: '1 rue A, Puteaux', detail: 'Appartement T3', loue: false, enGestion: true,
+          annexes: [{ id: 2, titre: 'Cave n° 3 — 1 rue A, Puteaux', detail: null, loue: false, enGestion: true }, { id: 3, titre: 'Parking n° 9 — 1 rue A, Puteaux', detail: null, loue: true, enGestion: true }] },
+        { id: 4, titre: 'Parking n° 12 — 1 rue A, Puteaux', detail: null, loue: false, enGestion: true },
+        { id: 5, titre: '2 rue B, Puteaux', detail: 'Studio', loue: true, enGestion: true }] }) : ok([])));
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
+    expect(container.querySelector('[data-biens-libres]')?.textContent).toBe('30 biens libres');
+    expect([...container.querySelectorAll('.loc-choix > li')].map((li) => li.getAttribute('data-ligne-bien'))).toEqual(['1', '4', '5']);
+    const annexes = [...container.querySelectorAll('[data-annexe-de="1"]')];
+    expect(annexes.map((a) => a.textContent)).toEqual(['Cave n° 3 — 1 rue A, PuteauxLibre', 'Parking n° 9 — 1 rue A, Puteauxdéjà loué']);
+    expect(container.querySelector('[data-ligne-bien="1"] > button [data-etat-bien]')?.textContent).toBe('Libre');
+    await act(async () => { (annexes[0].querySelector('button') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-bloc-bien-loue] p strong')?.textContent).toBe('Cave n° 3 — 1 rue A, Puteaux');
+  });
 });
 
 /**

@@ -119,8 +119,8 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
     expect(refus.etat).toBe('refus');
     ok(await reactiverDansPortefeuille('bien', logementId, AUTEUR));
     // Le choix du bien : champ VIDE (premier affichage de l'écran) comme champ rempli, sans erreur.
-    expect((await biensPourLocataire('')).length).toBeGreaterThan(0);
-    expect((await biensPourLocataire(`Lilas${S}`)).map((b) => b.id)).toContain(logementId);
+    expect((await biensPourLocataire('')).lignes.length).toBeGreaterThan(0);
+    expect((await biensPourLocataire(`Lilas${S}`)).lignes.map((b) => b.id)).toContain(logementId);
     expect(ok(await ficheBienLocation(caveId)).sortie).toBeNull(); // l'annexe revient avec lui
     const l = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `NOUVEAU${S}`, telephone: '06 11 22 33 44' }, lotId: logementId, entree: '2026-10-01' }, AUTEUR));
     const f = ok(await ficheBienLocation(logementId));

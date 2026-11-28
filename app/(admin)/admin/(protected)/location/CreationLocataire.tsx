@@ -339,7 +339,13 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
   const AVERTISSEMENT_DATE = 'Sans date d’entrée, le barème du jour a été utilisé.';
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
-  const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean; enGestion?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
+  /* 🔴🔴 (Arno, 28/11/2026, 15h56) une ligne par BIEN (règle du titre « Lots vacants ») avec ses annexes rattachées dessous, et `libres` = le total du
+     titre. CE QU'IL Y AVAIT : un tableau de LOTS (une annexe rattachée sur sa propre ligne). Les deux formes se lisent (tableau seul : pas de compteur). */
+  type LigneBien = { id: number; titre: string; detail: string | null; loue?: boolean; enGestion?: boolean; annexes?: LigneBien[] };
+  const biens = useLecture<LigneBien[] | { lignes: LigneBien[]; libres: number }>(`biensPourLocataire=${encodeURIComponent(terme)}`);
+  type ReponseBiens = LigneBien[] | { lignes: LigneBien[]; libres: number } | null | undefined;
+  const lignesBiens = (d: ReponseBiens): readonly LigneBien[] => (Array.isArray(d) ? d : liste(d?.lignes));
+  const nbLibres = (d: ReponseBiens): number | null => (d != null && !Array.isArray(d) && typeof d.libres === 'number' ? d.libres : null);
 
   const nbLocataires = etat.clients.length + etat.existants.length;
   const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
@@ -510,14 +516,28 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
             {/* Arno (19/10/2026) — par l'adresse OU le nom du propriétaire (accents et casse ignorés), en temps réel. */}
             <label className="loc-champ">Chercher le bien par son adresse ou le nom du propriétaire (biens du portefeuille)
               <input form={idForm} value={filtreBien} onChange={(e) => setFiltreBien(e.target.value)} placeholder="ex. rue des Lilas ou Dupont" data-recherche-bien /></label>
+            {/* 🔴 (Arno, 28/11/2026, 15h56) le compteur : exactement le total du titre « Location (Lots vacants : N …) » (même règle, même lecture) */}
+            {biens.etat.etat === 'ok' && nbLibres(biens.etat.data) !== null && (
+              <p className="loc-compteur-libres" data-biens-libres={nbLibres(biens.etat.data) ?? 0}>
+                {nbLibres(biens.etat.data) === 0 ? 'Aucun bien libre' : `${nbLibres(biens.etat.data)} bien${(nbLibres(biens.etat.data) ?? 0) > 1 ? 's' : ''} libre${(nbLibres(biens.etat.data) ?? 0) > 1 ? 's' : ''}`}
+              </p>)}
             {biens.etat.etat === 'ok' && (
-              liste(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
+              lignesBiens(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
                 <ul className="loc-choix">
-                  {liste(biens.etat.data).map((b) => (
-                    <li key={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre, enGestion: b.enGestion }); setCoches(null); setRecap(null); }}>
+                  {lignesBiens(biens.etat.data).map((b) => (
+                    <li key={b.id} data-ligne-bien={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre, enGestion: b.enGestion }); setCoches(null); setRecap(null); }}>
                       <span>{b.titre}</span><span>{b.detail}</span>
                       {/* Arno (20/10/2026) : le MOT et la couleur (vert « Libre », rouge « déjà loué ») — jamais la couleur seule. */}
-                      {b.loue !== undefined && <span className={`loc-etat-bien loc-etat-bien--${b.loue ? 'loue' : 'libre'}`} data-etat-bien={b.loue ? 'loue' : 'libre'}>{b.loue ? 'déjà loué' : 'Libre'}</span>}</button></li>
+                      {b.loue !== undefined && <span className={`loc-etat-bien loc-etat-bien--${b.loue ? 'loue' : 'libre'}`} data-etat-bien={b.loue ? 'loue' : 'libre'}>{b.loue ? 'déjà loué' : 'Libre'}</span>}</button>
+                      {/* 🔴 (Arno, 28/11/2026, 15h56) ses annexes RATTACHÉES, en petit dessous ; chacune se choisit à part (louer une annexe seule), avec SON état */}
+                      {(b.annexes ?? []).length > 0 && (
+                        <ul className="loc-choix-annexes" aria-label={`Annexes rattachées à ${b.titre}`}>
+                          {(b.annexes ?? []).map((a) => (
+                            <li key={a.id} data-annexe-de={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: a.id, titre: a.titre, enGestion: a.enGestion }); setCoches(null); setRecap(null); }}>
+                              <span>{a.titre}</span>
+                              {a.loue !== undefined && <span className={`loc-etat-bien loc-etat-bien--${a.loue ? 'loue' : 'libre'}`} data-etat-bien={a.loue ? 'loue' : 'libre'}>{a.loue ? 'déjà loué' : 'Libre'}</span>}</button></li>
+                          ))}
+                        </ul>)}</li>
                   ))}
                 </ul>
               ))}
@@ -684,6 +704,10 @@ const CSS_LOTS_LOUES = `
 .loc-etat-bien{font-weight:800}
 .loc-etat-bien--libre{color:var(--color-svv-green-ink)}
 .loc-etat-bien--loue{color:var(--color-svv-red)}
+/* (Arno, 28/11/2026, 15h56) le compteur des biens libres ; les annexes rattachees d'un bien, en petit sous sa ligne, chacune choisissable */
+.loc-compteur-libres{margin:.2rem 0 .4rem;font-weight:700;color:var(--color-svv-ink)}
+.loc-choix-annexes{list-style:none;margin:.2rem 0 .1rem 1.1rem;padding:0;display:grid;gap:.25rem}
+.loc-choix-annexes button{font-size:.8rem;min-height:36px;padding:.25rem .6rem}
 .loc-recap-lots ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
 .loc-garantit{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;min-width:0}
 .loc-garantit legend{font-weight:700;padding:0;float:left;margin-right:6px}
