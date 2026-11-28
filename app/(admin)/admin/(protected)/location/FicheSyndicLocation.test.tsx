@@ -49,7 +49,14 @@ describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré 
   it('le compteur, puis l’encadré : nom, adresses (une fois chacune) avec « N lots », total ; chaque bien garde son lien', async () => {
     syndic = { ...BASE, resumeCopros: RESUME };
     await rendre();
-    expect(container.querySelector('[data-copros-suivies] h3')?.textContent).toBe('Copropriétés suivies : 1 · 4 lots en gestion dont 3 logements et 1 parking');
+    // 🔴 (Arno, 28/11/2026, 13h06) le titre à gauche, le décompte à droite, sans « · », dans la police de « N lots » (même classe)
+    expect([...container.querySelector('[data-copros-suivies] h3')!.children].map((x) => x.textContent)).toEqual(['Copropriétés suivies : 1', '4 lots en gestion dont 3 logements et 1 parking']);
+    expect(container.querySelector('[data-copros-compte]')?.className).toBe('loc-copros-compte loc-copro-n');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    // le bord droit : la marge intérieure des encadrés (bordure 1 px + 14 px) ; au téléphone, sous le titre, à droite, coupé entre les mots
+    expect(css).toContain('.loc-copros-tete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 12px;padding-right:15px}');
+    expect(css).toContain('.loc-copros-tete > .loc-copros-compte{margin-left:auto;text-align:right;white-space:normal;min-width:0;max-width:100%}');
+    expect(css).toContain('.loc-copro{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid');
     const e = container.querySelector('[data-copro="43 avenue marceau"]')!;
     expect(e.querySelector('[data-copro-nom]')?.textContent).toBe('Résidence Marceau');
     expect([...e.querySelectorAll('[data-adresse-copro]')].map((x) => [x.getAttribute('data-adresse-copro'), x.querySelector('[data-lots-adresse]')?.textContent]))
@@ -74,6 +81,7 @@ describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré 
     expect([...container.querySelectorAll('[data-adresse-copro]')].map((x) => x.getAttribute('data-adresse-copro'))).toEqual(['43 Avenue Marceau']);
     expect(container.querySelector('[data-lots-adresse]')).toBeNull();
     expect(container.querySelector('[data-copros-suivies] h3')?.textContent).toBe('Copropriétés suivies : 1');
+    expect(container.querySelector('[data-copros-compte]')).toBeNull();
   });
 });
 

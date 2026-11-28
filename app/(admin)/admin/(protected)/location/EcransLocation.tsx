@@ -287,8 +287,10 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
           Le décompte par BIENS (ad11dca5 / a5107e9c), biens en gestion seulement ; un clic sur l'encadré ouvre la fiche copropriété. Les liens vers
           chaque bien (point 4) restent, en bas de l'encadré. */}
       <section className="loc-bloc" data-copros-suivies>
-        <h3>Copropriétés suivies : {liste(s.coproprietes).length}
-          {s.resumeCopros !== undefined && <span className="loc-muet loc-copros-compte" data-copros-compte> · {libelleEnGestion(s.resumeCopros.detail)}</span>}</h3>
+        {/* 🔴 Arno (28/11/2026, 13h06) — « justifier à droite dans sa ligne l'information "4 logements en gestion", alignée à droite par rapport au nombre
+            de lots indiqué en dessous ("1 lot"), et utiliser la même police que le texte "1 lot" » : le titre à gauche, le décompte à droite (plus de « · ») */}
+        <h3 className="loc-copros-tete"><span>Copropriétés suivies : {liste(s.coproprietes).length}</span>
+          {s.resumeCopros !== undefined && <span className="loc-copros-compte loc-copro-n" data-copros-compte>{libelleEnGestion(s.resumeCopros.detail)}</span>}</h3>
         {liste(s.coproprietes).length === 0 ? <p className="loc-muet">Aucune copropriété en cours.</p> : (
           <ul className="loc-copros">
             {liste(s.coproprietes).map((c) => {
@@ -359,6 +361,7 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-copro-n{flex:0 0 auto;white-space:nowrap;font-weight:700;color:var(--color-svv-ink)}
 .loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-weight:700;color:var(--color-svv-ink)}
 .loc-copro-biens{margin:0;font-size:.82rem}
-.loc-copros-compte{font-size:.9rem;font-weight:400}
+.loc-copros-tete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 12px;padding-right:15px}
+.loc-copros-tete > .loc-copros-compte{margin-left:auto;text-align:right;white-space:normal;min-width:0;max-width:100%}
 @media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px;justify-self:stretch}}
 `;
