@@ -25,7 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
-import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -315,6 +315,13 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 /* 🔴 Arno (18/11/2026) — le statut des LOCATAIRES du rendez-vous, dans SA colonne, à droite de celle du collègue (qui ne change pas) :
                    « Locataires : En attente / Confirmé / Refusé », aucun nom ; rien sans rendez-vous fixé. Même calcul que la frise. */
                 const locHtml = (sorte: string) => (sorte === 'previsite' || sorte === 'edl') && <CartoucheLocataires e={l.reponsesRdv?.[sorte]} court />;
+                /* 🔴🔴 Arno (28/11/2026, 01h07) — LA PAIRE d'un rendez-vous : « confié à Prénom NOM · Confirmé » puis, dans la continuité de la MÊME ligne,
+                   « Locataires : … » (même hauteur, centrés) ; au téléphone, elle passe à la ligne proprement */
+                const paireHtml = (o: { cle: string; de: string; m: ReturnType<typeof missionDe>; sorteLoc: string; rang?: number; commune?: boolean }) => (
+                  <span key={o.cle} className={`pva-paire${o.commune ? ' pva-col-commune' : ''}`} data-paire={o.de} {...(o.rang !== undefined ? { 'data-rang': o.rang } : {})}>
+                    <span className="pva-col-mission" data-col-mission={o.m?.etat ?? 'aucune'} data-mission-de={o.de}>{missionHtml(o.m)}</span>
+                    <span className="pva-col-loc" data-col-loc={o.de}>{locHtml(o.sorteLoc)}</span>
+                  </span>);
                 const dateHtml = (r: typeof rdv) => <>
                   <span className="pva-rdv-date">{r.texte}</span>
                   {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
@@ -341,26 +348,24 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                                alignés sur les colonnes « rendez-vous » et « mission » des autres lignes (sous-grille) */
                             <span className="pva-col-rdv pva-col-rdv--deux" data-col-rdv="deux">
                               {(() => {
-                                /* 🔴🔴 Arno (28/11/2026, 00h45) « pas de doublons » : la même personne au même statut → UNE mention, centrée sur les deux
-                                   rendez-vous (elle occupe les deux rangées) ; de même pour « Locataires : … » ; sinon une mention par rendez-vous */
+                                /* 🔴🔴 Arno (28/11/2026, 01h07) « le cartouche qui concerne le locataire s'affiche dans la continuité de la même ligne que celle
+                                   du cartouche "Confirmé" qui concerne le collaborateur » : UNE PAIRE (collaborateur + locataires) par rendez-vous, sur la
+                                   rangée de son rendez-vous ; tout identique sur les deux (même personne, même statut, même mot des locataires) : une seule
+                                   paire, centrée sur les deux rangées (règle « pas de doublons » de f2cbaae9, 28/11/2026, 00h45) */
                                 const ms = rdvs.map(missionDe);
                                 const mots = rdvs.map((r) => (r.sorte === 'previsite' || r.sorte === 'edl' ? motCourtLocataires(l.reponsesRdv?.[r.sorte]) : null));
-                                const commun = mentionsCommunes(ms, mots);
+                                const commune = paireCommune(ms, mots);
                                 const cellules = rdvs.flatMap((r, i) => [
                                   <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rang={i + 1} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
-                                  ...(commun.mission ? [] : [<span key={`${r.sorte}-m`} className="pva-col-mission" data-rang={i + 1} data-col-mission={ms[i]?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(ms[i])}</span>]),
-                                  ...(commun.locataires ? [] : [<span key={`${r.sorte}-l`} className="pva-col-loc" data-rang={i + 1} data-col-loc={r.sorte}>{locHtml(r.sorte)}</span>])]);
-                                // les mentions communes, APRÈS les deux dates (lues ainsi au téléphone) ; à l'ordinateur, sur les deux rangées de leur colonne
-                                const deux = rdvs.map((x) => x.sorte).join(' ');
-                                if (commun.mission) cellules.push(<span key="m-commune" className="pva-col-mission pva-col-commune" data-col-mission={ms[0]?.etat ?? 'aucune'} data-mission-de={deux}>{missionHtml(ms[0])}</span>);
-                                if (commun.locataires) cellules.push(<span key="l-commune" className="pva-col-loc pva-col-commune" data-col-loc={deux}>{locHtml(rdvs[0].sorte)}</span>);
+                                  ...(commune ? [] : [paireHtml({ cle: `${r.sorte}-p`, de: r.sorte, m: ms[i], sorteLoc: r.sorte, rang: i + 1 })])]);
+                                // la paire commune, APRÈS les deux dates (lue ainsi au téléphone) ; à l'ordinateur, sur les deux rangées de sa colonne
+                                if (commune) cellules.push(paireHtml({ cle: 'p-commune', de: rdvs.map((x) => x.sorte).join(' '), m: ms[0], sorteLoc: rdvs[0].sorte, commune: true }));
                                 return cellules;
                               })()}
                             </span>
                           ) : <>
                           <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{dateHtml(rdv)}</span>
-                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission)}</span>
-                          <span className="pva-col-loc" data-col-loc={rdv.sorte}>{locHtml(rdv.sorte)}</span></>}
+                          {paireHtml({ cle: 'p', de: rdv.sorte, m: mission, sorteLoc: rdv.sorte })}</>}
                           <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
                         </span>
                       </div>
@@ -929,6 +934,12 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-col-loc .pva-loc{margin-left:0;flex:0 0 auto;overflow:visible}
 /* la mission du rendez-vous : « confie a Prenom NOM » puis l'etat (orange doux : en attente ; vert doux : confirme ; rouge doux : refuse) */
 .pva-col-mission{display:flex;align-items:center;gap:6px;min-width:0}
+/* 🔴🔴 Arno (28/11/2026, 01h07) — LA PAIRE : la mission puis, dans la continuite de la meme ligne, les locataires ; meme hauteur, centres
+   (sur les colonnes « mission » et « locataires » du listing, que les autres lignes partagent) */
+.pva-paire{grid-column:span 2;display:flex;align-items:center;gap:6px;min-width:0}
+.pva-paire > .pva-col-mission{flex:0 1 auto}
+.pva-paire > .pva-col-loc{flex:0 0 auto}
+.pva-paire > .pva-col-loc:empty{display:none}
 .pva-confie{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
 .pva-etat-mission{flex:0 0 auto;display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:.76rem;font-weight:800;white-space:nowrap;border:1px solid currentColor}
 .pva-etat-mission--attente{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
@@ -960,8 +971,8 @@ export const CSS_PREAVIS_ACCUEIL = `
    (rendez-vous) et C (mission), alignee sur celles des autres lignes ; la ligne est un peu plus haute */
 .pva-col-rdv--deux{grid-column:span 3;display:grid;grid-template-columns:subgrid;row-gap:3px;align-items:center}
 .pva-col-rdv--deux > .pva-rdv-item{grid-column:1}
-.pva-col-rdv--deux > .pva-col-mission{grid-column:2}
-.pva-col-rdv--deux > .pva-col-loc{grid-column:3}
+/* 🔴🔴 Arno (28/11/2026, 01h07) — la paire (collaborateur + locataires) sur les colonnes « mission » et « locataires » de sa rangée */
+.pva-col-rdv--deux > .pva-paire{grid-column:2 / span 2}
 .pva-col-rdv--deux > [data-rang="1"]{grid-row:1}
 .pva-col-rdv--deux > [data-rang="2"]{grid-row:2}
 .pva-col-rdv--deux > .pva-col-commune{grid-row:1 / span 2;align-self:center}
@@ -994,12 +1005,14 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-col-rdv{order:-2}
   .pva-col-mission{order:-1;min-height:1.2rem}
   .pva-col-loc{order:-1}
+  /* 🔴 (28/11/2026, 01h07) la paire, a sa place d'avant (apres la date) ; trop longue : les locataires passent a la ligne, proprement */
+  .pva-paire{order:-1;grid-column:auto;flex-wrap:wrap;row-gap:2px}
   .pva-col-loc:empty{display:none}
   /* deux rendez-vous : pre-visite et sa mission, puis etat des lieux et sa mission, en tete ; la ligne s'allonge d'autant */
   .pva-col-rdv--deux{grid-column:auto;row-gap:2px}
   .pva-col-rdv--deux > *{order:0;grid-row:auto;grid-column:auto}
   /* 🔴 (28/11/2026) la même spécificité que les placements de l'ordinateur : au téléphone, tout se lit l'un sous l'autre, dans l'ordre du document */
-  .pva-col-rdv--deux > .pva-rdv-item,.pva-col-rdv--deux > .pva-col-mission,.pva-col-rdv--deux > .pva-col-loc,.pva-col-rdv--deux > [data-rang],.pva-col-rdv--deux > .pva-col-commune{grid-row:auto;grid-column:auto}
+  .pva-col-rdv--deux > .pva-rdv-item,.pva-col-rdv--deux > .pva-paire,.pva-col-rdv--deux > [data-rang],.pva-col-rdv--deux > .pva-col-commune{grid-row:auto;grid-column:auto}
   .pva-ligne--deux-rdv{height:14rem;grid-template-columns:minmax(0,1fr) auto}
   .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
   /* 🔴 (28/11/2026) la pile : jamais coupee au telephone, la ligne s'allonge d'autant (les lignes sans alerte gardent leur hauteur) */
