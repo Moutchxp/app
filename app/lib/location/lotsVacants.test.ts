@@ -98,7 +98,7 @@ describe('🔴 Arno (28/11/2026, 00h45) — « Nombre de lots vacants » plus di
     // 🔴 (Arno, 28/11/2026, 11h47) même style discret ; le détail passe à la ligne proprement (au téléphone)
     expect(page).toContain("'.loc-titre-vacants{display:inline-block;max-width:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted);white-space:normal;overflow-wrap:anywhere;vertical-align:baseline}'");
     expect(page).toContain('data-lots-vacants={vacants.total}');
-    expect(page).toContain('<style>{CSS_TITRE_VACANTS}</style>');
+    expect(page).toContain('<style>{CSS_TITRE_VACANTS + CSS_INTRO_VIDE}</style>');
   });
 });
 
