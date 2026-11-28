@@ -14,6 +14,7 @@ import { libelleEnGestion } from '../../../../lib/location/lotsVacants';
 import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
 import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
 import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
+import { prenomNomCivil } from '../../../../lib/gestion/syndics';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -301,8 +302,8 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
               const ouvrir = () => { window.location.assign(`/admin/location/coproprietes?ouvrir=${encodeURIComponent(c.cle)}`); };
               return (
                 <li key={c.id} className="loc-copro" data-copro={c.cle} role="link" tabIndex={0} title="Ouvrir la fiche de la copropriété"
-                  onClick={(e) => { if ((e.target as HTMLElement).closest('a')) return; ouvrir(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('a')) ouvrir(); }}>
+                  onClick={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; ouvrir(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('a, button')) ouvrir(); }}>
                   {r?.nom && <p className="loc-copro-nom" data-copro-nom>{r.nom}</p>}
                   <ul className="loc-copro-adresses" data-adresses-copro={c.cle}>
                     {adresses.map((a, i) => (
@@ -312,6 +313,31 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
                       </li>))}
                   </ul>
                   {r !== null && <p className="loc-copro-total" data-copro-total>Total : {libelleEnGestion(r.detail)}</p>}
+                  {/* 🔴🔴 Arno (28/11/2026, 13h18, point 2) — « sous le total des lots gérés, ajouter les collaborateurs du syndic affectés à cette copropriété » :
+                      les contacts rattachés dans la fiche copropriété (bloc SYNDIC), en lecture ; un clic sur un téléphone ou un e-mail n'ouvre pas la fiche */}
+                  {(() => {
+                    const cles = [c.cle, ...liste(c.adresses).map((a) => a.cle)];
+                    const collabs = liste(s.contacts).filter((k) => k.tousImmeubles || k.immeubles.some((x) => cles.includes(x)));
+                    return (
+                      <div className="loc-copro-collabs" data-collaborateurs-copro={c.cle}>
+                        {collabs.length === 0 ? <p className="loc-muet" data-aucun-collaborateur>Aucun collaborateur du syndic affecté à cette copropriété</p>
+                          : collabs.map((k) => {
+                            const nomC = prenomNomCivil(k.civilite ?? null, k.prenom, k.nom) || 'Contact';
+                            const tels = liste(k.coordonnees).filter((x) => x.sorte === 'telephone');
+                            const mails = liste(k.coordonnees).filter((x) => x.sorte === 'email');
+                            return (
+                              <p key={k.id} className="loc-copro-collab" data-collaborateur={k.id}>
+                                <span className="loc-copro-collab-nom">{(k.titre ?? '').trim() !== '' ? `${(k.titre ?? '').trim()} : ` : ''}{nomC}</span>
+                                {tels.map((t) => { const lien = lienAppel(t.valeur); const lisible = telephoneLisible(t.valeur);
+                                  return <span key={t.id} className="loc-copro-collab-coord">{lien !== null ? <a href={lien}>{lisible}</a> : lisible}</span>; })}
+                                {mails.map((m) => <span key={m.id} className="loc-copro-collab-coord">{ecrire.onEcrire !== undefined
+                                  ? <button type="button" className="loc-lien-bouton" data-ecrire-collaborateur={m.valeur.trim()}
+                                      onClick={() => ecrire.onEcrire?.(m.valeur.trim(), { syndicId: id, lotId: null })} title="Écrire depuis gestion@">{m.valeur.trim()}</button>
+                                  : <a href={`mailto:${m.valeur.trim()}`}>{m.valeur.trim()}</a>}</span>)}
+                              </p>);
+                          })}
+                      </div>);
+                  })()}
                   {liste(c.lots).length === 0 ? <p className="loc-muet loc-copro-biens">aucun bien de l’annuaire</p> : (
                     <p className="loc-muet loc-copro-biens" data-biens-copro={c.cle}>Fiches des biens : {liste(c.lots).map((l, j) => (
                       <span key={l.id}>{j > 0 ? ', ' : ''}<a href={`/admin/location/bien/${l.id}`}>bien {l.numero.startsWith('app-') ? `n° ${l.id}` : l.numero}</a></span>))}</p>)}
@@ -370,6 +396,12 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-copro-n{flex:0 0 auto;white-space:nowrap;font-weight:700;color:var(--color-svv-ink)}
 .loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-weight:700;color:var(--color-svv-ink)}
 .loc-copro-biens{margin:0;font-size:.82rem}
+.loc-copro-collabs{display:flex;flex-direction:column;gap:2px;font-size:.88rem}
+.loc-copro-collabs > p{margin:0}
+.loc-copro-collab{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;min-width:0}
+.loc-copro-collab-nom{font-weight:700;color:var(--color-svv-ink)}
+.loc-copro-collab-coord{min-width:0;overflow-wrap:anywhere}
+.loc-lien-bouton{border:0;background:none;padding:0;font:inherit;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;min-height:24px}
 .loc-copros-tete{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 12px;padding-right:15px}
 .loc-copros-tete > .loc-copros-compte{margin-left:auto;text-align:right;white-space:normal;min-width:0;max-width:100%}
 @media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px;justify-self:stretch}}

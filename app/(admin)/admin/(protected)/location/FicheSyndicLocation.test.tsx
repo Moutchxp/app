@@ -210,3 +210,37 @@ describe('🔴🔴 13h18 point 1 — « Copier » des téléphones dans la colon
     expect(container.querySelectorAll('[data-place-vide]')).toHaveLength(0);
   });
 });
+
+/* ══ 🔴🔴 Arno (28/11/2026, 13h18, point 2) — « sous le total des lots gérés, ajouter les collaborateurs du syndic affectés à cette copropriété » ══ */
+describe('🔴🔴 13h18 point 2 — les collaborateurs affectés, dans chaque encadré', () => {
+  const RESUME = { detail: { total: 2, parType: [{ type: 'logement', n: 2 }] }, copros: [{ id: 157, cle: '43 avenue marceau', nom: null,
+    adresses: [{ libelle: '43 Avenue Marceau', principale: true, biens: 2, teteIds: [1, 2] }], detail: { total: 2, parType: [{ type: 'logement', n: 2 }] } }] };
+  const CONTACTS = [
+    { id: 1, civilite: 'M.', prenom: 'Olivier', nom: 'FABRE', titre: 'Principal de copropriété', tousImmeubles: false, immeubles: ['43 avenue marceau'], coordonnees: [
+      { id: 9, sorte: 'telephone', libelle: null, valeur: '0611223344' }, { id: 10, sorte: 'email', libelle: null, valeur: 'o.fabre@exemple.test' }] },
+    { id: 2, civilite: 'Mme', prenom: 'Léa', nom: 'MARTIN', titre: null, tousImmeubles: false, immeubles: ['43 avenue marceau'], coordonnees: [] },
+    { id: 3, civilite: null, prenom: 'Paul', nom: 'AUTRE', titre: 'Comptable', tousImmeubles: false, immeubles: ['1 rue ailleurs'], coordonnees: [] }];
+  it('« Fonction : Civilité Prénom NOM », son téléphone par paires et son e-mail ; seulement les contacts affectés à CETTE copropriété', async () => {
+    syndic = { ...BASE, contacts: CONTACTS, resumeCopros: RESUME };
+    await rendre();
+    const bloc = container.querySelector('[data-collaborateurs-copro="43 avenue marceau"]')!;
+    expect([...bloc.querySelectorAll('[data-collaborateur]')].map((x) => [...x.children].map((y) => y.textContent)))
+      .toEqual([['Principal de copropriété : M. Olivier FABRE', '06 11 22 33 44', 'o.fabre@exemple.test'], ['Mme Léa MARTIN']]);
+    expect(bloc.querySelector('a[href^="tel:"]')?.getAttribute('href')).toBe('tel:+33611223344');
+    // sous le total
+    expect(bloc.previousElementSibling?.hasAttribute('data-copro-total')).toBe(true);
+  });
+  it('aucun contact affecté : « Aucun collaborateur du syndic affecté à cette copropriété »', async () => {
+    syndic = { ...BASE, contacts: [CONTACTS[2]], resumeCopros: RESUME };
+    await rendre();
+    expect(container.querySelector('[data-aucun-collaborateur]')?.textContent).toBe('Aucun collaborateur du syndic affecté à cette copropriété');
+  });
+  it('un clic sur l’e-mail ouvre l’écriture (droit d’envoi), pas la fiche copropriété ; sur le téléphone non plus', async () => {
+    syndic = { ...BASE, contacts: CONTACTS, resumeCopros: RESUME };
+    await rendre();
+    await act(async () => { (container.querySelector('[data-ecrire-collaborateur="o.fabre@exemple.test"]') as HTMLButtonElement).click(); }); await calmer();
+    expect(ouvertes.brouillons.map((b) => b.a)).toEqual([['o.fabre@exemple.test']]);
+    await act(async () => { const a = container.querySelector('[data-collaborateur="1"] a[href^="tel:"]') as HTMLAnchorElement; a.addEventListener('click', (e) => e.preventDefault()); a.click(); });
+    expect(document.querySelector('[data-fiche-copro-ouverte]')).toBeNull();
+  });
+});
