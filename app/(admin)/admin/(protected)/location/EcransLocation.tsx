@@ -11,7 +11,9 @@ import { useEffect, useState } from 'react';
 import { useContexteRedaction } from '../gestion/useContexteRedaction';
 import { useEcrireFlottant } from '../gestion/EcrireFlottant';
 import { biensParAdresse } from '../../../../lib/location/adressesCoproSyndic';
-import { telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
+import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
+import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
+import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -208,34 +210,65 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
   const boutonEcrire = (email: string | null | undefined) => (ecrire.onEcrire === undefined || !email || !email.includes('@') ? null
     : <> <button type="button" className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic" onClick={() => ecrire.onEcrire?.(email.trim(), { syndicId: id, lotId: null })}
         data-ecrire-syndic={email}>Écrire depuis gestion@</button></>);
+  // 🔴 (Arno, 28/11/2026, 12h17, point 2) les adresses cochées → UN mail (le même module, le même droit d'envoi)
+  const selection = useEtatSelectionMails();
+  const ecrirePlusieurs = ecrire.onEcrire === undefined ? undefined
+    : (emails: string[]) => { if (emails.length > 0) ecrire.onEcrire?.(emails[0], { syndicId: id, lotId: null, autres: emails.slice(1) }); };
+  /* 🔴🔴 Arno (28/11/2026, 12h17, point 2) — « mettre le numéro de téléphone et le mail sur des lignes séparées, pas en enfilade, autant de lignes que de
+     téléphones et de mails ; dans le prolongement de chaque ligne un bouton copier ; un bouton "Écrire depuis gestion@" en face de chaque adresse mail ». */
+  const lignesCoordonnees = (tels: readonly string[], mails: readonly string[]) => (
+    <ul className="loc-coord-lignes">
+      {tels.map((t, i) => {
+        const lisible = telephoneLisible(t); const lien = lienAppel(t);
+        return (
+          <li key={`t${i}-${t}`} data-ligne-tel={lisible}>
+            <span className="loc-coord-valeur">{lien !== null ? <a href={lien}>{lisible}</a> : lisible}</span>
+            <span className="loc-coord-actions"><BoutonCopier valeur={lisible} quoi={`le numéro ${lisible}`} /></span>
+          </li>);
+      })}
+      {mails.map((m, i) => (
+        <li key={`m${i}-${m}`} data-ligne-mail={m.trim()}>
+          <span className="loc-coord-valeur">{m.trim()}</span>
+          <span className="loc-coord-actions">
+            <BoutonCopier valeur={m.trim()} quoi={`l’adresse ${m.trim()}`} />
+            {ecrire.onEcrire !== undefined && m.includes('@') && <CaseMail email={m} />}
+            {boutonEcrire(m)}
+          </span>
+        </li>))}
+    </ul>);
   if (etat.etat !== 'ok') {
     return <div className="loc-page"><style>{CSS_LOCATION_ECRANS}</style><EnTeteLocation titre="Syndic" /><EtatLecture etat={etat} /></div>;
   }
   const s = etat.data;
+  const telsStandard = [s.telephone, s.telephone2].filter((x): x is string => !!x && x.trim() !== '');
   return (
+    <FournisseurSelectionMails selection={selection}>
     <div className="loc-page">
-      <style>{CSS_LOCATION_ECRANS}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_BOUTON_COPIER + CSS_SELECTION_MAILS + CSS_COORDONNEES_SYNDIC}</style>
       <EnTeteLocation titre={s.nom} sous={<span className="loc-pastille">Syndic</span>} />
       {ecrire.fenetres}
       <section className="loc-bloc">
         <h3>Coordonnées</h3>
         <dl className="loc-grille" style={{ margin: 0 }}>
-          {[['Adresse', [s.adresse, [s.codePostal, s.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null],
-            ['Téléphone', [s.telephone, s.telephone2].filter((x): x is string => !!x).map(telephoneLisible).join(' · ') || null], ['E-mail', s.email], ['Note', s.note]]
+          {[['Adresse', [s.adresse, [s.codePostal, s.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null]]
             .map(([mot, val]) => (
-              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}{mot === 'E-mail' ? boutonEcrire(val) : null}</dd></div>
+              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
             ))}
+          <div className="loc-coord-pleine"><dt className="loc-muet">Téléphone</dt><dd style={{ margin: 0 }}>{telsStandard.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees(telsStandard, [])}</dd></div>
+          <div className="loc-coord-pleine"><dt className="loc-muet">E-mail</dt><dd style={{ margin: 0 }}>{(s.email ?? '').trim() === '' ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], [s.email as string])}</dd></div>
+          <div><dt className="loc-muet">Note</dt><dd style={{ margin: 0 }}>{s.note ?? <span className="loc-muet">non renseigné</span>}</dd></div>
         </dl>
       </section>
+      {ecrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={ecrirePlusieurs} />}
       <section className="loc-bloc">
         <h3>Contacts <span className="loc-pastille">{liste(s.contacts).length}</span></h3>
         {liste(s.contacts).length === 0 ? <p className="loc-muet">Aucun contact.</p> : (
           <ul className="loc-liste">
             {liste(s.contacts).map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className="loc-contact-syndic" data-contact-syndic={c.id}>
                 <span><strong>{[c.civilite, c.prenom, c.nom].filter((x) => x).join(' ') || 'Contact'}</strong>{c.titre ? <span className="loc-muet"> · {c.titre}</span> : null}</span>
-                <span className="loc-muet">{liste(c.coordonnees).map((k) => (k.sorte === 'telephone' ? telephoneLisible(k.valeur) : k.valeur)).join(' · ')}</span>
-                {liste(c.coordonnees).filter((k) => k.sorte === 'email').map((k) => <span key={k.id}>{boutonEcrire(k.valeur)}</span>)}
+                {lignesCoordonnees(liste(c.coordonnees).filter((k) => k.sorte === 'telephone').map((k) => k.valeur),
+                  liste(c.coordonnees).filter((k) => k.sorte === 'email').map((k) => k.valeur))}
               </li>
             ))}
           </ul>
@@ -265,5 +298,20 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
       </section>
       <p className="loc-muet">Fiche tenue dans la Gestion (même données) : elle se modifie depuis l’écran des syndics de la Gestion.</p>
     </div>
+    </FournisseurSelectionMails>
   );
 }
+
+/* 🔴 (Arno, 28/11/2026, 12h17, point 2) une ligne par téléphone et par e-mail : la valeur, puis ses boutons dans le prolongement, alignés d'une ligne à
+   l'autre (une grille de deux colonnes) ; au téléphone, les boutons passent sous la valeur si la place manque. AUCUN ACCENT GRAVE dans ce littéral. */
+const CSS_COORDONNEES_SYNDIC = `
+.loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,max-content) minmax(0,1fr);column-gap:10px;row-gap:2px;align-items:center}
+.loc-coord-lignes > li{display:contents}
+.loc-coord-valeur{min-width:0;overflow-wrap:anywhere}
+.loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-height:32px}
+.loc-coord-actions .loc-ecrire-syndic{width:auto;min-height:32px;padding:2px 12px;white-space:nowrap;margin:0}
+.loc-grille > .loc-coord-pleine{grid-column:1 / -1}
+.loc-liste > li.loc-contact-syndic{display:block}
+.loc-contact-syndic > .loc-coord-lignes{margin-top:4px}
+@media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px}}
+`;

@@ -15,10 +15,12 @@ import { preremplirDemande, type DemandeEcriture, type EcrireDepuisGestionFn } f
  */
 
 /** Le « Nouveau message » pré-adressé de la boîte Gestion (même signature, même brouillon). PUR. */
-export function brouillonAdresse(email: string, redaction: ContexteRedactionEcran): BrouillonEcran {
+export function brouillonAdresse(email: string, redaction: ContexteRedactionEcran, autres: readonly string[] = []): BrouillonEcran {
+  // 🔴 (Arno, 28/11/2026, 12h17, point 2) plusieurs adresses sélectionnées : UN mail, toutes en « À » (sans doublon, majuscules ignorées)
+  const a = [email, ...autres].map((x) => x.trim()).filter((x, i, l) => x !== '' && l.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i);
   return {
     ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
-    a: [email],
+    a,
     id: null,
   };
 }
@@ -26,7 +28,7 @@ export function brouillonAdresse(email: string, redaction: ContexteRedactionEcra
 /** Le brouillon d'une demande d'écriture (adresse seule, ou fiche syndic à préremplir), avec la clé de sa fenêtre. */
 export async function brouillonDeLaDemande(demande: DemandeEcriture, redaction: ContexteRedactionEcran): Promise<{ cle: string; brouillon: BrouillonEcran }> {
   const email = typeof demande === 'string' ? demande : demande.email;
-  const adresse = brouillonAdresse(email, redaction);
+  const adresse = brouillonAdresse(email, redaction, typeof demande === 'string' ? [] : demande.contexte.autres ?? []);
   if (typeof demande === 'string') return { cle: `nouveau:${email}`, brouillon: adresse };
   const b = await preremplirDemande(demande, adresse, { texte: redaction.signature, html: redaction.signatureHtml });
   return { cle: `nouveau:${email}:${Date.now()}`, brouillon: b };

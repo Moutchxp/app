@@ -29,7 +29,12 @@ import { formuleAppel, type Civilite } from './syndics';
  * fiche syndic, ce syndic. LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS : le bien voyage aussi depuis une carte
  * client de la fiche bien, sans syndic.
  */
-export interface ContexteEcriture { lotId: number | null; syndicId?: number }
+export interface ContexteEcriture {
+  lotId: number | null; syndicId?: number;
+  /** 🔴 (Arno, 28/11/2026, 12h17, point 2) les AUTRES destinataires d'un même mail (« Écrire aux adresses sélectionnées ») : avec l'adresse cliquée,
+   *  tous en « À ». Absent : l'adresse seule, comme avant. */
+  autres?: readonly string[];
+}
 
 /** « Écrire depuis gestion@ » : l'adresse cliquée, et ce qu'on sait d'où l'on vient. */
 export type EcrireDepuisGestionFn = (email: string, contexte?: ContexteEcriture) => void;

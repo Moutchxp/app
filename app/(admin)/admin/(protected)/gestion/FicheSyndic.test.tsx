@@ -3927,6 +3927,27 @@ describe('LOT MAIL-SYNDIC-PREREMPLI — « Écrire depuis gestion@ » emporte le
     await cliquer(ecrireGenerique());
     expect(onEcrire).toHaveBeenCalledWith('standard@test.invalid', { syndicId: 11, lotId: null });
   });
+  // ══ 🔴🔴 Arno (28/11/2026, 12h17, point 2) — « Copier » au bout de chaque e-mail, une case, et « Écrire aux adresses sélectionnées (N) »
+  it('🔴 12h17 — l’e-mail : « Copier », une case, « Écrire depuis gestion@ » ; coché → « Écrire aux adresses sélectionnées (1) » (le même geste)', async () => {
+    const onEcrire = vi.fn((_e: string, _sy?: unknown) => {});
+    await ouvrirAvecLot(null, onEcrire);
+    const ligne = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ')!;
+    expect(ligne.querySelector('button.bcp')?.getAttribute('aria-label')).toBe('Copier l’adresse standard@test.invalid');
+    expect(document.querySelector('[data-ecrire-selection]')).toBeNull();
+    await cliquer(ligne.querySelector('[data-case-mail="standard@test.invalid"]') as HTMLElement);
+    const groupe = document.querySelector('[data-ecrire-selection]') as HTMLButtonElement;
+    expect(groupe.textContent).toBe('Écrire aux adresses sélectionnées (1)');
+    await cliquer(groupe);
+    expect(onEcrire).toHaveBeenCalledWith('standard@test.invalid', { syndicId: 11, lotId: null, autres: [] });
+  });
+  it('🔴 12h17 — sans droit d’envoi (aucun composeur) : « Copier » reste, ni case ni bouton groupé', async () => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn() })); });
+    await calmer();
+    const ligne = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ')!;
+    expect(ligne.querySelector('button.bcp')).not.toBeNull();
+    expect(document.querySelectorAll('[data-case-mail], [data-ecrire-selection]')).toHaveLength(0);
+  });
 });
 
 /**

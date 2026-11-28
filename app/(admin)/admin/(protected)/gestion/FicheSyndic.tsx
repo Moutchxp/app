@@ -26,6 +26,7 @@ import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { sourceAdressesSyndic } from './adressesSyndic';
 import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
+import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from './SelectionMails';
 import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 /* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — doublon possible à la création, syndic connu pour l'adresse. */
 import {
@@ -157,6 +158,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const ecrire = useMemo(() => (onEcrire === undefined ? undefined
     : (email: string) => onEcrire(email, syndicId !== null ? { syndicId, lotId: lotDepart }
       : lotDepart !== null ? { lotId: lotDepart } : undefined)),
+  [onEcrire, syndicId, lotDepart]);
+  /** 🔴 (Arno, 28/11/2026, 12h17, point 2) « Écrire aux adresses sélectionnées » : le même geste, UN mail, toutes les adresses cochées en « À ». */
+  const ecrirePlusieurs = useMemo(() => (onEcrire === undefined ? undefined
+    : (emails: string[]) => { if (emails.length > 0) onEcrire(emails[0], { ...(syndicId !== null ? { syndicId } : {}), lotId: lotDepart, autres: emails.slice(1) }); }),
   [onEcrire, syndicId, lotDepart]);
 
   const charger = useCallback(async (id: number): Promise<Fiche | null> => {
@@ -487,7 +492,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   return (
     <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) annuler(); }}>
       <style>{CSS_FICHE_SYNDIC}</style>
-      <style>{CSS_BOUTON_COPIER}</style>
+      <style>{CSS_BOUTON_COPIER + CSS_SELECTION_MAILS}</style>
       {/* Variante « location » : texte des boutons rouges en couleur de SURFACE (convention de la tuile Location), lisible sur
           le rouge clair du thème Sombre. La Gestion garde son style. */}
       {variante === 'location' && <style>{'.fsy--location .svv-btn-primary{color:var(--color-svv-surface)}'}</style>}
@@ -540,7 +545,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               motSelectionner="Choisir celui-ci" motCreer={MOT_CREER_MALGRE_DOUBLON} />
           )}
           {confirmation === null && mode === 'edition' && (
-            <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
+            <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire} onEcrirePlusieurs={ecrirePlusieurs}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression} demanderSuppression={demanderSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
               ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}
@@ -758,10 +763,16 @@ function LienTel({ tel }: { tel: string }) {
 function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
   const e = email.trim();
   if (!emailPlausible(e)) return null;
-  return onEcrire
-    ? <button type="button" className="fsy-lien-bouton fsy-action" onClick={() => onEcrire(e)}
-        title="Écrire depuis gestion@ avec le composeur de l’application">Écrire depuis gestion@</button>
-    : <a className="fsy-action" href={`mailto:${e}`}>Écrire</a>;
+  // 🔴 (Arno, 28/11/2026, 12h17, point 2) « dans le prolongement de chaque ligne un bouton copier » ; la case pour écrire à plusieurs (avec le droit d'envoi)
+  return (
+    <span className="fsy-action fsy-actions-mail">
+      <BoutonCopier valeur={e} quoi={`l’adresse ${e}`} />
+      {onEcrire
+        ? <><CaseMail email={e} /><button type="button" className="fsy-lien-bouton" onClick={() => onEcrire(e)}
+            title="Écrire depuis gestion@ avec le composeur de l’application">Écrire depuis gestion@</button></>
+        : <a href={`mailto:${e}`}>Écrire</a>}
+    </span>
+  );
 }
 
 /**
@@ -872,7 +883,7 @@ function ChampsCpVille({ form, setForm, manques, libre = true }: { form: SyndicF
 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, demanderSuppression, envoi, onSupprimer, tente,
+function Edition({ form, setForm, fiche, syndicId, onEcrire, onEcrirePlusieurs, connus, suppression, setSuppression, demanderSuppression, envoi, onSupprimer, tente,
   ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null }: {
   /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse propre du bien, si c'est une adresse secondaire de sa copropriété. */
   adresseBien?: ImmeubleSaisi | null;
@@ -880,6 +891,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le gros bouton (ou sa confirmation), sous le bloc 2, depuis un bien. */
   retrait?: React.ReactNode;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
+  /** 🔴 (Arno, 28/11/2026, 12h17, point 2) plusieurs adresses cochées → UN mail */
+  onEcrirePlusieurs?: (emails: string[]) => void;
   suppression: 0 | 1 | 2; setSuppression: (v: 0 | 1 | 2) => void; demanderSuppression: () => void; envoi: boolean; onSupprimer: () => void;
   /** Vrai après un « Valider » refusé : les champs d'adresse vides se cerclent de rouge. */
   tente: boolean;
@@ -949,8 +962,11 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const a = apercuPropagation(form.immeubles, connus, syndicId);
   const retirees = coproprietesRetirees(fiche === null ? [] : versFormulaire(fiche).immeubles, form.immeubles);
   const biensPerdus = fiche?.coproprietes.flatMap((c) => c.lots.map((l) => ({ ...l, immeuble: adresseImmeuble(c.libelle, c.codePostal, c.commune) }))) ?? [];
+  // 🔴 (Arno, 28/11/2026, 12h17, point 2) les adresses cochées (cases des lignes d'e-mail, seulement avec le droit d'envoi)
+  const selection = useEtatSelectionMails();
 
   return (
+    <FournisseurSelectionMails selection={selection}>
     <div className="fsy-bloc fsy-deux-blocs">
       {/* ══ 🔴🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — DEUX BLOCS ENCADRÉS, L'UN SOUS L'AUTRE, SANS RIEN RETIRER ══════════════
           ARNO : « la fiche syndic est peu claire ». BLOC 1 = ce qui est déjà validé pour cet immeuble (coordonnées du
@@ -960,6 +976,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-1">
         {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseAffichee ?? adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
       </h3>
+      {onEcrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={onEcrirePlusieurs} />}
       {/* 🔴 LOT 6 — à la place du « + », des autres adresses et des adresses de la parcelle : le lien vers la fiche copropriété. */}
       {coproDuBien !== null && <p className="fsy-lien-copro"><LienFicheCopropriete immeuble={coproDuBien.libelle} /></p>}
       {/* 🔴 UN SYNDIC EXISTANT SANS ADRESSE COMPLÈTE reste consultable ; l'obligation vaut à la prochaine modification. */}
@@ -1267,6 +1284,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         <button type="button" className="fsy-lien-bouton fsy-supprimer-lien" onClick={demanderSuppression}>Supprimer ce syndic pour cause de fermeture définitive</button>
       ))}
     </div>
+    </FournisseurSelectionMails>
   );
 }
 
@@ -2448,7 +2466,13 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-mini-btn{min-height:34px;padding:.25rem .65rem;font-size:.82rem}
 .fsy-ligne-champ{display:flex;align-items:center;gap:.6rem;min-width:0}
 .fsy-ligne-champ input{flex:0 1 20rem;min-width:0}
+/* 🔴 (Arno, 28/11/2026, 12h17, point 2) « Copier », la case et « Écrire » : sous l'adresse quand la place manque (téléphone), jamais l'adresse écrasée */
+.fsy-ligne-champ{flex-wrap:wrap}
+.fsy-ligne-champ input[type="email"]{flex:1 1 14rem}
+.fsy-contact-coord{flex-wrap:wrap}
+.fsy-contact-coord > .fsy-coord-gauche{flex:1 1 12rem}
 .fsy-action{flex:0 0 auto;margin-left:auto;font-size:.82rem;white-space:nowrap}
+.fsy-actions-mail{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap}
 .fsy-bloc--serre{gap:.3rem}
 .fsy-champ--manque input{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
 .fsy-champ--manque > span:first-child{color:var(--color-svv-red)}

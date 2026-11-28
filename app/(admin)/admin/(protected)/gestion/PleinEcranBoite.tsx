@@ -441,7 +441,7 @@ export function PleinEcranBoite({
     if (email === '') return;
     if (!(redaction?.schemaPret && redaction.peutEnvoyer)) { onEcrireAConsomme?.(); return; }
     // 🔴 (Arno, 27/11/2026, 22h17) le « Nouveau message » pré-adressé, partagé avec les fiches de la Location (EcrireFlottant)
-    const adresse: BrouillonEcran = brouillonAdresse(email, redaction);
+    const adresse: BrouillonEcran = brouillonAdresse(email, redaction, typeof ecrireA === 'string' ? [] : ecrireA.contexte.autres ?? []);
     onEcrireAConsomme?.();
     if (typeof ecrireA === 'string') { ouvrirRedaction(`nouveau:${email}`, adresse); return; }
     /**

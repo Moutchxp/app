@@ -27,13 +27,13 @@ const BASE = { id: 4, nom: 'CABINET _TEST', adresse: null, codePostal: null, vil
     lots: [LOT(1, '43 Avenue Marceau'), LOT(2, '43 avenue Marceau'), LOT(3, '43 avenue Marceau'), LOT(4, '80 rue de Normandie'), LOT(5, '80 rue de Normandie')] }] };
 
 const reponse = (d: unknown) => new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json' } });
-let container: HTMLDivElement; let root: Root;
+let container: HTMLDivElement; let root: Root; let droit = true;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  ouvertes.brouillons.length = 0; syndic = BASE;
+  ouvertes.brouillons.length = 0; syndic = BASE; droit = true;
   global.fetch = vi.fn(async (entree: RequestInfo | URL) => {
     const url = String(entree);
-    if (url.startsWith('/api/admin/gestion/redaction')) return reponse(CONTEXTE);
+    if (url.startsWith('/api/admin/gestion/redaction')) return reponse({ ...CONTEXTE, peutEnvoyer: droit });
     if (url.includes('syndic=4')) return reponse({ etat: 'ok', data: syndic });
     return reponse({ etat: 'inconnu' });
   }) as unknown as typeof fetch;
@@ -51,5 +51,60 @@ describe('🔴🔴 point 4 — les adresses d’une copropriété : jamais rép�
     expect(adresses[1].textContent).toContain('80 rue de Normandie');
     expect([...container.querySelectorAll('[data-adresses-copro] a')].map((a) => a.getAttribute('href')))
       .toEqual([1, 2, 3, 4, 5].map((i) => `/admin/location/bien/${i}`));
+  });
+});
+
+/* ══ 🔴🔴 Arno (28/11/2026, 12h17, point 2) — « le numéro de téléphone et le mail sur des lignes séparées, pas en enfilade […] dans le prolongement de chaque
+   ligne un bouton copier ; un bouton "Écrire depuis gestion@" en face de chaque adresse mail ; pouvoir sélectionner plusieurs adresses mail » ══ */
+describe('🔴🔴 point 2 — coordonnées : une ligne chacune, « Copier », cases et écriture groupée', () => {
+  const AVEC_CONTACTS = { ...BASE, telephone: '0140000000', telephone2: '+33140000001', email: 'syndic@exemple.test',
+    contacts: [
+      { id: 1, civilite: 'Mme', prenom: 'Léa', nom: 'MARTIN', titre: 'Gestionnaire', tousImmeubles: false, immeubles: [], coordonnees: [
+        { id: 9, sorte: 'telephone', libelle: null, valeur: '0611223344' }, { id: 10, sorte: 'telephone', libelle: null, valeur: '0144556677' },
+        { id: 11, sorte: 'email', libelle: null, valeur: 'lea@exemple.test' }, { id: 12, sorte: 'email', libelle: null, valeur: 'lea.martin@exemple.test' }] },
+      { id: 2, civilite: null, prenom: 'Paul', nom: 'DURAND', titre: null, tousImmeubles: false, immeubles: [], coordonnees: [
+        { id: 13, sorte: 'email', libelle: null, valeur: 'paul@exemple.test' }] }] };
+  it('une ligne par téléphone et par e-mail (plus d’enfilade « · »), chacune avec « Copier » ; les numéros par la règle commune', async () => {
+    syndic = AVEC_CONTACTS;
+    await rendre();
+    expect([...container.querySelectorAll('[data-ligne-tel]')].map((x) => x.getAttribute('data-ligne-tel')))
+      .toEqual(['01 40 00 00 00', '+33 1 40 00 00 01', '06 11 22 33 44', '01 44 55 66 77']);
+    expect([...container.querySelectorAll('[data-ligne-mail]')].map((x) => x.getAttribute('data-ligne-mail')))
+      .toEqual(['syndic@exemple.test', 'lea@exemple.test', 'lea.martin@exemple.test', 'paul@exemple.test']);
+    for (const l of container.querySelectorAll('[data-ligne-tel], [data-ligne-mail]')) expect(l.querySelector('button.bcp')?.textContent).toBe('Copier');
+    expect(container.querySelector('[data-ligne-tel="01 40 00 00 00"] a')?.getAttribute('href')).toBe('tel:+33140000000'); // le lien : les chiffres
+    // « Écrire depuis gestion@ » en face de chaque adresse, et sa case
+    expect([...container.querySelectorAll('[data-ecrire-syndic]')]).toHaveLength(4);
+    expect([...container.querySelectorAll('[data-case-mail]')].map((x) => x.getAttribute('data-case-mail')))
+      .toEqual(['syndic@exemple.test', 'lea@exemple.test', 'lea.martin@exemple.test', 'paul@exemple.test']);
+  });
+  it('rien coché : pas de bouton groupé ; trois cases cochées → « Écrire aux adresses sélectionnées (3) » ouvre UN mail, les trois en « À »', async () => {
+    syndic = AVEC_CONTACTS;
+    await rendre();
+    expect(container.querySelector('[data-ecrire-selection]')).toBeNull();
+    for (const e of ['lea@exemple.test', 'paul@exemple.test', 'syndic@exemple.test']) {
+      await act(async () => { (container.querySelector(`[data-case-mail="${e}"]`) as HTMLInputElement).click(); });
+    }
+    const b = container.querySelector('[data-ecrire-selection]') as HTMLButtonElement;
+    expect(b.textContent).toBe('Écrire aux adresses sélectionnées (3)');
+    await act(async () => { b.click(); }); await calmer();
+    expect(ouvertes.brouillons.map((x) => x.a)).toEqual([['lea@exemple.test', 'paul@exemple.test', 'syndic@exemple.test']]);
+    expect(container.querySelector('[data-ecrire-selection]')).toBeNull(); // la sélection est vidée après l'ouverture
+  });
+  it('décocher retire l’adresse ; « Tout décocher » vide la sélection', async () => {
+    syndic = AVEC_CONTACTS;
+    await rendre();
+    const caseDe = (e: string) => container.querySelector(`[data-case-mail="${e}"]`) as HTMLInputElement;
+    await act(async () => { caseDe('lea@exemple.test').click(); caseDe('paul@exemple.test').click(); });
+    await act(async () => { caseDe('lea@exemple.test').click(); });
+    expect(container.querySelector('[data-ecrire-selection]')?.textContent).toBe('Écrire aux adresses sélectionnées (1)');
+    await act(async () => { (container.querySelector('.slm-vider') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-ecrire-selection]')).toBeNull();
+  });
+  it('sans le droit d’envoi : ni case, ni « Écrire » ; les lignes et « Copier » restent (rien n’est retiré)', async () => {
+    syndic = AVEC_CONTACTS; droit = false;
+    await rendre();
+    expect(container.querySelectorAll('[data-case-mail], [data-ecrire-syndic], [data-ecrire-selection]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-ligne-mail] button.bcp')).toHaveLength(4);
   });
 });

@@ -62,7 +62,7 @@ describe('🔴 la règle de 7b5715a6, partagée : le droit d’envoi décide (Ge
   it('brouillonAdresse : le « Nouveau message » de la boîte, pré-adressé, signé — partagé avec la boîte Gestion (aucune copie)', () => {
     const b = brouillonAdresse('lea@exemple.test', CONTEXTE);
     expect([b.a, b.id, b.corps.includes('— Gestion')]).toEqual([['lea@exemple.test'], null, true]);
-    expect(readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8')).toContain('const adresse: BrouillonEcran = brouillonAdresse(email, redaction);');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8')).toContain("const adresse: BrouillonEcran = brouillonAdresse(email, redaction, typeof ecrireA === 'string' ? [] : ecrireA.contexte.autres ?? []);");
   });
 });
 
