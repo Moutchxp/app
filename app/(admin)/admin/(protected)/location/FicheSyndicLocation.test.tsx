@@ -157,3 +157,23 @@ describe('🔴🔴 12h54 point 1 — le bloc Coordonnées : deux colonnes, adres
     expect(i.querySelector('a')?.getAttribute('href')).toBe('/admin/gestion?ecran=syndics&syndic=4');
   });
 });
+
+/* ══ 🔴🔴 Arno (28/11/2026, 12h54, point 2) — « justifier à droite la case à cocher et le bouton "Écrire depuis gestion@" » ══ */
+describe('🔴🔴 12h54 point 2 — les actions de chaque ligne, regroupées sur le bord droit', () => {
+  it('valeur à gauche ; « Copier », la case, « Écrire » dans cet ordre, au bord droit ; un téléphone : « Copier » seul ; au téléphone, sous la valeur, à droite', async () => {
+    syndic = { ...BASE, telephone: '0140000000', contacts: [{ id: 1, civilite: null, prenom: 'Léa', nom: 'MARTIN', titre: null, tousImmeubles: false, immeubles: [],
+      coordonnees: [{ id: 9, sorte: 'telephone', libelle: null, valeur: '0611223344' }, { id: 10, sorte: 'email', libelle: null, valeur: 'lea@exemple.test' }] }] };
+    await rendre();
+    const mail = container.querySelector('[data-ligne-mail="lea@exemple.test"] .loc-coord-actions')!;
+    expect([...mail.children].map((x) => (x.matches('.bcp') ? 'Copier' : x.matches('.slm-case') ? 'case' : x.textContent?.trim()))).toEqual(['Copier', 'case', 'Écrire depuis gestion@']);
+    expect([...container.querySelector('[data-ligne-tel="06 11 22 33 44"] .loc-coord-actions')!.children].map((x) => x.textContent)).toEqual(['Copier']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;');
+    expect(css).toContain('.loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;justify-self:end;');
+    expect(css).toContain('@media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px;justify-self:stretch}}');
+    // le bouton groupé reste à sa place : entre les coordonnées et les contacts
+    await act(async () => { (container.querySelector('[data-case-mail="lea@exemple.test"]') as HTMLInputElement).click(); });
+    const b = container.querySelector('[data-ecrire-selection]')!.closest('.slm-barre')!;
+    expect(b.previousElementSibling?.hasAttribute('data-coordonnees-syndic')).toBe(true);
+  });
+});

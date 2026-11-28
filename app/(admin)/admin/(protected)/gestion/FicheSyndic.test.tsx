@@ -3940,6 +3940,15 @@ describe('LOT MAIL-SYNDIC-PREREMPLI — « Écrire depuis gestion@ » emporte le
     await cliquer(groupe);
     expect(onEcrire).toHaveBeenCalledWith('standard@test.invalid', { syndicId: 11, lotId: null, autres: [] });
   });
+  it('🔴 12h54 point 2 — « Copier », la case, « Écrire » dans cet ordre, regroupés et poussés au bord droit de la ligne', async () => {
+    await ouvrirAvecLot(null, vi.fn());
+    const ligne = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ')!;
+    const groupe = ligne.querySelector('.fsy-actions-mail')!;
+    expect([...groupe.children].map((x) => (x.matches('.bcp') ? 'Copier' : x.matches('.slm-case') ? 'case' : x.textContent?.trim()))).toEqual(['Copier', 'case', 'Écrire depuis gestion@']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.fsy-action{flex:0 0 auto;margin-left:auto;'); // au bord droit, sur la ligne ou sous la valeur quand la place manque
+    expect(css).toContain('.fsy-contact-coord{display:flex;align-items:center;justify-content:space-between;');
+  });
   it('🔴 12h17 — sans droit d’envoi (aucun composeur) : « Copier » reste, ni case ni bouton groupé', async () => {
     act(() => { root.unmount(); }); root = createRoot(container);
     await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn() })); });

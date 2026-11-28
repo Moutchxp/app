@@ -325,10 +325,12 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
 /* 🔴 (Arno, 28/11/2026, 12h17, point 2) une ligne par téléphone et par e-mail : la valeur, puis ses boutons dans le prolongement, alignés d'une ligne à
    l'autre (une grille de deux colonnes) ; au téléphone, les boutons passent sous la valeur si la place manque. AUCUN ACCENT GRAVE dans ce littéral. */
 const CSS_COORDONNEES_SYNDIC = `
-.loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,max-content) minmax(0,1fr);column-gap:10px;row-gap:2px;align-items:center}
+.loc-coord-lignes{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center}
 .loc-coord-lignes > li{display:contents}
 .loc-coord-valeur{min-width:0;overflow-wrap:anywhere}
-.loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-height:32px}
+/* 🔴 (Arno, 28/11/2026, 12h54, point 2) « justifier à droite » : « Copier », la case, « Écrire depuis gestion@ » regroupés sur le bord DROIT du bloc,
+   à la même place d'une ligne à l'autre (un téléphone : « Copier » seul, à droite) ; au téléphone, sous la valeur, toujours à droite */
+.loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;justify-self:end;gap:4px 6px;min-height:32px}
 .loc-coord-actions .loc-ecrire-syndic{width:auto;min-height:32px;padding:2px 12px;white-space:nowrap;margin:0}
 /* 🔴 (Arno, 28/11/2026, 12h54, point 1) le bloc Coordonnées : deux colonnes serrées (adresse puis note ; téléphones puis e-mails) ; au téléphone, empilé */
 .loc-coord-bloc{margin:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);column-gap:22px;row-gap:8px;align-items:start}
@@ -358,5 +360,5 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-copro-total{margin:2px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-weight:700;color:var(--color-svv-ink)}
 .loc-copro-biens{margin:0;font-size:.82rem}
 .loc-copros-compte{font-size:.9rem;font-weight:400}
-@media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px}}
+@media (max-width:560px){.loc-coord-lignes{grid-template-columns:minmax(0,1fr)}.loc-coord-actions{margin-bottom:4px;justify-self:stretch}}
 `;
