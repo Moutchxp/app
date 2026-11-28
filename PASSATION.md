@@ -1725,12 +1725,19 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome, préavis de test, 1440 et 390 px, clair et sombre. Aucune requête non GET.
   - Captures `.captures/preavis-format-pile/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 10h48-11h14 — MISE EN PRODUCTION de `a69fb55b` (migration 522), lancée par Arno
+- Contrôle 522 en lecture seule : 0 doublon, 0 clé changée.
+- Copie de la production et épreuve de la 522 : 0 erreur, 3 refus, 2 acceptées ; copie effacée.
+- Sauvegarde `/home/ubuntu/sauvegardes/2026-11-28_1059` ; `3-essai.sh` : ESSAI RÉUSSI.
+- `4-appliquer.sh` : « MISE À JOUR RÉUSSIE — a69fb55b en service », 522 appliquée 1/1.
+- `5-verifier.sh` : « ÉTAPE E RÉUSSIE » (`fonction_522=ok`, 0 adresse sans clé, 0 doublon, copropriétés 16/16, alertes servies).
+- Version d'avant (retour arrière du code) : `568344f0`. La 522 reste compatible avec elle (aucune table ni colonne changée).
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-**Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
-En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a`, `8c76ec11` (poussés par Arno, GitHub = `20ba2d62`), puis `708e9bd4` et sa passation, NON poussés. Scripts `.captures/maj/` 1 à 5 recalés sur le HEAD de cette passation (migration 522 seule). **Avant la prochaine mise en production
-(Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
-à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
+**Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
+**519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
+GitHub = `a69fb55b` (poussé par `2-push.sh`). Rien en attente de mise en production à ce commit. Les scripts `.captures/maj/1` à `6` sont calés sur
+`a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
 - Sur le modèle de 1-sauvegarde.sh / 5-verifier.sh : `ssh svav-prod`, `.env` chargé SUR le serveur (aucun secret affiché), envoi des deux fichiers
