@@ -175,3 +175,22 @@ describe('🔴 01h07 — paireCommune : une paire (collaborateur + locataires) p
     expect(paireCommune([C], ['Locataires : Confirmé'])).toBe(false);
   });
 });
+
+describe('🔴 01h28 — grouperParRdv : « Sans rendez-vous fixé » d’abord, puis « Avec rendez-vous fixé » (le tri RDV dans le second)', async () => {
+  const { grouperParRdv, TITRE_GROUPE_RDV } = await import('./triRdvPreavis');
+  const LS = [
+    L('proche', { previsite: pv('programmee', '2026-11-20') }),
+    L('sans-tard', { previsite: pv('recu'), dateMax: '2027-01-15' }),
+    L('loin', { previsite: pv('programmee', '2026-12-20') }),
+    L('sans-tot', { previsite: pv('effectuee', '2026-11-01'), dateMax: '2026-12-01' }),
+  ];
+  it('les titres, l’ordre des groupes, l’ordre dans chacun', () => {
+    expect(TITRE_GROUPE_RDV).toEqual({ sans: 'Sans rendez-vous fixé', avec: 'Avec rendez-vous fixé' });
+    expect(grouperParRdv(LS, 'proches').map((g) => [g.groupe, g.lignes.map((x) => x.cle)])).toEqual([['sans', ['sans-tot', 'sans-tard']], ['avec', ['proche', 'loin']]]);
+    expect(grouperParRdv(LS, 'lointains').map((g) => [g.groupe, g.lignes.map((x) => x.cle)])).toEqual([['sans', ['sans-tot', 'sans-tard']], ['avec', ['loin', 'proche']]]);
+  });
+  it('aucune ligne perdue ; un groupe peut être vide (son titre n’est pas affiché par l’écran)', () => {
+    expect(grouperParRdv(LS, 'proches').flatMap((g) => g.lignes).length).toBe(4);
+    expect(grouperParRdv([LS[0]], 'proches').map((g) => g.lignes.length)).toEqual([0, 1]);
+  });
+});

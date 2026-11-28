@@ -256,8 +256,10 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
   const plein = () => monter(createElement(BlocPreavisAccueil, { gestion: true, plein: true }));
   it('tri par défaut = celui du bloc : 🔴 (15/11/2026) le rendez-vous le plus proche d’abord, puis les lignes sans rendez-vous (fin de préavis la plus proche d’abord)', async () => {
     const c = await plein();
-    expect(ordre(c)).toEqual(['B', 'A', 'C']);
+    // 🔴 (28/11/2026, 01h28) « Sans rendez-vous fixé » D'ABORD, puis « Avec rendez-vous fixé » (Arno)
+    expect(ordre(c)).toEqual(['A', 'C', 'B']);
     expect(c.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (2)');
+    expect(c.querySelector('[data-separateur-avec-rdv]')!.textContent).toBe('Avec rendez-vous fixé (1)');
   });
   it.each([
     ['recu:asc', ['A', 'C', 'B']], ['recu:desc', ['B', 'C', 'A']],
@@ -282,7 +284,7 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     await clic(c.querySelector('[data-filtre-previsite="alerte"]'));
     expect(ordre(c)).toEqual(['A', 'C']);
     await clic(c.querySelector('[data-filtre-previsite="rdv_previsite"]'));
-    expect(ordre(c)).toEqual(['B', 'A', 'C']); // le tri chronologique des rendez-vous (défaut) reste actif avec les filtres
+    expect(ordre(c)).toEqual(['A', 'C', 'B']); // les deux groupes (sans, puis avec rendez-vous) et le tri RDV (défaut) restent actifs avec les filtres
     await clic(c.querySelector('[data-filtre-previsite="tous"]'));
     await clic(c.querySelector('[data-filtre-previsite="previsite_effectuee"]'));
     expect(ordre(c)).toEqual([]);
@@ -292,7 +294,10 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     const champ = c.querySelector('[data-recherche-preavis]') as HTMLInputElement;
     const saisir = async (v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, v); champ.dispatchEvent(new Event('input', { bubbles: true })); }); };
     await saisir('bernard'); expect(ordre(c)).toEqual(['B']);
+    // 🔴 (28/11/2026, 01h28) la recherche porte sur les deux groupes : B (avec rendez-vous) seul → seul le titre « Avec rendez-vous fixé (1) »
+    expect([...c.querySelectorAll('[data-groupe-rdv]')].map((x) => x.textContent)).toEqual(['Avec rendez-vous fixé (1)']);
     await saisir('GAMMA'); expect(ordre(c)).toEqual(['C']);
+    expect([...c.querySelectorAll('[data-groupe-rdv]')].map((x) => x.textContent)).toEqual(['Sans rendez-vous fixé (1)']);
     await saisir(''); expect(ordre(c)).toHaveLength(3);
   });
   it('le bloc (hors pleine page) garde ses tris d’avant, sans recherche', async () => {

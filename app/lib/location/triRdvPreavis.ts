@@ -73,6 +73,18 @@ export function ordonnerParRdv<T extends LigneRdv>(lignes: readonly T[], mode: E
   return { avecRdv, sansRdv };
 }
 
+/* ══ 🔴🔴 Arno (28/11/2026, 01h28) — DEUX GROUPES, « Sans rendez-vous fixé » D'ABORD ══════════════════════════════════════════════════════════════
+   « Il y a 2 catégories de lignes : les locataires dont un RDV a été fixé et ceux sans RDV fixé. Afficher d'abord les locataires "Sans rendez-vous fixé",
+   ensuite ceux "Avec rendez-vous fixé". » Les deux groupes, dans l'ORDRE D'AFFICHAGE : « Sans » (par fin de préavis la plus proche, comme avant), puis
+   « Avec » (le tri RDV : plus proches / plus lointains d'abord). Les groupes viennent avec le tri RDV, comme le séparateur d'avant ; « Tri RDV
+   désactivé » : la liste reste celle des tris du panneau, d'un seul tenant (inchangé). Le partage est celui de `rdvDuStatut` (un rendez-vous fixé, même
+   dépassé). Aucune ligne perdue. PUR. */
+export const TITRE_GROUPE_RDV: Record<'sans' | 'avec', string> = { sans: 'Sans rendez-vous fixé', avec: 'Avec rendez-vous fixé' };
+export function grouperParRdv<T extends LigneRdv>(lignes: readonly T[], mode: Exclude<ModeTriRdv, 'off'>): { groupe: 'sans' | 'avec'; lignes: T[] }[] {
+  const o = ordonnerParRdv(lignes, mode);
+  return [{ groupe: 'sans' as const, lignes: o.sansRdv }, { groupe: 'avec' as const, lignes: o.avecRdv }];
+}
+
 /** « AAAA-MM-JJ HH:MM » à Paris (le moment présent, comparé aux rendez-vous). */
 export function maintenantParis(d: Date = new Date()): string {
   const p = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d);

@@ -25,7 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
-import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, paireCommune, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -212,9 +212,11 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   );
   // la liste affichée : chronologique (🔴 16/11/2026 : les lignes « RDV … fixé » seulement, puis « Sans rendez-vous fixé (n) » par fin de
   // préavis), ou l'ordre des tris du panneau
-  const ordreRdv = triRdv === 'off' ? null : ordonnerParRdv(lignes, triRdv);
-  const affichage: (LignePreavisAccueil | { separateur: number })[] = ordreRdv === null ? lignes
-    : [...ordreRdv.avecRdv, ...(ordreRdv.sansRdv.length > 0 ? [{ separateur: ordreRdv.sansRdv.length }] : []), ...ordreRdv.sansRdv];
+  // 🔴🔴 (Arno, 28/11/2026, 01h28) DEUX GROUPES : « Sans rendez-vous fixé (N) » D'ABORD, puis « Avec rendez-vous fixé (N) » (le tri RDV s'applique dans ce
+  // second groupe) ; filtres et recherche portent sur les deux (`lignes`) ; un groupe vide n'a pas de titre. Tri RDV désactivé : l'ordre des tris du
+  // panneau, d'un seul tenant, comme avant
+  const affichage: (LignePreavisAccueil | { separateur: 'sans' | 'avec'; nombre: number })[] = triRdv === 'off' ? lignes
+    : grouperParRdv(lignes, triRdv).flatMap((g) => (g.lignes.length === 0 ? [] : [{ separateur: g.groupe, nombre: g.lignes.length }, ...g.lignes]));
   return (
     <ContextePreavis.Provider value={contexte}>
     <section className={`pva${deplie ? '' : ' blr-bloc'}`} aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
@@ -295,7 +297,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
           {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>{toutes.length > 0 ? 'Aucun préavis avec ce statut' : 'Aucun locataire en préavis'}</p> : (
             <ul className="pva-liste">
               {affichage.map((l) => {
-                if ('separateur' in l) return <li key="sans-rdv" className="pva-separateur" data-separateur-sans-rdv>Sans rendez-vous fixé ({l.separateur})</li>;
+                if ('separateur' in l) return <li key={`${l.separateur}-rdv`} className="pva-separateur" data-groupe-rdv={l.separateur}
+                  {...(l.separateur === 'sans' ? { 'data-separateur-sans-rdv': '' } : { 'data-separateur-avec-rdv': '' })}>{TITRE_GROUPE_RDV[l.separateur]} ({l.nombre})</li>;
                 const noms = l.locataires.map((x) => x.nom).join(', ');
                 /* 🔴🔴 Arno (15/11/2026) — DEUX LIGNES : 1) nom(s) + adresse ; 2) colonnes FIXES communes à tout le listing : A « Fin de préavis »,
                    B le rendez-vous fixé (mis en évidence, couleur de son type), C les détails existants. Aucune information retirée : le texte
@@ -906,6 +909,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-tri-rdv{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.88rem;font-weight:700;cursor:pointer}
 .pva-tri-rdv[data-tri-rdv="off"]{color:var(--color-svv-muted);font-weight:600}
 .pva-separateur{padding:8px 12px;font-size:.82rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);background:var(--color-svv-field);border-top:1px solid var(--color-svv-line)}
+/* 🔴 (28/11/2026, 01h28) le titre du premier groupe, en tête de liste : sans double trait, aux coins de la liste */
+.pva-separateur:first-child{border-top:0;border-radius:13px 13px 0 0}
 .pva-tri{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .pva-tri-libelle{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
 .pva-segment{min-height:44px;padding:8px 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.9rem;cursor:pointer}
