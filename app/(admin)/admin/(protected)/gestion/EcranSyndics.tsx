@@ -1,11 +1,12 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { nomAvecVille, type SyndicResume } from '../../../../lib/gestion/syndics';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { FicheSyndic } from './FicheSyndic';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
+import { retourVersOrigine } from '../_composants/NavigationRetour';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — L'ÉCRAN « SYNDICS » ══════════════════════════════════════════════
@@ -28,10 +29,11 @@ export function EcranSyndics({ onEcrire, retour = null }: {
   const [version, setVersion] = useState(0);
   const [ouvert, setOuvert] = useState<{ id: number | null } | null>(null);
   // 🔴 (Arno, 28/11/2026, 12h54, point 1) « Adresse incomplète — à compléter » (fiche syndic de la Location) : `?syndic=N` ouvre ce syndic, pour le modifier
+  const depuisAdresse = useRef(false);
   useEffect(() => {
     const n = Number(new URLSearchParams(window.location.search).get('syndic'));
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (Number.isInteger(n) && n > 0) setOuvert({ id: n });
+    if (Number.isInteger(n) && n > 0) { depuisAdresse.current = true; setOuvert({ id: n }); }
   }, []);
 
   useEffect(() => {
@@ -45,7 +47,11 @@ export function EcranSyndics({ onEcrire, retour = null }: {
     return () => { vivant = false; clearTimeout(t); };
   }, [q, version]);
 
-  const fermer = (): void => { setOuvert(null); setVersion((v) => v + 1); void rafraichirImmeubles(); };
+  const fermer = (): void => {
+    // 🔴 (Arno, 28/11/2026, 13h18, point 3) ouvert par l'adresse (« à compléter » de la fiche syndic de la Location) : retour à la page d'origine
+    if (depuisAdresse.current) { depuisAdresse.current = false; if (retourVersOrigine()) return; }
+    setOuvert(null); setVersion((v) => v + 1); void rafraichirImmeubles();
+  };
 
   return (
     <section className="esy" aria-labelledby="esy-titre">

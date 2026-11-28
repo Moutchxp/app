@@ -15,6 +15,12 @@ vi.mock('../gestion/FenetresRedaction', () => ({
   }),
   FenetresRedaction: () => null,
 }));
+// la fiche copropriété (fenêtre) : un simple double, « Fermer » appelle onFerme
+vi.mock('../gestion/FicheCopropriete', async () => {
+  const { createElement } = await import('react');
+  return { FicheCopropriete: ({ immeuble, onFerme }: { immeuble: string; onFerme: () => void }) =>
+    createElement('div', { 'data-fiche-copro-double': immeuble }, createElement('button', { type: 'button', onClick: onFerme, 'data-fermer-double': '' }, 'Fermer')) };
+});
 import { FicheSyndicLocationVue } from './EcransLocation';
 
 const CONTEXTE = { schemaPret: true, peutEnvoyer: true, jetonPresent: true, signature: '— Gestion', signatureHtml: '', nomExpediteur: 'CRITERIMMO',
@@ -64,16 +70,23 @@ describe('🔴🔴 points 3 et 4 — « Copropriétés suivies » : un encadré 
     expect(e.querySelector('[data-copro-total]')?.textContent).toBe('Total : 4 lots en gestion dont 3 logements et 1 parking');
     expect([...e.querySelectorAll('[data-biens-copro] a')].map((a) => a.getAttribute('href'))).toEqual([1, 2, 3, 4, 5].map((i) => `/admin/location/bien/${i}`));
   });
-  it('un clic sur l’encadré ouvre la fiche copropriété ; un clic sur le lien d’un bien ouvre le bien', async () => {
+  it('🔴 13h18 point 3 — un clic sur l’encadré ouvre la fiche copropriété EN FENÊTRE, ici même ; « Fermer » rend la fiche syndic (relue), sans changer de page', async () => {
     syndic = { ...BASE, resumeCopros: RESUME };
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });
     await rendre();
-    await act(async () => { (container.querySelector('[data-copro-nom]') as HTMLElement).click(); });
-    expect(assign).toHaveBeenCalledWith('/admin/location/coproprietes?ouvrir=43%20avenue%20marceau');
-    assign.mockClear();
+    const lectures = () => (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([u]) => String(u).includes('syndic=4')).length;
+    const avant = lectures();
+    await act(async () => { (container.querySelector('[data-copro="43 avenue marceau"] [data-adresse-copro]') as HTMLElement).click(); });
+    expect(container.querySelector('[data-fiche-copro-double]')?.getAttribute('data-fiche-copro-double')).toBe('43 Avenue Marceau');
+    await act(async () => { (container.querySelector('[data-fermer-double]') as HTMLButtonElement).click(); }); await calmer();
+    expect(container.querySelector('[data-fiche-copro-double]')).toBeNull();
+    expect(container.querySelector('[data-copros-suivies]')).not.toBeNull(); // toujours la fiche syndic
+    expect(assign).not.toHaveBeenCalled(); // aucune navigation : la page (et son défilement) n'a pas changé
+    expect(lectures()).toBeGreaterThan(avant); // relue après la fenêtre (ce qui a été modifié s'y voit)
+    // un clic sur le lien d'un bien ouvre le bien, pas la fiche copropriété
     await act(async () => { const a = container.querySelector('[data-biens-copro] a') as HTMLAnchorElement; a.addEventListener('click', (ev) => ev.preventDefault()); a.click(); });
-    expect(assign).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-fiche-copro-double]')).toBeNull();
     vi.unstubAllGlobals();
   });
   it('sans résumé (lecture des lots impossible) : les adresses de la copropriété, sans compte ; rien de cassé', async () => {
@@ -241,6 +254,6 @@ describe('🔴🔴 13h18 point 2 — les collaborateurs affectés, dans chaque e
     await act(async () => { (container.querySelector('[data-ecrire-collaborateur="o.fabre@exemple.test"]') as HTMLButtonElement).click(); }); await calmer();
     expect(ouvertes.brouillons.map((b) => b.a)).toEqual([['o.fabre@exemple.test']]);
     await act(async () => { const a = container.querySelector('[data-collaborateur="1"] a[href^="tel:"]') as HTMLAnchorElement; a.addEventListener('click', (e) => e.preventDefault()); a.click(); });
-    expect(document.querySelector('[data-fiche-copro-ouverte]')).toBeNull();
+    expect(document.querySelector('[data-fiche-copro-double]')).toBeNull();
   });
 });

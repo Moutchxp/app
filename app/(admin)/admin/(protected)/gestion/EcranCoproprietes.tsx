@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { nomAvecVille } from '../../../../lib/gestion/syndics';
 import { TITRE_HORS_COPROPRIETE, type LigneCopropriete } from '../../../../lib/gestion/copropriete';
 import { FicheCopropriete } from './FicheCopropriete';
+import { retourVersOrigine } from '../_composants/NavigationRetour';
 
 /**
  * ══ 🔴🔴 L'ÉCRAN « COPROPRIÉTÉS » (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 4) ══════════════════════════════════════════════════════
@@ -40,6 +41,7 @@ export function EcranCoproprietes({ retour = null, ouvrirDepart = null }: { reto
   const [erreur, setErreur] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [ouverte, setOuverte] = useState<string | null>(ouvrirDepart);
+  const depuisAdresse = useRef(ouvrirDepart !== null);
   const [rg, setRg] = useState<Regroupements | null>(null);
   const [coches, setCoches] = useState<string[]>([]);
   const [toutesPropositions, setToutesPropositions] = useState(false);
@@ -174,7 +176,11 @@ export function EcranCoproprietes({ retour = null, ouvrirDepart = null }: { reto
           ); })}
         </ul>
       )}
-      {ouverte !== null && <FicheCopropriete immeuble={ouverte} onFerme={() => { setOuverte(null); setVersion((v) => v + 1); }} />}
+      {ouverte !== null && <FicheCopropriete immeuble={ouverte} onFerme={() => {
+        // 🔴 (Arno, 28/11/2026, 13h18, point 3) ouverte par l'adresse (`?ouvrir=`, depuis une autre page) : on revient à la page d'origine, dans son état
+        if (depuisAdresse.current) { depuisAdresse.current = false; if (retourVersOrigine()) return; }
+        setOuverte(null); setVersion((v) => v + 1);
+      }} />}
       {aRegrouper !== null && (
         <ModaleRegrouper fiches={aRegrouper.fiches} principale={aRegrouper.principale} disponible={rg?.disponible !== false} envoi={envoi} refus={refusModale}
           onPrincipale={(p) => setARegrouper({ ...aRegrouper, principale: p })} onConfirmer={() => { void confirmerRegroupement(); }} onAnnuler={() => setARegrouper(null)} />

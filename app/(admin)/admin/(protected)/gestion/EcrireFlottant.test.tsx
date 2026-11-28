@@ -87,6 +87,6 @@ describe('🔴 (Arno, 28/11/2026, 12h54, point 1) l’écran des syndics de la G
   it('« ?syndic=N » ouvre sa fiche, pour la modifier (le lien « à compléter » de la Location)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/EcranSyndics.tsx', 'utf8');
     expect(src).toContain("const n = Number(new URLSearchParams(window.location.search).get('syndic'));");
-    expect(src).toContain('if (Number.isInteger(n) && n > 0) setOuvert({ id: n });');
+    expect(src).toContain('if (Number.isInteger(n) && n > 0) { depuisAdresse.current = true; setOuvert({ id: n }); }'); // 🔴 (13h18) et la fermeture ramène à l'origine
   });
 });

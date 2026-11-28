@@ -15,6 +15,7 @@ import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
 import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
 import { lienAppel, telephoneLisible } from '../../../../lib/gestion/telephoneAffichage';
 import { prenomNomCivil } from '../../../../lib/gestion/syndics';
+import { FicheCopropriete } from '../gestion/FicheCopropriete';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -206,7 +207,11 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
  *  🔴🔴 (Arno, 27/11/2026, 22h17) ses e-mails ne sont plus en lecture seule : « Écrire depuis gestion@ » (le module de la boîte Gestion, fenêtre
  *  flottante) quand le compte a le DROIT D'ENVOI — la règle de 7b5715a6 ; sans lui, l'adresse reste telle quelle. */
 export function FicheSyndicLocationVue({ id }: { id: number }) {
-  const { etat } = useLecture<FicheSyndicLocation>(`syndic=${id}`);
+  const { etat, rafraichir } = useLecture<FicheSyndicLocation>(`syndic=${id}`);
+  /* 🔴🔴 Arno (28/11/2026, 13h18, point 3) — « quand je referme cette fenêtre j'arrive sur un autre écran : il faut revenir sur l'écran du syndic d'où l'on
+     vient » : la fiche copropriété s'ouvre EN FENÊTRE, ici même (la même que partout) ; « Fermer », « × » ou « Valider » rendent la fiche syndic au même
+     endroit (la page n'a pas changé), relue pour montrer ce qui a été modifié. */
+  const [coproOuverte, setCoproOuverte] = useState<string | null>(null);
   const ecrire = useEcrireFlottant(useContexteRedaction());
   const boutonEcrire = (email: string | null | undefined) => (ecrire.onEcrire === undefined || !email || !email.includes('@') ? null
     : <> <button type="button" className="svv-btn svv-btn-outline gst-btn loc-ecrire-syndic" onClick={() => ecrire.onEcrire?.(email.trim(), { syndicId: id, lotId: null })}
@@ -251,6 +256,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
       <style>{CSS_LOCATION_ECRANS + CSS_BOUTON_COPIER + CSS_SELECTION_MAILS + CSS_COORDONNEES_SYNDIC}</style>
       <EnTeteLocation titre={s.nom} sous={<span className="loc-pastille">Syndic</span>} />
       {ecrire.fenetres}
+      {coproOuverte !== null && <FicheCopropriete immeuble={coproOuverte} onFerme={() => { setCoproOuverte(null); rafraichir(); }} />}
       {/* 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « réorganiser ce premier bloc qui est plein de vide et exploite mal l'espace ; le rendre plus cohérent ;
           l'adresse postale du syndic doit être présente » : deux colonnes à l'ordinateur (gauche : adresse complète, puis note ; droite : téléphones, puis
           e-mails, une ligne par valeur), marges serrées ; au téléphone, empilé : adresse, téléphones, e-mails, note. */}
@@ -299,7 +305,7 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
             {liste(s.coproprietes).map((c) => {
               const r = s.resumeCopros?.copros.find((x) => x.id === c.id) ?? null;
               const adresses = r?.adresses ?? [{ libelle: c.libelle, principale: true, biens: -1, teteIds: [] }, ...liste(c.adresses).map((a) => ({ libelle: a.libelle, principale: false, biens: -1, teteIds: [] }))];
-              const ouvrir = () => { window.location.assign(`/admin/location/coproprietes?ouvrir=${encodeURIComponent(c.cle)}`); };
+              const ouvrir = () => { setCoproOuverte(c.libelle); };
               return (
                 <li key={c.id} className="loc-copro" data-copro={c.cle} role="link" tabIndex={0} title="Ouvrir la fiche de la copropriété"
                   onClick={(e) => { if ((e.target as HTMLElement).closest('a, button')) return; ouvrir(); }}
