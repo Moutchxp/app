@@ -1669,10 +1669,26 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Captures `.captures/preavis-empilement-tuiles/`. Aucune migration.
   - ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 09h56 — ligne repliée en trois lignes (`45b9cf5a`)
+- **Décision d'Arno** : au téléphone, l'ordre date → « Locataires » → mission est accepté.
+- **`45b9cf5a`** — liste « Locataires en préavis », ligne repliée :
+  1. l'adresse, sur toute la largeur ; la pastille TEST passe devant l'adresse ;
+  2. les noms des locataires, « NOM Prénom » séparés par « / », avec « Locataires : … » au bout ;
+  3. la ligne du préavis, inchangée.
+  - Les noms (`nomsPreavis.ts`, `nomContactAffiche` de e7334caf) viennent des seules occupations du préavis : jamais un garant ni un contact.
+    Une société ou un nom non séparé s'écrit tel qu'il est enregistré. Le dépôt lit en plus `l.prenom` (lecture seule, aucune migration).
+  - Les noms et l'adresse ne sont plus jamais tronqués : un texte trop long passe à la ligne. À l'ordinateur, les noms s'arrêtent avant la colonne
+    « confié à » (colonnes 1-2 de la grille), donc quatre noms tiennent sur deux lignes.
+  - Mesuré à 1440 px (4 locataires injectés dans la réponse du bail 544, au navigateur seulement) : « Locataires » 896 → 1044 px au milieu des
+    noms (1116-1164 px), « Confirmé » 896 → 1044 px dessous. À 390 px : adresse, noms, puis le reste, aucun débordement.
+- Contrôles : `npm test` VERT (1 897 fichiers, 28 401 tests, 21 ignorés ; `.captures/preavis-ligne-noms/npm-test.txt`) ; `tsc` = 0.
+  - Chrome localhost:3000, accueil et pleine page, 1440 et 390 px, clair et sombre. Aucune requête non GET : rien validé, rien envoyé.
+  - Captures `.captures/preavis-ligne-noms/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`, `45b9cf5a` et leurs passations, non poussés. **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
