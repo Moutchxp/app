@@ -1832,10 +1832,16 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Chrome, syndics 2 et 56, 1440 et 390 px, clair et sombre. Rien enregistré.
   - Captures `.captures/fiche-syndic-13h36/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 13h50 — intitulés des colonnes de la liste dépliée (`92254c84`)
+- Fiche syndic (Location), liste dépliée sous le total : une ligne d'intitulés `svv-label` « PROPRIÉTAIRES » | « LOCATAIRES » | (rien) sur la grille.
+  À 390 px, plus d'en-tête : « Propriétaires : » / « Locataires : » devant chaque groupe. Deux propriétaires sont désormais sur une ligne.
+- Contrôles : `npm test` VERT (1 904 fichiers, 28 499 tests, 21 ignorés) ; `tsc` = 0. Chrome, syndics 2 et 56, 1440 et 390 px, clair et sombre.
+  - Captures `.captures/fiche-syndic-13h50/`. ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
