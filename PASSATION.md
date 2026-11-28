@@ -1838,10 +1838,25 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Contrôles : `npm test` VERT (1 904 fichiers, 28 499 tests, 21 ignorés) ; `tsc` = 0. Chrome, syndics 2 et 56, 1440 et 390 px, clair et sombre.
   - Captures `.captures/fiche-syndic-13h50/`. ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 14h00 — fiche syndic : libellés (`8fd08db0`) ; points 2 à 4 EN ATTENTE de deux décisions d'Arno
+- **`8fd08db0`** — Location : « Coordonnées du syndic », « Téléphone standard », « E-mail contact », « Contacts du syndic ».
+  Gestion : « Coordonnées et contacts du syndic », « E-mail contact », « Contacts du syndic ».
+- **Points 2 à 4 (boutons « Modifier », une seule base) NON FAITS, en attente.**
+  - Constat : la seule voie d'écriture est la fenêtre de la fiche syndic de la Gestion (PUT `/api/admin/gestion/syndics/[id]`, module Gestion exigé,
+    `enregistrerSyndic`). Elle modifie déjà adresse, téléphones, e-mail, note et contacts. Retrait d'un contact : `parti_le` / `retire_le`, affectations retirées, journal.
+  - Manques : (a) le cabinet n'a que 2 téléphones + 1 e-mail, sans libellé — des listes avec libellé exigeraient une migration 524 ;
+    (b) cette fenêtre n'a pas de récapitulatif « Ce qui change ».
+  - Questions posées à Arno :
+    ① migration 524 (coordonnées du cabinet en liste, libellées) ou garder 2 téléphones + 1 e-mail ;
+    ② ouvrir LA fenêtre de la Gestion depuis les deux « Modifier », récapitulatif ajouté pour la Gestion aussi, ou pour la Location seulement.
+- Contrôles : `npm test` VERT (1 904 fichiers, 28 500 tests, 21 ignorés) ; `tsc` = 0. Chrome, syndic 56, Location et Gestion, 1440 et 390 px.
+  - ⚠️ Ne pas lancer `npm test` dans un shell où `.env` est chargé : les essais du stockage (pieceEntrante) échouent alors (constaté, puis vert en shell propre).
+  - ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `a69fb55b`, migrations jusqu'à 522** (mise en production du 28/11/2026, 11h14 ; registre : 518 lignes dont 4 écartées).
 **519 et 521 inutilisés ; la 361 (`db/migrations-en-attente/`) prendra la 523**, décision du 28/11/2026.
-GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
+GitHub = `a69fb55b` (poussé par `2-push.sh`). En attente de mise en production (aucune migration) : `ad11dca5`, `a5107e9c`, `97ca2f40`, `cb2c6c35`, `8268523d`, `9ec784e8`, `92bbaaec`, `a7fbbb03`, `ba30896b`, `377ac55e`, `955821f5`, `c4065cbb`, `96262b6e`, `eac573f7`, `f4a02286`, `92254c84`, `8fd08db0` et les passations, non poussés. Les scripts `.captures/maj/1` à `6` sont calés sur
 `a69fb55b` : à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
 ### 26/11/2026, 15h50 — `.captures/maj/0-controles-lecture-seule.sh` (préparé, NON lancé sur la production ; hors git)
