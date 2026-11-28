@@ -78,14 +78,18 @@ export function biensVacants<L extends LotPourVacance>(lots: readonly L[], aujou
  *   · la catégorie de la Location : logement, parking, cave ; box, local, et une annexe « Autre » sous son nom tel qu'enregistré ;
  *   · sans catégorie (lots importés de WIPPIMMO) : la nature et le type — « box » ; parking, garage, stationnement → parking ; cave, cellier → cave ;
  *     appartement, maison, studio… → logement ; sinon la nature telle qu'enregistrée (ex. « local commercial ») ; rien, ou « A renseigner » : lot à renseigner.
+ * 🔴 Décision d'Arno (28/11/2026) : la catégorie « local » de la Location et la nature WIPPIMMO « Local commercial » sont UN seul type, « local commercial »
+ *   (« locaux commerciaux ») ; les données ne changent pas.
  * Ordre : logements, parkings, caves, puis les autres par ordre alphabétique ; un type à 0 n'est pas dit. PUR. */
 const sansAccents = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const propre = (t: string | null | undefined): string => (t ?? '').replace(/\s+/g, ' ').trim();
 export const TYPE_A_RENSEIGNER = 'lot à renseigner';
+export const TYPE_LOCAL_COMMERCIAL = 'local commercial';
 /** Le type d'un lot, en mot singulier minuscule (« logement », « parking », « cave », « box », « local commercial »…). PUR. */
 export function typeDuLotVacant(l: Pick<LotPourVacance, 'categorie' | 'nomAnnexe' | 'nature' | 'typeBien'>): string {
   const c = propre(l.categorie).toLowerCase();
-  if (c === 'logement' || c === 'parking' || c === 'cave' || c === 'box' || c === 'local') return c;
+  if (c === 'local') return TYPE_LOCAL_COMMERCIAL;
+  if (c === 'logement' || c === 'parking' || c === 'cave' || c === 'box') return c;
   if (c === 'autre') return propre(l.nomAnnexe).toLocaleLowerCase('fr-FR') || 'annexe';
   if (c !== '') return c;
   const t = sansAccents([l.nature, l.typeBien].map(propre).join(' '));

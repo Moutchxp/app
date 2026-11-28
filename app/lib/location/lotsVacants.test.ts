@@ -130,7 +130,7 @@ describe('🔴🔴 11h47 — le détail par type', () => {
   });
   it('type personnalisé : une annexe « Autre » sous son nom tel qu’enregistré, en minuscules ; un bien principal qui n’est pas un logement sous son propre type', () => {
     expect(typeDuLotVacant({ categorie: 'autre', nomAnnexe: 'Box fermé' })).toBe('box fermé');
-    expect(typeDuLotVacant({ categorie: 'local' })).toBe('local');
+    expect(typeDuLotVacant({ categorie: 'local' })).toBe('local commercial'); // 🔴 décision d'Arno (28/11/2026) : un seul type
     expect(typeDuLotVacant({ nature: 'Local commercial', typeBien: null })).toBe('local commercial');
     expect(typeDuLotVacant({ nature: 'Appartement meublé', typeBien: 'Studio' })).toBe('logement');
     expect(typeDuLotVacant({ nature: 'Maison', typeBien: 'Type 6' })).toBe('logement');
@@ -153,6 +153,20 @@ describe('🔴🔴 11h47 — le détail par type', () => {
   it('le type d’un bien est celui de son lot de TÊTE (un logement et sa cave rattachée : un logement)', () => {
     const lots = [L(10, { categorie: 'logement' }), L(11, { parentId: 10, categorie: 'cave' }), L(12, { parentId: 10, detachee: true, categorie: 'parking' })];
     expect(detailVacants(biensVacants(lots, J))).toEqual({ total: 2, parType: [{ type: 'logement', n: 1 }, { type: 'parking', n: 1 }] });
+  });
+});
+
+/* 🔴🔴 Décision d'Arno (28/11/2026) — « regroupe « local » (catégorie Location) et « locaux commerciaux » (nature WIPPIMMO) sous un seul type « locaux
+   commerciaux » dans le décompte des lots vacants (même règle partout, données inchangées) » */
+describe('🔴 décision du 28/11/2026 — « local » et « local commercial » : un seul type', () => {
+  const B = (teteId: number, t: Partial<LotPourVacance>) => ({ teteId, lots: [{ ...L(teteId), ...t }] });
+  it('la recette : 1 « local » + 3 « Local commercial » → « 4 locaux commerciaux »', () => {
+    const d = detailVacants([B(1, { categorie: 'logement' }), B(2, { categorie: 'local' }), ...[3, 4, 5].map((i) => B(i, { nature: 'Local commercial' }))]);
+    expect(d.parType).toEqual([{ type: 'logement', n: 1 }, { type: 'local commercial', n: 4 }]);
+    expect(libelleVacants(d)).toBe('Lots vacants : 5 dont 1 logement et 4 locaux commerciaux');
+  });
+  it('un seul « local » : « 1 local commercial »', () => {
+    expect(libelleVacants(detailVacants([B(1, { categorie: 'local' })]))).toBe('Lots vacants : 1 local commercial');
   });
 });
 
