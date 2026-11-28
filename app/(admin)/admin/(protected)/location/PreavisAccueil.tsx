@@ -316,13 +316,18 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 /* 🔴 Arno (18/11/2026) — le statut des LOCATAIRES du rendez-vous, dans SA colonne, à droite de celle du collègue (qui ne change pas) :
                    « Locataires : En attente / Confirmé / Refusé », aucun nom ; rien sans rendez-vous fixé. Même calcul que la frise. */
                 const locHtml = (sorte: string) => (sorte === 'previsite' || sorte === 'edl') && <CartoucheLocataires e={l.reponsesRdv?.[sorte]} court />;
-                /* 🔴🔴 Arno (28/11/2026, 01h07) — LA PAIRE d'un rendez-vous : « confié à Prénom NOM · Confirmé » puis, dans la continuité de la MÊME ligne,
-                   « Locataires : … » (même hauteur, centrés) ; au téléphone, elle passe à la ligne proprement */
-                const paireHtml = (o: { cle: string; de: string; m: ReturnType<typeof missionDe>; sorteLoc: string; rang?: number; commune?: boolean }) => (
-                  <span key={o.cle} className={`pva-paire${o.commune ? ' pva-col-commune' : ''}`} data-paire={o.de} {...(o.rang !== undefined ? { 'data-rang': o.rang } : {})}>
-                    <span className="pva-col-mission" data-col-mission={o.m?.etat ?? 'aucune'} data-mission-de={o.de}>{missionHtml(o.m)}</span>
-                    <span className="pva-col-loc" data-col-loc={o.de}>{locHtml(o.sorteLoc)}</span>
-                  </span>);
+                /* 🔴🔴 Arno (28/11/2026, 01h28) — LA PAIRE d'un rendez-vous (remplace la disposition « même ligne » de 01h07) : « mettre le cartouche du
+                   locataire AU-DESSUS du cartouche de confirmation du collaborateur, bien intégré, pour que les deux soient alignés symétriquement (les deux
+                   justifiés) » — en haut « Locataires : … », juste dessous « confié à Prénom NOM · Confirmé » ; les deux cartouches dans la MÊME colonne,
+                   de la même largeur (bords alignés) ; sans « Locataires : … », la mission seule, comme avant */
+                const paireHtml = (o: { cle: string; de: string; m: ReturnType<typeof missionDe>; sorteLoc: string; rang?: number; commune?: boolean }) => {
+                  const avecLoc = (o.sorteLoc === 'previsite' || o.sorteLoc === 'edl') && motCourtLocataires(l.reponsesRdv?.[o.sorteLoc]) != null;
+                  return (
+                    <span key={o.cle} className={`pva-paire${avecLoc ? ' pva-paire--loc' : ''}${o.commune ? ' pva-col-commune' : ''}`} data-paire={o.de} {...(o.rang !== undefined ? { 'data-rang': o.rang } : {})}>
+                      <span className="pva-col-loc" data-col-loc={o.de}>{locHtml(o.sorteLoc)}</span>
+                      <span className="pva-col-mission" data-col-mission={o.m?.etat ?? 'aucune'} data-mission-de={o.de}>{missionHtml(o.m)}</span>
+                    </span>);
+                };
                 const dateHtml = (r: typeof rdv) => <>
                   <span className="pva-rdv-date">{r.texte}</span>
                   {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
@@ -908,7 +913,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-segment[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red);font-weight:700}
 .pva-liste{list-style:none;margin:0;padding:0;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .pva-item + .pva-item{border-top:1px solid var(--color-svv-line)}
-.pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 12px}
+/* 🔴 (28/11/2026, 01h28) 4,75 rem est un MINIMUM : les lignes ordinaires la gardent ; « Locataires : … » au-dessus de la mission demande un peu plus */
+.pva-ligne{box-sizing:border-box;height:auto;min-height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 12px}
 /* Arno (15/11/2026) : le statut de la ligne et ses reperes (echu, EDLS a reattribuer, alerte) dans UN conteneur qui passe a la ligne,
    jamais sous le bouton « Ouvrir » */
 .psl-cartouches{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 6px;min-width:0}
@@ -935,12 +941,16 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-col-loc .pva-loc{margin-left:0;flex:0 0 auto;overflow:visible}
 /* la mission du rendez-vous : « confie a Prenom NOM » puis l'etat (orange doux : en attente ; vert doux : confirme ; rouge doux : refuse) */
 .pva-col-mission{display:flex;align-items:center;gap:6px;min-width:0}
-/* 🔴🔴 Arno (28/11/2026, 01h07) — LA PAIRE : la mission puis, dans la continuite de la meme ligne, les locataires ; meme hauteur, centres
-   (sur les colonnes « mission » et « locataires » du listing, que les autres lignes partagent) */
-.pva-paire{grid-column:span 2;display:flex;align-items:center;gap:6px;min-width:0}
-.pva-paire > .pva-col-mission{flex:0 1 auto}
-.pva-paire > .pva-col-loc{flex:0 0 auto}
-.pva-paire > .pva-col-loc:empty{display:none}
+/* 🔴🔴 Arno (28/11/2026, 01h28) — LA PAIRE : en haut « Locataires : … », dessous « confie a Prenom NOM » + son etat ; les deux cartouches dans la
+   MEME colonne (la 2e de la paire), etires a la meme largeur : bords alignes (« les deux justifies ») ; la paire commence au meme endroit sur
+   toutes les lignes (colonne « mission » du listing) */
+.pva-paire{grid-column:span 2;justify-self:start;display:grid;grid-template-columns:minmax(0,max-content) max-content;column-gap:6px;row-gap:3px;align-items:center;min-width:0;max-width:100%}
+.pva-paire > .pva-col-mission,.pva-paire > .pva-col-loc{display:contents}
+.pva-paire .pva-confie{grid-column:1;grid-row:1}
+.pva-paire .pva-etat-mission{grid-column:2;grid-row:1}
+.pva-paire--loc .pva-loc{grid-column:2;grid-row:1}
+.pva-paire--loc .pva-confie,.pva-paire--loc .pva-etat-mission{grid-row:2}
+.pva-paire .pva-etat-mission,.pva-paire .pva-loc{justify-self:stretch;justify-content:center;text-align:center;box-sizing:border-box}
 .pva-confie{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
 .pva-etat-mission{flex:0 0 auto;display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:.76rem;font-weight:800;white-space:nowrap;border:1px solid currentColor}
 .pva-etat-mission--attente{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
@@ -979,7 +989,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-col-rdv--deux > .pva-col-commune{grid-row:1 / span 2;align-self:center}
 .pva-rdv-item{min-width:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
 .pva-col-rdv--deux .pva-col-mission{font-weight:400}
-.pva-ligne--deux-rdv{height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}
+/* 🔴 (28/11/2026, 01h28) 6,25 rem est un MINIMUM : deux rendez-vous dont chacun porte « Locataires : … » au-dessus de sa mission demandent plus */
+.pva-ligne--deux-rdv{height:auto;min-height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}
 /* les deux statuts : cote a cote quand l'ecran le permet, l'un sous l'autre sinon (jamais au prix de « confie a … » tronque) */
 .pva-ligne--deux-rdv .psl-cartouches{flex-direction:column;align-items:flex-end}
 .pva-ouvrir{min-height:44px}
@@ -1008,8 +1019,8 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-col-rdv{order:-2}
   .pva-col-mission{order:-1;min-height:1.2rem}
   .pva-col-loc{order:-1}
-  /* 🔴 (28/11/2026, 01h07) la paire, a sa place d'avant (apres la date) ; trop longue : les locataires passent a la ligne, proprement */
-  .pva-paire{order:-1;grid-column:auto;flex-wrap:wrap;row-gap:2px}
+  /* 🔴 (28/11/2026, 01h28) la paire, a sa place d'avant (apres la date) : les locataires au-dessus de la mission, empiles */
+  .pva-paire{order:-1;grid-column:auto}
   .pva-col-loc:empty{display:none}
   /* deux rendez-vous : pre-visite et sa mission, puis etat des lieux et sa mission, en tete ; la ligne s'allonge d'autant */
   .pva-col-rdv--deux{grid-column:auto;row-gap:2px}

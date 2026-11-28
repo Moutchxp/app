@@ -203,11 +203,11 @@ describe('les lignes', () => {
   it('hauteur CONSTANTE : une hauteur fixe (bureau et téléphone) ; 🔴 (15/11/2026) DEUX lignes : nom(s) + adresse, puis colonnes fixes (fin de préavis, rendez-vous, détails) ; texte complet en infobulle', async () => {
     const regle = (sel: string, css: string): string => new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     const [bureau, mobile] = CSS_PREAVIS_ACCUEIL.split('@media');
-    expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:4\.75rem/);
+    // 🔴 (28/11/2026, 01h28) « Locataires : … » AU-DESSUS de la mission (Arno) : à l'ordinateur aussi, la hauteur d'avant devient un MINIMUM
+    expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:auto;min-height:4\.75rem/);
     // 🔴 (16/11/2026) la place de la mention « date dépassée — … » ; 🔴🔴 (décision d'Arno, 28/11/2026) « aucun repère ne doit être coupé, la zone
     //    s'agrandit » : au téléphone, 10,5 rem devient un MINIMUM (les lignes ordinaires la gardent) ; à l'ordinateur, la hauteur reste fixe
     expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:auto;min-height:10\.5rem/);
-    expect(bureau).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
     // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
     // 🔴 Arno (18/11/2026) — + la colonne des LOCATAIRES (largeur de son contenu), à droite de la mission
@@ -221,8 +221,8 @@ describe('les lignes', () => {
     expect(a.querySelector('[data-adresse-ligne]')?.textContent).toBe('A rue');
     expect([...a.querySelectorAll('.pva-l2 > span')].map((x) => [x.className, x.textContent])).toEqual([
       ['pva-col-fin', 'Fin de préavis 01/12/2099'], ['pva-col-rdv pva-col-rdv--aucun', '— Aucun RDV fixé'], ['pva-paire', ''], ['pva-col-details pva-detail', 'État des lieux le 10/01/2099']]);
-    // 🔴 (28/11/2026, 01h07) la paire : la mission puis les locataires, côte à côte (vides ici)
-    expect([...a.querySelectorAll('.pva-paire > span')].map((x) => x.className)).toEqual(['pva-col-mission', 'pva-col-loc']);
+    // 🔴 (28/11/2026, 01h28) la paire : les locataires AU-DESSUS de la mission (vides ici)
+    expect([...a.querySelectorAll('.pva-paire > span')].map((x) => x.className)).toEqual(['pva-col-loc', 'pva-col-mission']);
     // rien n'est retiré : tout le texte d'avant reste en infobulle de la ligne
     expect(a.querySelector('.pva-textes')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul — A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-col-fin]')?.textContent).toBe('Fin de préavis 01/01/2020');
@@ -3834,10 +3834,10 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
   it('les deux dates l’une sous l’autre (pré-visite puis état des lieux), chacune avec « confié à … » et son cartouche, sur les colonnes communes', async () => {
     await rendre(true);
     const deux = sel('A', '[data-col-rdv="deux"]');
-    // 🔴 (28/11/2026, 01h07) une PAIRE (collaborateur + locataires) par rendez-vous, sur sa rangée
+    // 🔴 (28/11/2026, 01h07 puis 01h28) une PAIRE (locataires au-dessus du collaborateur) par rendez-vous, sur sa rangée
     expect([...deux.children].map((x) => x.className)).toEqual(['pva-rdv-item pva-col-rdv--previsite', 'pva-paire', 'pva-rdv-item pva-col-rdv--edl', 'pva-paire']);
     expect([...deux.querySelectorAll('.pva-paire')].map((x) => [x.getAttribute('data-rang'), [...x.children].map((y) => y.className).join(' + ')]))
-      .toEqual([['1', 'pva-col-mission + pva-col-loc'], ['2', 'pva-col-mission + pva-col-loc']]);
+      .toEqual([['1', 'pva-col-loc + pva-col-mission'], ['2', 'pva-col-loc + pva-col-mission']]);
     expect([...deux.querySelectorAll('.pva-rdv-date')].map((x) => x.textContent)).toEqual(['Pré-visite · sam. 10/01 · 10h30', 'État des lieux · mar. 03/02 · 11h30']);
     expect([...deux.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Arno TEST', 'confié à Claire TEST']);
     expect([...deux.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé', 'En attente de confirmation']);
@@ -3859,12 +3859,12 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([...deux.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Claire TEST']);
     expect([...deux.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé']);
     const m = deux.querySelector('.pva-col-mission')!;
-    // 🔴 (28/11/2026, 01h07) la paire commune porte la mission ET les locataires, sur la même ligne
-    expect([m.className, m.getAttribute('data-mission-de'), m.parentElement!.className]).toEqual(['pva-col-mission', 'previsite edl', 'pva-paire pva-col-commune']);
+    // 🔴 (28/11/2026, 01h28) la paire commune porte les locataires (au-dessus) ET la mission
+    expect([m.className, m.getAttribute('data-mission-de'), m.parentElement!.className]).toEqual(['pva-col-mission', 'previsite edl', 'pva-paire pva-paire--loc pva-col-commune']);
     expect([...deux.querySelectorAll('[data-cartouche-locataires-court]')].map((x) => x.textContent)).toEqual(['Locataires : Confirmé']);
     expect(deux.querySelector('.pva-col-loc')?.getAttribute('data-col-loc')).toBe('previsite edl');
     // les deux dates restent, une par rangée ; les mentions communes viennent APRÈS (lues ainsi au téléphone)
-    expect([...deux.children].map((x) => x.getAttribute('data-rang') ?? x.className)).toEqual(['1', '2', 'pva-paire pva-col-commune']);
+    expect([...deux.children].map((x) => x.getAttribute('data-rang') ?? x.className)).toEqual(['1', '2', 'pva-paire pva-paire--loc pva-col-commune']);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
     expect(css).toContain('.pva-col-rdv--deux > .pva-col-commune{grid-row:1 / span 2;align-self:center}');
     // au téléphone, la remise à zéro l'emporte sur les placements de l'ordinateur (même spécificité, plus loin dans la feuille)
@@ -3878,30 +3878,36 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect([...deux.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé', 'En attente de confirmation']);
     expect(deux.querySelector('.pva-col-commune')).toBeNull();
   });
-  // ══ 🔴🔴 Arno (28/11/2026, 01h07) — « le cartouche qui concerne le locataire […] dans la continuité de la même ligne que celle du cartouche "Confirmé" » ══
-  it('🔴 01h07 — même collaborateur, locataires différents : une paire par rendez-vous, « Locataires : … » juste après « Confirmé », sur la rangée de SON rendez-vous', async () => {
+  // ══ 🔴🔴 Arno (28/11/2026, 01h28) — « mettre le cartouche du locataire AU-DESSUS du cartouche de confirmation du collaborateur […] les deux justifiés » ══
+  it('🔴 01h28 — même collaborateur, locataires différents : une paire par rendez-vous ; « Locataires : … » AU-DESSUS de « Confirmé », dans la même colonne de la paire', async () => {
     lignes = [{ ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03', 'acceptee'),
       reponsesRdv: { previsite: null, edl: { etat: 'confirme', main: false, par: 'x' } } } as never, LIGNES[1], LIGNES[2]];
     await rendre(true);
     const deux = sel('A', '[data-col-rdv="deux"]');
     expect(deux.querySelector('.pva-col-commune')).toBeNull();
     const paires = [...deux.querySelectorAll('.pva-paire')];
-    expect(paires.map((x) => [x.getAttribute('data-rang'), x.getAttribute('data-paire'), x.textContent])).toEqual([
-      ['1', 'previsite', 'confié à Claire TESTConfirmé'], ['2', 'edl', 'confié à Claire TESTConfirméLocataires : Confirmé']]);
-    // dans la paire : le cartouche des locataires vient JUSTE APRÈS celui du collaborateur, dans le même conteneur (même ligne)
+    expect(paires.map((x) => [x.getAttribute('data-rang'), x.getAttribute('data-paire'), x.className, x.textContent])).toEqual([
+      ['1', 'previsite', 'pva-paire', 'confié à Claire TESTConfirmé'], ['2', 'edl', 'pva-paire pva-paire--loc', 'Locataires : Confirméconfié à Claire TESTConfirmé']]);
+    // les locataires d'abord (au-dessus), puis la mission
     const loc = paires[1].querySelector('[data-cartouche-locataires-court]')!;
-    expect(loc.closest('.pva-col-loc')!.previousElementSibling!.querySelector('[data-etat-mission]')!.textContent).toBe('Confirmé');
+    expect(loc.closest('.pva-col-loc')!.nextElementSibling!.querySelector('[data-etat-mission]')!.textContent).toBe('Confirmé');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
-    expect(css).toContain('.pva-paire{grid-column:span 2;display:flex;align-items:center;');
+    expect(css).toContain('.pva-paire{grid-column:span 2;justify-self:start;display:grid;grid-template-columns:minmax(0,max-content) max-content;');
+    // la 2e colonne de la paire : « Locataires » en haut, l'état de la mission dessous, étirés à la même largeur (bords alignés)
+    expect(css).toContain('.pva-paire--loc .pva-loc{grid-column:2;grid-row:1}');
+    expect(css).toContain('.pva-paire--loc .pva-confie,.pva-paire--loc .pva-etat-mission{grid-row:2}');
+    expect(css).toContain('.pva-paire .pva-etat-mission,.pva-paire .pva-loc{justify-self:stretch;');
     expect(css).toContain('.pva-col-rdv--deux > .pva-paire{grid-column:2 / span 2}');
-    expect(css).toContain('.pva-paire{order:-1;grid-column:auto;flex-wrap:wrap;'); // au téléphone : passe à la ligne proprement
+    expect(css).toContain('.pva-paire{order:-1;grid-column:auto}'); // au téléphone : empilés, à leur place
   });
-  it('🔴 01h07 — un seul rendez-vous : la paire « confié à … · Confirmé » + « Locataires : … » sur la même ligne', async () => {
+  it('🔴 01h28 — un seul rendez-vous : « Locataires : … » au-dessus de « confié à … · Confirmé » ; sans locataires : la mission seule', async () => {
     lignes = [{ ...LIGNES[1], previsite: PV('effectuee', '2099-01-05'), edls: EDLS('2099-01-20', 'acceptee'), reponsesRdv: { previsite: null, edl: { etat: 'attente', main: false, par: null } } } as never, LIGNES[0], LIGNES[2]];
     await rendre(true);
     const p = sel('B', '.pva-l2 > .pva-paire');
-    expect([...p.children].map((x) => x.className)).toEqual(['pva-col-mission', 'pva-col-loc']);
-    expect(p.textContent).toBe('confié à Claire TESTConfirméLocataires : En attente');
+    expect(p.className).toBe('pva-paire pva-paire--loc');
+    expect([...p.children].map((x) => x.className)).toEqual(['pva-col-loc', 'pva-col-mission']);
+    expect(p.textContent).toBe('Locataires : En attenteconfié à Claire TESTConfirmé');
+    expect(sel('A', '.pva-paire').className).toBe('pva-paire'); // la pré-visite de A n'a pas de réponse des locataires
   });
   it('la mention rouge « date dépassée » sur chaque rendez-vous concerné', async () => {
     lignes = lignes.map((l) => (l.cle === 'A' ? { ...l, previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') } : l));
@@ -4384,7 +4390,8 @@ describe('🔴 Arno (18/11/2026) — le statut des LOCATAIRES dans la ligne repl
     await rendre();
     const c = court()!;
     expect(c.textContent).toBe(mot);
-    expect(c.closest('.pva-col-loc')?.previousElementSibling?.classList.contains('pva-col-mission')).toBe(true);
+    // 🔴 (28/11/2026, 01h28) au-dessus de la mission, dans la même paire
+    expect(c.closest('.pva-col-loc')?.nextElementSibling?.classList.contains('pva-col-mission')).toBe(true);
     const ligne = container.querySelector('[data-ligne-preavis="C"] .pva-l2')!.textContent!;
     for (const nom of ['Alice', 'Paul', 'BERNARD', 'JOREL']) expect(ligne).not.toContain(nom);
   });
