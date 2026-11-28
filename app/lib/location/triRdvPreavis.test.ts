@@ -104,3 +104,20 @@ describe('🔴 (15/11/2026) la mission du rendez-vous : « confié à Prénom NO
     expect(missionDeLigne({ previsite: { statut: 'programmee', collegues: [] } }, 'previsite')).toBeNull();
   });
 });
+
+describe('🔴🔴 Arno (28/11/2026, 00h45) — pas de doublon de mention sur une ligne à deux rendez-vous', async () => {
+  const { mentionsCommunes } = await import('./triRdvPreavis');
+  const M = (qui: string, etat: 'confirme' | 'attente' | 'refuse') => ({ qui, etat });
+  it('même personne ET même statut : une mention ; personne ou statut différent : deux ; un seul rendez-vous ou une mission absente : deux', () => {
+    expect(mentionsCommunes([M('Claire TEST', 'confirme'), M('Claire TEST', 'confirme')], [null, null]).mission).toBe(true);
+    expect(mentionsCommunes([M('Claire TEST', 'confirme'), M('Arno TEST', 'confirme')], [null, null]).mission).toBe(false);
+    expect(mentionsCommunes([M('Claire TEST', 'confirme'), M('Claire TEST', 'attente')], [null, null]).mission).toBe(false);
+    expect(mentionsCommunes([M('Claire TEST', 'confirme'), null], [null, null]).mission).toBe(false);
+    expect(mentionsCommunes([M('Claire TEST', 'confirme')], [null]).mission).toBe(false);
+  });
+  it('« Locataires : … » : une pastille seulement si le MÊME mot est présent sur les deux rendez-vous', () => {
+    expect(mentionsCommunes([null, null], ['Locataires : Confirmé', 'Locataires : Confirmé']).locataires).toBe(true);
+    expect(mentionsCommunes([null, null], ['Locataires : Confirmé', 'Locataires : En attente']).locataires).toBe(false);
+    expect(mentionsCommunes([null, null], [null, 'Locataires : Confirmé']).locataires).toBe(false);
+  });
+});

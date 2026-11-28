@@ -25,7 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
-import { colonnesRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { colonnesRdv, LIBELLE_ETAT_MISSION, mentionsCommunes, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -336,10 +336,22 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                             /* 🔴🔴 Arno (16/11/2026) — DEUX rendez-vous fixés : l'un sous l'autre (pré-visite puis état des lieux), chacun avec sa mission,
                                alignés sur les colonnes « rendez-vous » et « mission » des autres lignes (sous-grille) */
                             <span className="pva-col-rdv pva-col-rdv--deux" data-col-rdv="deux">
-                              {rdvs.map((r) => { const m = missionDe(r); return [
-                                <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
-                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m)}</span>,
-                                <span key={`${r.sorte}-l`} className="pva-col-loc" data-col-loc={r.sorte}>{locHtml(r.sorte)}</span>]; })}
+                              {(() => {
+                                /* 🔴🔴 Arno (28/11/2026, 00h45) « pas de doublons » : la même personne au même statut → UNE mention, centrée sur les deux
+                                   rendez-vous (elle occupe les deux rangées) ; de même pour « Locataires : … » ; sinon une mention par rendez-vous */
+                                const ms = rdvs.map(missionDe);
+                                const mots = rdvs.map((r) => (r.sorte === 'previsite' || r.sorte === 'edl' ? motCourtLocataires(l.reponsesRdv?.[r.sorte]) : null));
+                                const commun = mentionsCommunes(ms, mots);
+                                const cellules = rdvs.flatMap((r, i) => [
+                                  <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rang={i + 1} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
+                                  ...(commun.mission ? [] : [<span key={`${r.sorte}-m`} className="pva-col-mission" data-rang={i + 1} data-col-mission={ms[i]?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(ms[i])}</span>]),
+                                  ...(commun.locataires ? [] : [<span key={`${r.sorte}-l`} className="pva-col-loc" data-rang={i + 1} data-col-loc={r.sorte}>{locHtml(r.sorte)}</span>])]);
+                                // les mentions communes, APRÈS les deux dates (lues ainsi au téléphone) ; à l'ordinateur, sur les deux rangées de leur colonne
+                                const deux = rdvs.map((x) => x.sorte).join(' ');
+                                if (commun.mission) cellules.push(<span key="m-commune" className="pva-col-mission pva-col-commune" data-col-mission={ms[0]?.etat ?? 'aucune'} data-mission-de={deux}>{missionHtml(ms[0])}</span>);
+                                if (commun.locataires) cellules.push(<span key="l-commune" className="pva-col-loc pva-col-commune" data-col-loc={deux}>{locHtml(rdvs[0].sorte)}</span>);
+                                return cellules;
+                              })()}
                             </span>
                           ) : <>
                           <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{dateHtml(rdv)}</span>
@@ -924,6 +936,12 @@ export const CSS_PREAVIS_ACCUEIL = `
 /* 🔴 Arno (16/11/2026) : DEUX rendez-vous fixes (pre-visite puis etat des lieux), l'un sous l'autre : une sous-grille sur les colonnes B
    (rendez-vous) et C (mission), alignee sur celles des autres lignes ; la ligne est un peu plus haute */
 .pva-col-rdv--deux{grid-column:span 3;display:grid;grid-template-columns:subgrid;row-gap:3px;align-items:center}
+.pva-col-rdv--deux > .pva-rdv-item{grid-column:1}
+.pva-col-rdv--deux > .pva-col-mission{grid-column:2}
+.pva-col-rdv--deux > .pva-col-loc{grid-column:3}
+.pva-col-rdv--deux > [data-rang="1"]{grid-row:1}
+.pva-col-rdv--deux > [data-rang="2"]{grid-row:2}
+.pva-col-rdv--deux > .pva-col-commune{grid-row:1 / span 2;align-self:center}
 .pva-rdv-item{min-width:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
 .pva-col-rdv--deux .pva-col-mission{font-weight:400}
 .pva-ligne--deux-rdv{height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}
@@ -956,7 +974,9 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-col-loc:empty{display:none}
   /* deux rendez-vous : pre-visite et sa mission, puis etat des lieux et sa mission, en tete ; la ligne s'allonge d'autant */
   .pva-col-rdv--deux{grid-column:auto;row-gap:2px}
-  .pva-col-rdv--deux > *{order:0}
+  .pva-col-rdv--deux > *{order:0;grid-row:auto;grid-column:auto}
+  /* 🔴 (28/11/2026) la même spécificité que les placements de l'ordinateur : au téléphone, tout se lit l'un sous l'autre, dans l'ordre du document */
+  .pva-col-rdv--deux > .pva-rdv-item,.pva-col-rdv--deux > .pva-col-mission,.pva-col-rdv--deux > .pva-col-loc,.pva-col-rdv--deux > [data-rang],.pva-col-rdv--deux > .pva-col-commune{grid-row:auto;grid-column:auto}
   .pva-ligne--deux-rdv{height:14rem;grid-template-columns:minmax(0,1fr) auto}
   .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
   .pva-col-details{display:none}
