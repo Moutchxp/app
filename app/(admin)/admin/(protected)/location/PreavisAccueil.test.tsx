@@ -741,6 +741,25 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.frp-etape > .pva-bloc--rdv{align-self:start}'); // les deux cases commencent en haut (avant : centrées, l'une plus bas que l'autre)
   });
+  // ══ 🔴🔴 Arno (28/11/2026, 01h52) — « centrer les boutons / contenus dans leur case et homogénéiser le contenu des cartes » ══
+  it('🔴 01h52 — la case 4 passe par la MÊME présentation que les cases 2 et 3 ; une case qui n’a que ses boutons les centre (case 3 « Planifier » et case 4 alignées)', async () => {
+    planification = true;
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    const ligneC = container.querySelector('[data-ligne-depliee="C"]')!;
+    const sortie = ligneC.querySelector('[data-bloc-sortie-officielle]')!;
+    expect(sortie.className).toBe('pva-bloc pva-bloc--rdv');
+    expect([...sortie.children].slice(0, 2).map((x) => x.className)).toEqual(['frp-infos', 'frp-actions']);
+    expect([...sortie.querySelectorAll('.frp-actions > .loc-boutons button')].map((x) => x.textContent)).toEqual(['Valider la sortie']); // rien de retiré
+    expect(sortie.querySelector('.frp-infos')!.childNodes).toHaveLength(0); // zone des informations vide : la règle de centrage s'applique
+    const edls = ligneC.querySelector('[data-bloc-edls]')!;
+    expect([...edls.querySelectorAll('.frp-actions button')].map((x) => x.textContent)).toEqual(['Planifier l’état des lieux de sortie']);
+    expect(edls.querySelector('.frp-infos')!.childNodes).toHaveLength(0);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.frp-etape > .pva-bloc--rdv:has(> .frp-infos:empty){align-self:center}');
+    // l'ordre des règles : le centrage vient APRÈS « commence en haut » (même spécificité de base, il l'emporte quand il s'applique)
+    expect(css.indexOf('.frp-etape > .pva-bloc--rdv:has(> .frp-infos:empty)')).toBeGreaterThan(css.indexOf('.frp-etape > .pva-bloc--rdv{align-self:start}'));
+  });
   it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
     planification = true;
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));

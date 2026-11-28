@@ -569,27 +569,19 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
       </div>
       ))}
             {e.cle === 'sortie' && (
-      <div className="pva-bloc" data-bloc-sortie-officielle>
-        {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « Date officielle de sortie » (la case « 4. Sortie validée » le dit) ; informations, puis boutons. */}
-        <div className="frp-infos">{!gestion && <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}</div>
-        <div className="frp-actions">
-        {!gestion ? null
-          : !sortie || !ecriture ? (<>
-            <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setSortie(true)} data-valider-sortie
-                {...(ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true })}>Valider la sortie</button>
-            </div>
-            {!ecriture && <MentionReserveLocation />}
-          </>) : (<>
-            {/* 🔴 Arno (11/11/2026, lot 4) — « Valider la sortie » ouvre DIRECTEMENT « Valider l'état des lieux de sortie » (le sélecteur
-                « Sélectionner / Enregistrer un préavis / Faire sortir » n'est plus ici, sur son accord pour CET endroit ; « Écran de sortie » reste). */}
-            <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled data-valider-sortie>Valider la sortie</button>
-            </div>
-            <ValidationSortieEdls l={l} onFermer={(f) => { setSortie(false); if (f !== null) sortieFaite(f); }} />
-          </>)}
-        </div>
-      </div>
+      /* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « Date officielle de sortie » (la case « 4. Sortie validée » le dit) ; informations, puis boutons.
+         🔴🔴 Arno (28/11/2026, 01h52) « homogénéiser le contenu des cartes » : la case 4 passe par la MÊME présentation que les cases 2 et 3
+         (`PresentationRdv`) — mêmes zones, mêmes marges ; rien n'y est retiré */
+      <PresentationRdv donnees={{ 'data-bloc-sortie-officielle': '' }}
+        etat={!gestion && <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}
+        boutons={!gestion ? null : !sortie || !ecriture
+          ? <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setSortie(true)} data-valider-sortie
+              {...(ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true })}>Valider la sortie</button>
+          /* 🔴 Arno (11/11/2026, lot 4) — « Valider la sortie » ouvre DIRECTEMENT « Valider l'état des lieux de sortie » (le sélecteur
+             « Sélectionner / Enregistrer un préavis / Faire sortir » n'est plus ici, sur son accord pour CET endroit ; « Écran de sortie » reste). */
+          : <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled data-valider-sortie>Valider la sortie</button>}
+        apresBoutons={!gestion ? null : !sortie || !ecriture ? (!ecriture && <MentionReserveLocation />)
+          : <ValidationSortieEdls l={l} onFermer={(f) => { setSortie(false); if (f !== null) sortieFaite(f); }} />} />
             )}
           </li>
         ))}
@@ -1093,6 +1085,10 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 .frp-etape > .pva-bloc{grid-row:2;align-self:center;display:flex;flex-direction:column;gap:8px;min-width:0;margin:0}
 .frp-etape > .pva-bloc--rdv{align-self:start}
+/* 🔴🔴 Arno (28/11/2026, 01h52) « le bouton rouge de la case 3 doit être centré dans la hauteur de sa colonne et aligné avec le bouton de la case 4 » :
+   une case qui n'a QUE ses boutons (zone des informations vide) les centre dans la hauteur commune des cases (même milieu d'une case à l'autre) ;
+   une case à plusieurs contenus commence en haut, dans l'ordre de la présentation commune (ad02d810) */
+.frp-etape > .pva-bloc--rdv:has(> .frp-infos:empty){align-self:center}
 .frp-infos,.frp-actions{display:flex;flex-direction:column;gap:8px;min-width:0}
 .frp-actions .loc-boutons{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0}
 .frp-actions .loc-boutons .svv-btn{width:100%;min-height:48px;margin:0;display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:normal}
