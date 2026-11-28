@@ -4044,9 +4044,9 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(pile('Q2')).toEqual(['RDV état des lieux fixé', 'Sortie à valider']);
     expect(pile('Q1')).toEqual(['RDV pré-visite fixé']);
     expect(container.querySelectorAll('[data-ligne-preavis="Q0"] [data-alerte-rdv]')).toHaveLength(0);
-    // empilés dans UNE pile (les lignes sans alerte : comme avant, sans pile) ; serrée à trois ou quatre ; la ligne s'allonge s'il le faut
+    // empilés dans UNE pile (les lignes sans alerte : comme avant, sans pile) ; 🔴🔴 (Arno, 28/11/2026, 10h35) taille NORMALE tant que la ligne le permet
     expect(sel('Q4', '[data-pile-rdv]').getAttribute('data-pile-rdv')).toBe('4');
-    expect(sel('Q4', '[data-pile-rdv]').className).toBe('psl-pile psl-pile--serree');
+    expect(sel('Q4', '[data-pile-rdv]').className).toBe('psl-pile');
     expect(sel('Q2', '[data-pile-rdv]').className).toBe('psl-pile');
     expect(container.querySelector('[data-ligne-preavis="Q1"] [data-pile-rdv]')).toBeNull();
     expect(sel('Q4', '.pva-ligne').className).toBe('pva-ligne pva-ligne--deux-rdv pva-ligne--pile');
@@ -4056,6 +4056,63 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
     expect(css).toContain('.psl-pile{display:flex;flex-direction:column;align-items:flex-end;');
     expect(css).toContain('.pva-ligne--deux-rdv.pva-ligne--pile{height:auto;');
+  });
+  // ══ 🔴🔴 Arno (28/11/2026, 10h35) — « prioriser l'affichage à l'échelle normale des cartouches si l'espace du bloc locataire le permet, sinon les
+  //    réduire comme aujourd'hui » : la mesure réelle décide (jsdom n'a pas de mise en page : on simule la hauteur des lignes) ══
+  const hauteurSimulee = (seuil: (pile: Element) => boolean) => vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const pile = this.classList.contains('pva-ligne') ? this.querySelector('.psl-pile') : null;
+    // une pile en taille normale qui dépasse : la ligne s'allongerait (120 au lieu de 100)
+    const h = pile && !pile.classList.contains('psl-pile--serree') && seuil(pile) ? 120 : 100;
+    return { x: 0, y: 0, top: 0, left: 0, right: 100, bottom: h, width: 100, height: h, toJSON: () => ({}) } as DOMRect;
+  });
+  const QUATRE = () => [
+    { ...LIGNES[0], cle: 'Q4', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') },
+    { ...LIGNES[1], cle: 'Q3', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2099-02-03') },
+    { ...LIGNES[2], cle: 'Q2', previsite: PV('effectuee', '2020-01-05'), edls: EDLS('2020-01-20', 'acceptee') },
+  ] as never;
+  const format = (cle: string) => [sel(cle, '.psl-pile').className, sel(cle, '.psl-pile').getAttribute('data-format-pile')];
+  it('🔴 10h35 — 2, 3 et 4 cartouches : taille NORMALE quand la ligne le permet (le nombre ne décide plus)', async () => {
+    const espion = hauteurSimulee(() => false);
+    lignes = QUATRE();
+    await rendre(true);
+    expect(format('Q4')).toEqual(['psl-pile', 'normal']);
+    expect(format('Q3')).toEqual(['psl-pile', 'normal']);
+    expect(format('Q2')).toEqual(['psl-pile', 'normal']);
+    espion.mockRestore();
+  });
+  it('🔴 10h35 — réduit FORCÉ : seule la pile qui allongerait sa ligne passe au format réduit d’aujourd’hui (même composant, même classe)', async () => {
+    const espion = hauteurSimulee((pile) => pile.children.length >= 4); // la ligne à 4 cartouches ne tient pas en taille normale
+    lignes = QUATRE();
+    await rendre(true);
+    expect(format('Q4')).toEqual(['psl-pile psl-pile--serree', 'reduit']);
+    expect(format('Q3')).toEqual(['psl-pile', 'normal']);
+    expect(format('Q2')).toEqual(['psl-pile', 'normal']);
+    for (const a of sel('Q4', '.psl-pile').querySelectorAll('[data-alerte-rdv]')) expect(a.className).toBe('pvv-cartouche pvv-cartouche--alerte');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.psl-pile--serree > .psl-statut,.psl-pile--serree > .pvv-cartouche,'); // le format réduit, inchangé
+    // une pile normale prend sa place (plus de minimum fixe pour le texte) ; réduite : la grille d'aujourd'hui
+    expect(css).toContain('.pva-ligne--deux-rdv:has(> .psl-cartouches .psl-pile:not(.psl-pile--serree)){grid-template-columns:minmax(0,1fr) auto auto}');
+    expect(css).toContain('.pva-ligne--deux-rdv{height:auto;min-height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}');
+    // au téléphone : la réduction ne vaut que pour la pile réduite ; une pile qui tient garde la taille normale
+    expect(css).toContain('.psl-cartouches .psl-pile--serree > .psl-statut,.psl-cartouches .psl-pile--serree > .pvv-cartouche{font-size:.72rem;');
+    expect(css).toContain('.psl-cartouches .psl-pile:not(.psl-pile--serree) > .psl-statut,.psl-cartouches .psl-pile:not(.psl-pile--serree) > .pvs-mention{font-size:.85rem;');
+    espion.mockRestore();
+  });
+  it('🔴 10h35 — la largeur change : la mesure est refaite (réduit sur un écran étroit, normal de nouveau sur un écran large)', async () => {
+    let etroit = true;
+    const largeurAvant = window.innerWidth;
+    onTestFinished(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: largeurAvant }); });
+    const espion = hauteurSimulee((pile) => etroit && pile.children.length >= 3);
+    lignes = QUATRE();
+    await rendre(true);
+    expect(format('Q3')[1]).toBe('reduit');
+    etroit = false;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    await attendre();
+    expect(format('Q3')).toEqual(['psl-pile', 'normal']);
+    expect(format('Q4')).toEqual(['psl-pile', 'normal']);
+    espion.mockRestore();
   });
   it('🔴 01h04 — l’alerte disparaît dès l’étape suivante : compte rendu fait (pré-visite effectuée), sortie validée (la ligne quitte la liste)', async () => {
     lignes = [{ ...LIGNES[0], cle: 'Q', previsite: PV('programmee', '2020-01-10'), edls: EDLS('2099-02-03') }, LIGNES[1]] as never;
@@ -4090,7 +4147,7 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(c.getAttribute('data-ordre-reperes')).toBe('en_preavis previsite echu');
     const textes = [...c.querySelectorAll('.psl-pile [data-statut-ligne], .psl-pile [data-cartouche-previsite], .psl-pile [data-preavis]')].map((x) => x.textContent);
     expect(textes).toEqual(['En préavis', 'Aucune pré-visite fixée', 'Préavis échu — sortie à saisir']);
-    expect(sel('S', '.psl-pile').className).toBe('psl-pile psl-pile--serree');
+    expect(sel('S', '.psl-pile').className).toBe('psl-pile'); // 🔴 (10h35) taille normale tant que la ligne le permet
     expect(sel('S', '.psl-pile').getAttribute('data-pile-reperes')).toBe('3');
     // une ligne AVEC rendez-vous garde sa disposition (statuts, puis ses repères) : pas de pile chronologique
     expect(container.querySelector('[data-ligne-preavis="B"] .psl-cartouches--pile')).toBeNull();

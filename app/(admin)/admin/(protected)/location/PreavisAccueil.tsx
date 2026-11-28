@@ -2,7 +2,7 @@
 
 import { useEtatRetour } from '../_composants/NavigationRetour';
 import { ListeChoix } from './ListeChoix';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
@@ -25,6 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, creneauFr } from '../../../../lib/location/previsite';
 import { ligneDesLocataires } from '../../../../lib/location/nomsPreavis';
+import { CLASSE_PILE_REDUITE, mesurerFormatPile } from '../../../../lib/location/formatPile';
 import { dateAlerteSansPrevisite, dateDuStatut, dateEchu, ordonnerReperes } from '../../../../lib/location/reperesLigne';
 import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
 import { alertesRdv, colonnesRdv, LIBELLE_ALERTE_RDV, LIBELLE_ETAT_MISSION, missionDeLigne, rdvDuStatut, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, grouperParRdv, TITRE_GROUPE_RDV, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
@@ -150,6 +151,31 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const [triRdv, setTriRdv] = useState<ModeTriRdv>(MODE_TRI_RDV_DEFAUT);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { let v: ModeTriRdv = MODE_TRI_RDV_DEFAUT; try { v = lireModeTriRdv(window.localStorage.getItem(cleTriRdv)); } catch { /* sans stockage */ } setTriRdv(v); }, [cleTriRdv]);
+  /* 🔴🔴 Arno (28/11/2026, 10h35) — « prioriser l'affichage à l'échelle normale des cartouches si l'espace du bloc locataire le permet, sinon les
+     réduire comme aujourd'hui » : chaque pile est en taille NORMALE, sauf si, mesurée, elle allongerait sa ligne (`mesurerFormatPile`). La mesure
+     est refaite après chaque rendu et quand la largeur change (ordinateur, téléphone), avant l'affichage : aucun clignotement. */
+  const listeRef = useRef<HTMLUListElement>(null);
+  const [pilesReduites, setPilesReduites] = useState<Record<string, true>>({});
+  const [largeur, setLargeur] = useState(0);
+  useEffect(() => {
+    const suivre = () => setLargeur(window.innerWidth);
+    suivre(); window.addEventListener('resize', suivre);
+    return () => window.removeEventListener('resize', suivre);
+  }, []);
+  useLayoutEffect(() => {
+    const ul = listeRef.current;
+    if (ul === null) return;
+    const suivant: Record<string, true> = {};
+    for (const pile of ul.querySelectorAll<HTMLElement>('.psl-pile')) {
+      const cle = pile.closest<HTMLElement>('[data-ligne-preavis]')?.getAttribute('data-ligne-preavis');
+      const ligne = pile.closest<HTMLElement>('.pva-ligne');
+      if (cle && ligne && mesurerFormatPile(pile, ligne) === 'reduit') suivant[cle] = true;
+    }
+    const memes = Object.keys(suivant).length === Object.keys(pilesReduites).length && Object.keys(suivant).every((k) => pilesReduites[k]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!memes) setPilesReduites(suivant);
+  });
+  void largeur; // un changement de largeur suffit à refaire la mesure (nouveau rendu)
   const choisirTriRdv = (m: ModeTriRdv): void => { setTriRdv(m); try { window.localStorage.setItem(cleTriRdv, ecrireModeTriRdv(m)); } catch { /* sans stockage */ } };
   // 🔴 (15/11/2026) le panneau des tris, replié derrière l'icône « Tris » (accord d'Arno : rien n'est supprimé, tout reste accessible)
   const [trisOuverts, setTrisOuverts] = useState(false);
@@ -297,7 +323,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
           </div>
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
           {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>{toutes.length > 0 ? 'Aucun préavis avec ce statut' : 'Aucun locataire en préavis'}</p> : (
-            <ul className="pva-liste">
+            <ul className="pva-liste" ref={listeRef}>
               {affichage.map((l) => {
                 if ('separateur' in l) return <li key={`${l.separateur}-rdv`} className="pva-separateur" data-groupe-rdv={l.separateur}
                   {...(l.separateur === 'sans' ? { 'data-separateur-sans-rdv': '' } : { 'data-separateur-avec-rdv': '' })}>{TITRE_GROUPE_RDV[l.separateur]} ({l.nombre})</li>;
@@ -395,7 +421,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         const visible = (r: { cle: string }): boolean => r.cle !== 'previsite' || l.previsite?.statut === 'alerte' || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true);
                         return (
                           <span className="psl-cartouches psl-cartouches--pile" data-cartouches-ligne data-ordre-reperes={reperes.map((r) => r.cle).join(' ')}>
-                            <span className={`psl-pile${reperes.filter(visible).length > 2 ? ' psl-pile--serree' : ''}`} data-pile-reperes={reperes.filter(visible).length}>{reperes.map((r) => r.el)}</span>
+                            <span className={`psl-pile${pilesReduites[l.cle] ? ` ${CLASSE_PILE_REDUITE}` : ''}`} data-format-pile={pilesReduites[l.cle] ? 'reduit' : 'normal'} data-pile-reperes={reperes.filter(visible).length}>{reperes.map((r) => r.el)}</span>
                           </span>);
                       })() : (
                       <span className="psl-cartouches" data-cartouches-ligne>
@@ -411,7 +437,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                           const pile = statuts.flatMap((s) => [<CartoucheStatutLigne key={s} statut={s} />, ...alertes.filter((a) => lie[a] === s).map(alerteHtml)]);
                           // une alerte sans son statut (jamais attendu) reste affichée, au bout de la pile
                           pile.push(...alertes.filter((a) => !statuts.includes(lie[a])).map(alerteHtml));
-                          return <span className={`psl-pile${pile.length > 2 ? ' psl-pile--serree' : ''}`} data-pile-rdv={pile.length}>{pile}</span>;
+                          return <span className={`psl-pile${pilesReduites[l.cle] ? ` ${CLASSE_PILE_REDUITE}` : ''}`} data-format-pile={pilesReduites[l.cle] ? 'reduit' : 'normal'} data-pile-rdv={pile.length}>{pile}</span>;
                         })()}
                         {statutPreavis(l, jour) === 'echu' && <MentionPreavis p={l} jour={jour} court />}
                         {l.edls?.statut === 'refusee' && <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span>}
@@ -1016,6 +1042,9 @@ export const CSS_PREAVIS_ACCUEIL = `
    🔴🔴 (Arno, 28/11/2026, 09h56) rangée 1 : l'adresse, toute la largeur ; rangée 2 : les locataires, « Locataires : … » au bout (la colonne « confié
    à » commence là) ; puis une rangée par rendez-vous, comme avant */
 @media (min-width:761px){
+  /* 🔴🔴 (Arno, 28/11/2026, 10h35) une pile à sa taille NORMALE prend la place qu'il lui faut : la colonne du texte n'a plus son minimum fixe ;
+     la mesure (formatPile) ne garde la taille normale que si aucun texte n'en est tronqué. Pile réduite : la grille d'aujourd'hui, inchangée. */
+  .pva-ligne--deux-rdv:has(> .psl-cartouches .psl-pile:not(.psl-pile--serree)){grid-template-columns:minmax(0,1fr) auto auto}
   .pva-textes{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);grid-template-rows:auto auto auto;column-gap:12px;row-gap:2px;align-items:center}
   .pva-ligne--deux-rdv .pva-textes{grid-template-rows:auto auto auto auto}
   .pva-l1{grid-column:1 / -1;grid-row:1}
@@ -1061,11 +1090,14 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-ligne--deux-rdv{height:auto;min-height:14rem;grid-template-columns:minmax(0,1fr) auto}
   .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
   /* 🔴 (28/11/2026) la pile, au format compact des reperes du telephone */
-  .psl-cartouches .psl-pile > .psl-statut,.psl-cartouches .psl-pile > .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px}
+  .psl-cartouches .psl-pile--serree > .psl-statut,.psl-cartouches .psl-pile--serree > .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px}
   .pva-col-details{display:none}
   /* les reperes, plus compacts, jamais sous « Ouvrir » ; 🔴🔴 (décision d'Arno, 28/11/2026) plus de hauteur maximale : aucun n'est coupé */
   .psl-cartouches{justify-content:flex-start;gap:3px 4px}
   .psl-cartouches .psl-statut,.psl-cartouches .pvs-mention,.psl-cartouches .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px;letter-spacing:-.01em}
+  /* 🔴🔴 (Arno, 28/11/2026, 10h35) une pile qui tient en taille normale la garde aussi au telephone (les tailles de PrevisiteAccueil et Preavis) */
+  .psl-cartouches .psl-pile:not(.psl-pile--serree) > .psl-statut,.psl-cartouches .psl-pile:not(.psl-pile--serree) > .pvs-mention{font-size:.85rem;line-height:inherit;padding:2px 10px;letter-spacing:inherit}
+  .psl-cartouches .psl-pile:not(.psl-pile--serree) > .pvv-cartouche,.psl-cartouches .psl-pile:not(.psl-pile--serree) > .pvv-cartouches > .pvv-cartouche{font-size:.82rem;line-height:inherit;padding:4px 10px;letter-spacing:inherit}
   .pva-ligne{gap:6px}
   .pva-textes{grid-column:1 / -1}
   .pva-ligne .pvs-mention{justify-self:start}
