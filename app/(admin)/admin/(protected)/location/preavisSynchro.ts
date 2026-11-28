@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/location/previsite';
+import { maintenantParis } from '../../../../lib/location/triRdvPreavis';
 import type { DureesRdv, PlageRdv } from '../../../../lib/location/minutesRdv';
 
 /**
@@ -97,8 +98,8 @@ export function usePreavisEnAlerte(actif: boolean, base: string = API_PREAVIS_LO
     let vivant = true;
     fetch(`${base}?preavisEnCours=1`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
       .then((r) => r.json())
-      .then((d: { etat?: string; data?: { lignes?: { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean } | null }[] } }) => {
-        if (vivant) setN(d.etat === 'ok' && Array.isArray(d.data?.lignes) ? compterPreavisEnAlerte(d.data.lignes) : 0);
+      .then((d: { etat?: string; data?: { lignes?: { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean; rdv?: { jour: string; heure: string | null } | null } | null; edls?: unknown; test?: boolean }[] } }) => {
+        if (vivant) setN(d.etat === 'ok' && Array.isArray(d.data?.lignes) ? compterPreavisEnAlerte(d.data.lignes, maintenantParis()) : 0); // 🔴🔴 (décision d'Arno, 28/11/2026) rendez-vous dépassés compris
       })
       .catch(() => { if (vivant) setN(0); });
     return () => { vivant = false; };

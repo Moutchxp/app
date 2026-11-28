@@ -187,6 +187,21 @@ describe('🔴 4 — le repère rouge des préavis = la pastille du bouton « Pr
   });
 });
 
+describe('🔴🔴 décision d’Arno (28/11/2026) — repère rouge et pastille du menu : aussi « Compte rendu pré-visite à faire » et « Sortie à valider »', () => {
+  it('une pré-visite dépassée sans compte rendu et un état des lieux dépassé (même ligne : une fois) : comptés des deux côtés, le même nombre', async () => {
+    lignes = [
+      ligne('A', 21, pv({ statut: 'programmee', rdv: { jour: '2020-01-10', heure: '10:00', dureeMinutes: 60 } })),
+      { ...ligne('B', 31, pv({ statut: 'programmee', rdv: { jour: '2020-01-10', heure: '10:00', dureeMinutes: 60 } })),
+        edls: { edlsId: 1, tacheId: 2, jour: '2020-02-03', heure: '11:30', dureeMinutes: 60, confieA: 'X', confieAId: 3, statut: 'acceptee', reponduPar: null, motifRefus: null } } as never,
+      ligne('C', 41, pv({ statut: 'programmee', rdv: { jour: '2099-01-10', heure: '10:00', dureeMinutes: 60 } })),
+    ];
+    const partage = await gestion('?ecran=partage');
+    const boite = await gestion('');
+    expect(partage.querySelector('[data-alertes-preavis]')?.textContent).toBe('● 2 en alerte');
+    expect(boite.querySelector('[data-pastille-preavis]')?.textContent).toBe('2');
+  });
+});
+
 describe('🔴 5 — ailleurs, rien ne change', () => {
   it('le bloc de l’écran Location n’est pas replié', async () => {
     const c = await monter(createElement(BlocPreavisAccueil, { gestion: true, pleinePage: '/admin/location/preavis' }));

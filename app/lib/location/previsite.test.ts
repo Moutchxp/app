@@ -183,3 +183,25 @@ describe('🔴🔴 un mail = une seule adresse (compte rendu, refus de pré-visi
       [['lea.pro@exemple.test'], [], 'locataire', 'Bonjour Léa MARTIN,'], [['zoe@exemple.test'], [], 'locataire', 'Bonjour Zoé DURAND,']]);
   });
 });
+
+/* ══ 🔴🔴 Décision d'Arno (28/11/2026) — la pastille du menu de la Gestion et le repère rouge du bloc replié comptent aussi les rendez-vous dépassés ══ */
+describe('🔴 28/11/2026 — compterPreavisEnAlerte : 11e jour, personne n’a accepté, compte rendu à faire, sortie à valider (une fois par ligne)', async () => {
+  const { compterPreavisEnAlerte: compter } = await import('./previsite');
+  const MAINT = '2026-11-28 01:30';
+  const rdv = (jour: string) => ({ jour, heure: '10:00' });
+  const LIGNES = [
+    { previsite: { statut: 'alerte' as const } },
+    { previsite: { statut: 'programmee' as const, tousRefusent: true, rdv: rdv('2099-01-01') } },
+    { previsite: { statut: 'programmee' as const, rdv: rdv('2026-11-13') } },                              // compte rendu à faire
+    { previsite: { statut: 'effectuee' as const, rdv: rdv('2026-11-10') }, edls: { jour: '2026-11-18', heure: '11:30' } }, // sortie à valider
+    { previsite: { statut: 'programmee' as const, rdv: rdv('2026-11-16') }, edls: { jour: '2026-11-20', heure: '10:00' } }, // les deux : UNE fois
+    { previsite: { statut: 'programmee' as const, rdv: rdv('2026-11-16') }, test: true },                   // préavis de test : jamais compté
+    { previsite: { statut: 'programmee' as const, rdv: rdv('2099-01-01') } },                              // à venir : rien
+  ];
+  it('avec le moment présent : 5 lignes en alerte', () => { expect(compter(LIGNES, MAINT)).toBe(5); });
+  it('sans moment présent (appel d’avant) : les deux règles d’avant seulement', () => { expect(compter(LIGNES)).toBe(2); });
+  it('après le compte rendu puis la sortie validée : plus compté', () => {
+    expect(compter([{ previsite: { statut: 'effectuee', rdv: rdv('2026-11-13') } }], MAINT)).toBe(0);
+    expect(compter([{ previsite: { statut: 'effectuee', rdv: rdv('2026-11-10') }, edls: { jour: '2026-11-18', heure: '11:30' }, sortieValidee: true } as never], MAINT)).toBe(0);
+  });
+});

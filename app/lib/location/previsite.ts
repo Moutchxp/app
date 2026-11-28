@@ -15,6 +15,7 @@ import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieText
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
 import { instantParis } from '../temps/paris';
+import { ligneEnAlerte } from './statutLignePreavis';
 import { paragraphesBoutonsRdv, partiesEdlsLocataires, partiesEdlsLocatairesModif, type LiensReponse } from './reponsesRdv';
 
 // ══ LES STATUTS ═════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -95,11 +96,14 @@ export function pastillesPrevisite(statuts: readonly StatutPrevisite[]): { statu
 
 /**
  * 🔴 Arno (10/11/2026) — les préavis EN ALERTE : statut « Alerte préavis » + « Personne n'a accepté la pré-visite ». LE nombre unique de la
- * pastille du menu de la Gestion ET du repère rouge du bloc replié (0 : ni pastille, ni repère). PUR.
+ * pastille du menu de la Gestion ET du repère rouge du bloc replié (0 : ni pastille, ni repère). 🔴🔴 Décision d'Arno (28/11/2026) : avec
+ * `maintenant` (« AAAA-MM-JJ HH:MM » à Paris), aussi « Compte rendu pré-visite à faire » et « Sortie à valider » — LA source de la liste
+ * (`ligneEnAlerte` → `alertesRdv`) ; une ligne compte UNE fois, quel que soit le nombre de ses alertes. PUR.
  */
-export function compterPreavisEnAlerte(lignes: readonly { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean } | null; test?: boolean }[]): number {
+export function compterPreavisEnAlerte(lignes: readonly { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean; rdv?: { jour: string; heure: string | null } | null } | null; edls?: unknown; test?: boolean }[], maintenant?: string): number {
   // 🔴 Arno (14/11/2026, 473) — un préavis de TEST n'entre dans aucun compteur
-  return lignes.filter((l) => l.test !== true).filter((l) => l.previsite?.statut === 'alerte' || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true)).length;
+  return lignes.filter((l) => l.test !== true)
+    .filter((l) => ligneEnAlerte(l, maintenant) || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true)).length;
 }
 
 /** Le statut de la réponse d'un collègue invité (le module de tâches). */

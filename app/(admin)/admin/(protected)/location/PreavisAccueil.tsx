@@ -180,7 +180,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const maintenant = maintenantParis();
   const lignes = affichables.filter((x) => lignePasseFiltre(x, filtre, maintenant));
   // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
-  const alertes = compterPreavisEnAlerte(lignes);
+  // 🔴🔴 (décision d'Arno, 28/11/2026) les rendez-vous dépassés aussi (`maintenant` : le même moment que la liste)
+  const alertes = compterPreavisEnAlerte(lignes, maintenant);
   // 🔴 Arno (14/11/2026, 473) — les préavis de TEST (les vôtres seulement) n'entrent dans aucun compteur ni pastille
   const nombre = lignes.length; // 🔴 (15/11/2026) le nombre des lignes affichées, préavis de test compris (ils sont dans la liste)
   // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
@@ -998,7 +999,9 @@ export const CSS_PREAVIS_ACCUEIL = `
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 @media (max-width:760px){
   /* 🔴 (16/11/2026) 10,5 rem : la place de la mention « date dépassée — … » sous la date, sur toutes les lignes (hauteur constante) */
-  .pva-ligne{height:10.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  /* 🔴🔴 (décision d'Arno, 28/11/2026) « aucun repère ne doit être coupé, la zone s'agrandit » : 10,5 rem est un MINIMUM (les lignes ordinaires gardent
+     cette hauteur) ; une ligne dont les repères demandent plus s'allonge d'autant */
+  .pva-ligne{height:auto;min-height:10.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
   /* telephone : ligne 1 nom + adresse ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
      les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
   .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}
@@ -1013,16 +1016,13 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-col-rdv--deux > *{order:0;grid-row:auto;grid-column:auto}
   /* 🔴 (28/11/2026) la même spécificité que les placements de l'ordinateur : au téléphone, tout se lit l'un sous l'autre, dans l'ordre du document */
   .pva-col-rdv--deux > .pva-rdv-item,.pva-col-rdv--deux > .pva-paire,.pva-col-rdv--deux > [data-rang],.pva-col-rdv--deux > .pva-col-commune{grid-row:auto;grid-column:auto}
-  .pva-ligne--deux-rdv{height:14rem;grid-template-columns:minmax(0,1fr) auto}
+  .pva-ligne--deux-rdv{height:auto;min-height:14rem;grid-template-columns:minmax(0,1fr) auto}
   .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
-  /* 🔴 (28/11/2026) la pile : jamais coupee au telephone, la ligne s'allonge d'autant (les lignes sans alerte gardent leur hauteur) */
-  .pva-ligne--pile{height:auto;min-height:10.5rem}
-  .pva-ligne--deux-rdv.pva-ligne--pile{height:auto;min-height:14rem}
-  .pva-ligne--pile .psl-cartouches{max-height:none;overflow:visible}
+  /* 🔴 (28/11/2026) la pile, au format compact des reperes du telephone */
   .psl-cartouches .psl-pile > .psl-statut,.psl-cartouches .psl-pile > .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px}
   .pva-col-details{display:none}
-  /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
-  .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}
+  /* les reperes, plus compacts, jamais sous « Ouvrir » ; 🔴🔴 (décision d'Arno, 28/11/2026) plus de hauteur maximale : aucun n'est coupé */
+  .psl-cartouches{justify-content:flex-start;gap:3px 4px}
   .psl-cartouches .psl-statut,.psl-cartouches .pvs-mention,.psl-cartouches .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px;letter-spacing:-.01em}
   .pva-ligne{gap:6px}
   .pva-textes{grid-column:1 / -1}

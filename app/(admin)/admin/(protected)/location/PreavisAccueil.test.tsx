@@ -204,8 +204,10 @@ describe('les lignes', () => {
     const regle = (sel: string, css: string): string => new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     const [bureau, mobile] = CSS_PREAVIS_ACCUEIL.split('@media');
     expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:4\.75rem/);
-    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:10\.5rem/); // 🔴 (16/11/2026) la place de la mention « date dépassée — … »
-    expect(CSS_PREAVIS_ACCUEIL).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
+    // 🔴 (16/11/2026) la place de la mention « date dépassée — … » ; 🔴🔴 (décision d'Arno, 28/11/2026) « aucun repère ne doit être coupé, la zone
+    //    s'agrandit » : au téléphone, 10,5 rem devient un MINIMUM (les lignes ordinaires la gardent) ; à l'ordinateur, la hauteur reste fixe
+    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:auto;min-height:10\.5rem/);
+    expect(bureau).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
     // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
     // 🔴 Arno (18/11/2026) — + la colonne des LOCATAIRES (largeur de son contenu), à droite de la mission
@@ -3960,6 +3962,14 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(container.querySelector('[data-compteur-previsite="alerte"]')!.textContent).toBe('2');
     clic('[data-filtre-previsite="alerte"]'); await attendre();
     expect(ordre().sort()).toEqual(['Q2', 'Q4']);
+  });
+  it('🔴 décision d’Arno (28/11/2026) — au téléphone, aucun repère coupé : plus de hauteur maximale, la ligne s’allonge (sa hauteur d’avant devient un minimum)', async () => {
+    await rendre(true);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).not.toContain('max-height:2.9rem');
+    expect(css).toContain('.psl-cartouches{justify-content:flex-start;gap:3px 4px}');
+    expect(css).toContain('.pva-ligne{height:auto;min-height:10.5rem;');
+    expect(css).toContain('.pva-ligne--deux-rdv{height:auto;min-height:14rem;');
   });
   it('FILTRES : la ligne comptée et visible dans les deux ; « Tous » ne la compte qu’une fois', async () => {
     await rendre(true);
