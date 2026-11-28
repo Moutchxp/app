@@ -1,4 +1,4 @@
-> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
+> Passation générée le 18/11/2026 à 11h13 — § 6 mis à jour le 28/11/2026 (groupes toujours, repères empilés par date, tuiles centrées, « Locataires » sur la ligne du nom, une seule mention du collaborateur ; avant : deux groupes « Sans » puis « Avec rendez-vous fixé », locataires au-dessus de la mission, alertes dans la pastille du menu ; avant : alertes sous leur rendez-vous, paire collaborateur + locataires ; avant : titre, cases de rendez-vous, mentions sans doublon ; la 361 prendra la 523)
 
 # PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
@@ -1647,10 +1647,32 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   - Captures `.captures/preavis-groupes-paire/`. Aucune migration.
   - ⚠️ Preuve curl À FAIRE par Arno.
 
+### 28/11/2026, 01h52 — décision et quatre points (`9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3`)
+- **Décision d'Arno (`9490cc9c`)** : les deux groupes « Sans » puis « Avec rendez-vous fixé » TOUJOURS, même avec « Tri RDV désactivé ».
+  Les tris du panneau s'appliquent dans chaque groupe (`grouperParRdv(…, 'off')`). Vérifié au Chrome, tri désactivé, 1440 et 390 px.
+- **Point 1 (`db50f85e`)** — ligne « Sans rendez-vous fixé » : tous ses repères dans une pile à droite, du plus ancien au plus récent (`reperesLigne.ts`).
+  - Dates : réception ; refus ; compte rendu ; 11e jour (`jourAlerte`) ; lendemain de la fin du préavis.
+  - Recette : En préavis → Aucune pré-visite fixée → Préavis échu, rien de coupé, 76 px.
+- **Point 2 (`88a29b2a`)** — une case du suivi de sortie qui n'a que ses boutons les centre dans la hauteur commune
+  (`.pva-bloc--rdv:has(> .frp-infos:empty)`) : les boutons des cases 3 et 4 ont le même milieu (544 px).
+  - La case 4 passe par `PresentationRdv` comme les cases 2 et 3. Rien n'y est retiré.
+- **Point 3 (`91171816`)** — à l'ordinateur, le bloc replié (`pva-textes`) est une grille et la colonne « confié à » (`pva-colconf`) en couvre toutes
+  les rangées.
+  - « Locataires : … » est sur la ligne du nom (mesuré 754-776 px contre 753-777 px), la mission sur la rangée de son rendez-vous.
+  - Les cartouches ont les mêmes bords (896 → 1044 px). À 390 px : date, « Locataires », mission, l'autre date, sa mission.
+- **Point 4 (`7fbd64d3`)** — même collaborateur au même statut sur les deux rendez-vous : UNE mention, en bas, même si les locataires diffèrent.
+  - « Locataires » : un par état différent. `paireCommune` est retirée (plus d'appelant).
+- Contrôles : `npm test` VERT après chaque point (dernier : 1 896 fichiers, 28 394 tests, 21 ignorés ;
+  `.captures/preavis-empilement-tuiles/npm-test-complet-p4.txt`) ; `tsc` = 0.
+  - Le flake connu PreavisAccueil (photo « REVIENT ») est apparu une fois en suite filtrée ; le fichier seul est vert.
+  - Chrome localhost:3000 (préavis de test), 1440 et 390 px, clair et sombre. Aucune requête non GET : rien validé, rien envoyé.
+  - Captures `.captures/preavis-empilement-tuiles/`. Aucune migration.
+  - ⚠️ Preuve curl À FAIRE par Arno.
+
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
 **Production = `568344f0`, migrations jusqu'à 520** (registre : 517 lignes dont 4 écartées ; **519 et 521 inutilisés ; la 361 prendra la 523**, décision du 28/11/2026).
 En attente de mise en production : `ced02fed`, `d53856e9`, `87c58d69`, `691d4b02`, `e7334caf`, `0e0c62a4`, `d1d6c2d3`, `a2e7f196`, `994eed68`, `24df9b60`,
-`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61` et leurs passations, non poussés. **Avant la prochaine mise en production
+`e0af8a0d`, `7779d9bd`, **`e4c6c944` (MIGRATION 522)**, `48007afa`, `ad02d810`, `f2cbaae9`, `b01b8d3a`, `22606467`, `15d6c01d`, `c48d160d`, `432e5f61`, `9490cc9c`, `db50f85e`, `88a29b2a`, `91171816`, `7fbd64d3` et leurs passations, non poussés. **Avant la prochaine mise en production
 (Arno)** : `bash .captures/abreviations-adresse/0-controle-522-lecture-seule.sh`, puis l'épreuve sur copie de production (`copier-prod.sh`, `epreuve.sh`). Les scripts `.captures/maj/1` à `6` restent calés sur `568344f0` :
 à recaler avant la prochaine mise en production. À décider : le classement des mails Monga « À classer » (42 références sans événement).
 
