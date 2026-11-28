@@ -82,3 +82,11 @@ describe('🔴 Location › fiche d’un syndic : ses e-mails ne sont plus en le
     expect(container.textContent).toContain('lea@exemple.test');
   });
 });
+
+describe('🔴 (Arno, 28/11/2026, 12h54, point 1) l’écran des syndics de la Gestion ouvre un syndic désigné par l’adresse', () => {
+  it('« ?syndic=N » ouvre sa fiche, pour la modifier (le lien « à compléter » de la Location)', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/EcranSyndics.tsx', 'utf8');
+    expect(src).toContain("const n = Number(new URLSearchParams(window.location.search).get('syndic'));");
+    expect(src).toContain('if (Number.isInteger(n) && n > 0) setOuvert({ id: n });');
+  });
+});

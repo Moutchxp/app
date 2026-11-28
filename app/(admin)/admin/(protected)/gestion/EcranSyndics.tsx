@@ -27,6 +27,12 @@ export function EcranSyndics({ onEcrire, retour = null }: {
   const [disponible, setDisponible] = useState(true);
   const [version, setVersion] = useState(0);
   const [ouvert, setOuvert] = useState<{ id: number | null } | null>(null);
+  // 🔴 (Arno, 28/11/2026, 12h54, point 1) « Adresse incomplète — à compléter » (fiche syndic de la Location) : `?syndic=N` ouvre ce syndic, pour le modifier
+  useEffect(() => {
+    const n = Number(new URLSearchParams(window.location.search).get('syndic'));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (Number.isInteger(n) && n > 0) setOuvert({ id: n });
+  }, []);
 
   useEffect(() => {
     let vivant = true;

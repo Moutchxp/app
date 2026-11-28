@@ -60,3 +60,16 @@ export function resumerCoprosSyndic(copros: readonly CoproPourResume[], lots: re
 
 /** La fiche syndic de la Location : celle de la Gestion, plus le résumé des copropriétés suivies (absent si la lecture des lots échoue). */
 export type FicheSyndicLocation = FicheSyndic & { resumeCopros?: ResumeCoprosSyndic };
+
+/**
+ * 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « l'adresse postale du syndic doit être présente » : l'adresse COMPLÈTE (numéro et rue, puis code postal et
+ * ville), sur une ou deux lignes. Règle du 10/10 : rue, code postal et ville sont obligatoires pour un syndic ; s'il en manque, on montre ce qui existe
+ * et on le DIT (« Adresse incomplète — à compléter ») : rien n'est inventé ni réécrit. PUR.
+ */
+export function adressePostaleSyndic(s: { adresse: string | null; codePostal: string | null; ville: string | null }): { lignes: string[]; incomplete: boolean } {
+  const p = (x: string | null) => (x ?? '').replace(/\s+/g, ' ').trim();
+  const rue = p(s.adresse); const cp = p(s.codePostal); const ville = p(s.ville);
+  return { lignes: [rue, [cp, ville].filter((x) => x !== '').join(' ')].filter((x) => x !== ''), incomplete: rue === '' || cp === '' || ville === '' };
+}
+/** Le lien vers la modification du syndic : l'écran des syndics de la Gestion, ce syndic ouvert. */
+export const lienModifierSyndic = (id: number): string => `/admin/gestion?ecran=syndics&syndic=${id}`;

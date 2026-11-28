@@ -41,3 +41,19 @@ describe('resumerCoprosSyndic', () => {
     expect(libelleEnGestion(resumerCoprosSyndic([{ id: 3, cle: 'y', libelle: 'Y', lots: [] }], []).detail)).toBe('0 lot en gestion');
   });
 });
+
+/** 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « l'adresse postale du syndic doit être présente » ; incomplète : on le dit, rien n'est inventé. */
+describe('adressePostaleSyndic', () => {
+  it('complète : numéro et rue, puis code postal et ville (deux lignes)', async () => {
+    const { adressePostaleSyndic, lienModifierSyndic } = await import('./adressesCoproSyndic');
+    expect(adressePostaleSyndic({ adresse: ' 8 Rue  Denfert Rochereau ', codePostal: '92600', ville: 'Asnieres Sur Seine' }))
+      .toEqual({ lignes: ['8 Rue Denfert Rochereau', '92600 Asnieres Sur Seine'], incomplete: false });
+    expect(lienModifierSyndic(56)).toBe('/admin/gestion?ecran=syndics&syndic=56');
+  });
+  it('rue absente (le syndic 56 de la recette) : ce qui existe, marqué incomplet ; tout absent : aucune ligne, incomplet', async () => {
+    const { adressePostaleSyndic } = await import('./adressesCoproSyndic');
+    expect(adressePostaleSyndic({ adresse: null, codePostal: '92800', ville: 'Puteaux' })).toEqual({ lignes: ['92800 Puteaux'], incomplete: true });
+    expect(adressePostaleSyndic({ adresse: '', codePostal: null, ville: null })).toEqual({ lignes: [], incomplete: true });
+    expect(adressePostaleSyndic({ adresse: '1 rue X', codePostal: null, ville: 'Paris' }).incomplete).toBe(true);
+  });
+});

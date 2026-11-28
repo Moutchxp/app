@@ -131,3 +131,29 @@ describe('🔴🔴 point 2 — coordonnées : une ligne chacune, « Copier », c
     expect(container.querySelectorAll('[data-ligne-mail] button.bcp')).toHaveLength(4);
   });
 });
+
+/* ══ 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « réorganiser ce premier bloc […] l'adresse postale du syndic doit être présente » ══ */
+describe('🔴🔴 12h54 point 1 — le bloc Coordonnées : deux colonnes, adresse complète, incomplète signalée', () => {
+  it('l’ordre (adresse, téléphones, e-mails, note), l’adresse sur deux lignes, « Téléphones » au pluriel ; les deux colonnes à l’ordinateur, empilé au téléphone', async () => {
+    syndic = { ...BASE, adresse: '8 Rue Denfert Rochereau', codePostal: '92600', ville: 'Asnieres Sur Seine', telephone: '0140000000', telephone2: '0140000001', note: 'Joignable le matin.' };
+    await rendre();
+    const zones = [...container.querySelectorAll('[data-coordonnees-syndic] [data-zone]')];
+    expect(zones.map((z) => [z.getAttribute('data-zone'), z.querySelector('dt')?.textContent])).toEqual([
+      ['adresse', 'Adresse'], ['telephones', 'Téléphones'], ['emails', 'E-mail'], ['note', 'Note']]);
+    expect([...zones[0].querySelectorAll('.loc-coord-adresse-ligne')].map((x) => x.textContent)).toEqual(['8 Rue Denfert Rochereau', '92600 Asnieres Sur Seine']);
+    expect(container.querySelector('[data-adresse-incomplete]')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.loc-coord-bloc{margin:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);');
+    expect(css).toContain('.loc-coord-zone--note{grid-column:1;grid-row:2}');
+    expect(css).toContain('.loc-coord-zone--tels{grid-column:2;grid-row:1}');
+    expect(css).toContain('@media (max-width:760px){.loc-coord-bloc{grid-template-columns:minmax(0,1fr)}');
+  });
+  it('rue absente (syndic 56) : « 92800 Puteaux », puis « Adresse incomplète — à compléter » avec le lien vers la modification du syndic', async () => {
+    syndic = { ...BASE, id: 4, adresse: null, codePostal: '92800', ville: 'Puteaux' };
+    await rendre();
+    expect([...container.querySelectorAll('.loc-coord-adresse-ligne')].map((x) => x.textContent)).toEqual(['92800 Puteaux']);
+    const i = container.querySelector('[data-adresse-incomplete]')!;
+    expect(i.textContent).toBe('Adresse incomplète — à compléter');
+    expect(i.querySelector('a')?.getAttribute('href')).toBe('/admin/gestion?ecran=syndics&syndic=4');
+  });
+});

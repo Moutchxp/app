@@ -9,7 +9,7 @@ import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi
 import { useEffect, useState } from 'react';
 import { useContexteRedaction } from '../gestion/useContexteRedaction';
 import { useEcrireFlottant } from '../gestion/EcrireFlottant';
-import type { FicheSyndicLocation } from '../../../../lib/location/adressesCoproSyndic';
+import { adressePostaleSyndic, lienModifierSyndic, type FicheSyndicLocation } from '../../../../lib/location/adressesCoproSyndic';
 import { libelleEnGestion } from '../../../../lib/location/lotsVacants';
 import { BoutonCopier, CSS_BOUTON_COPIER } from '../gestion/BoutonCopier';
 import { BoutonEcrireSelection, CaseMail, CSS_SELECTION_MAILS, FournisseurSelectionMails, useEtatSelectionMails } from '../gestion/SelectionMails';
@@ -241,22 +241,29 @@ export function FicheSyndicLocationVue({ id }: { id: number }) {
   }
   const s = etat.data;
   const telsStandard = [s.telephone, s.telephone2].filter((x): x is string => !!x && x.trim() !== '');
+  const adresse = adressePostaleSyndic(s);
   return (
     <FournisseurSelectionMails selection={selection}>
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_BOUTON_COPIER + CSS_SELECTION_MAILS + CSS_COORDONNEES_SYNDIC}</style>
       <EnTeteLocation titre={s.nom} sous={<span className="loc-pastille">Syndic</span>} />
       {ecrire.fenetres}
-      <section className="loc-bloc">
+      {/* 🔴🔴 Arno (28/11/2026, 12h54, point 1) — « réorganiser ce premier bloc qui est plein de vide et exploite mal l'espace ; le rendre plus cohérent ;
+          l'adresse postale du syndic doit être présente » : deux colonnes à l'ordinateur (gauche : adresse complète, puis note ; droite : téléphones, puis
+          e-mails, une ligne par valeur), marges serrées ; au téléphone, empilé : adresse, téléphones, e-mails, note. */}
+      <section className="loc-bloc" data-coordonnees-syndic>
         <h3>Coordonnées</h3>
-        <dl className="loc-grille" style={{ margin: 0 }}>
-          {[['Adresse', [s.adresse, [s.codePostal, s.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null]]
-            .map(([mot, val]) => (
-              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
-            ))}
-          <div className="loc-coord-pleine"><dt className="loc-muet">Téléphone</dt><dd style={{ margin: 0 }}>{telsStandard.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees(telsStandard, [])}</dd></div>
-          <div className="loc-coord-pleine"><dt className="loc-muet">E-mail</dt><dd style={{ margin: 0 }}>{(s.email ?? '').trim() === '' ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], [s.email as string])}</dd></div>
-          <div><dt className="loc-muet">Note</dt><dd style={{ margin: 0 }}>{s.note ?? <span className="loc-muet">non renseigné</span>}</dd></div>
+        <dl className="loc-coord-bloc">
+          <div className="loc-coord-zone loc-coord-zone--adresse" data-zone="adresse"><dt className="loc-muet">Adresse</dt><dd>
+            {adresse.lignes.length === 0 ? <span className="loc-muet">non renseignée</span>
+              : adresse.lignes.map((l) => <span key={l} className="loc-coord-adresse-ligne">{l}</span>)}
+            {adresse.incomplete && <span className="loc-adresse-incomplete" data-adresse-incomplete>Adresse incomplète — <a href={lienModifierSyndic(s.id)}>à compléter</a></span>}
+          </dd></div>
+          <div className="loc-coord-zone loc-coord-zone--tels" data-zone="telephones"><dt className="loc-muet">{telsStandard.length > 1 ? 'Téléphones' : 'Téléphone'}</dt><dd>
+            {telsStandard.length === 0 ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees(telsStandard, [])}</dd></div>
+          <div className="loc-coord-zone loc-coord-zone--mails" data-zone="emails"><dt className="loc-muet">E-mail</dt><dd>
+            {(s.email ?? '').trim() === '' ? <span className="loc-muet">non renseigné</span> : lignesCoordonnees([], [s.email as string])}</dd></div>
+          <div className="loc-coord-zone loc-coord-zone--note" data-zone="note"><dt className="loc-muet">Note</dt><dd>{s.note ?? <span className="loc-muet">non renseignée</span>}</dd></div>
         </dl>
       </section>
       {ecrirePlusieurs !== undefined && <BoutonEcrireSelection onEcrire={ecrirePlusieurs} />}
@@ -323,7 +330,19 @@ const CSS_COORDONNEES_SYNDIC = `
 .loc-coord-valeur{min-width:0;overflow-wrap:anywhere}
 .loc-coord-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-height:32px}
 .loc-coord-actions .loc-ecrire-syndic{width:auto;min-height:32px;padding:2px 12px;white-space:nowrap;margin:0}
-.loc-grille > .loc-coord-pleine{grid-column:1 / -1}
+/* 🔴 (Arno, 28/11/2026, 12h54, point 1) le bloc Coordonnées : deux colonnes serrées (adresse puis note ; téléphones puis e-mails) ; au téléphone, empilé */
+.loc-coord-bloc{margin:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);column-gap:22px;row-gap:8px;align-items:start}
+.loc-coord-zone{min-width:0;display:flex;flex-direction:column;gap:2px}
+.loc-coord-zone > dt{font-size:.82rem}
+.loc-coord-zone > dd{margin:0;display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.loc-coord-zone--adresse{grid-column:1;grid-row:1}
+.loc-coord-zone--note{grid-column:1;grid-row:2}
+.loc-coord-zone--tels{grid-column:2;grid-row:1}
+.loc-coord-zone--mails{grid-column:2;grid-row:2}
+.loc-adresse-incomplete{color:var(--color-svv-orange);font-weight:700;font-size:.86rem}
+.loc-adresse-incomplete a{color:inherit}
+@media (max-width:760px){.loc-coord-bloc{grid-template-columns:minmax(0,1fr)}
+  .loc-coord-zone--adresse,.loc-coord-zone--tels,.loc-coord-zone--mails,.loc-coord-zone--note{grid-column:1;grid-row:auto}}
 .loc-liste > li.loc-contact-syndic{display:block}
 .loc-contact-syndic > .loc-coord-lignes{margin-top:4px}
 /* 🔴 (Arno, 28/11/2026, 12h17, point 3) un ENCADRÉ par copropriété, bien dissocié des autres : bord, fond, espacement */
